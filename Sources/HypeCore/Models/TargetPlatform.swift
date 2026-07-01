@@ -524,6 +524,12 @@ public struct StackDeploymentTargets: Codable, Sendable, Equatable {
     public var primaryPlatform: HypeTargetPlatform
     public var selectionPromptAcknowledged: Bool
     public var supportedOrientations: [HypeTargetOrientation]
+    /// The active layout policy for this deployment target set.
+    ///
+    /// This property stores the value verbatim at decode time — the caller is
+    /// responsible for clamping or defaulting via `clampedLayoutPolicy(_:)` or
+    /// `defaultedLayoutPolicy(_:)` at mutation sites. Do not apply policy
+    /// normalization inside `init`, `decode`, or `normalize()`.
     public var layoutPolicy: TargetLayoutPolicy
 
     public init(
@@ -595,6 +601,45 @@ public struct StackDeploymentTargets: Codable, Sendable, Equatable {
     private static func normalized(_ platforms: [HypeTargetPlatform]) -> [HypeTargetPlatform] {
         let unique = Array(Set(platforms.isEmpty ? [.macOS] : platforms))
         return HypeTargetPlatform.allCases.filter { unique.contains($0) }
+    }
+
+    // MARK: - Layout policy helpers
+
+    /// Returns the layout policy clamped to what this target selection permits.
+    ///
+    /// When the selected platforms are exclusively macOS (resizable window with
+    /// no fixed safe area to scale into), `.scaleToFit` and `.stretchToFill`
+    /// are not meaningful, so the policy is clamped to `.fixed`. Any other
+    /// platform combination respects the requested policy unchanged.
+    ///
+    /// **Caller contract**: invoke this at mutation sites only — do NOT call
+    /// from `init`, `decode`, or `normalize()`. Loaded documents must decode
+    /// their stored policy verbatim.
+    public func clampedLayoutPolicy(_ requested: TargetLayoutPolicy) -> TargetLayoutPolicy {
+        if selectedPlatforms == [.macOS] {
+            return .fixed
+        }
+        return requested
+    }
+
+    /// Returns the layout policy defaulted for multi-target authoring.
+    ///
+    /// Applies the same macOS-only clamp as `clampedLayoutPolicy`, then
+    /// additionally promotes `.fixed` to `.scaleToFit` when more than one
+    /// platform is selected — a convenient default that prevents authored
+    /// parts from overflowing smaller target safe areas.
+    ///
+    /// Use this only in layout-authoring tools (e.g. HIG layout apply) where
+    /// the multi-target → scaleToFit contract is a known convenience. For
+    /// explicit user-driven policy changes, use `clampedLayoutPolicy` instead.
+    ///
+    /// **Caller contract**: same as `clampedLayoutPolicy` — mutation sites only.
+    public func defaultedLayoutPolicy(_ requested: TargetLayoutPolicy) -> TargetLayoutPolicy {
+        let clamped = clampedLayoutPolicy(requested)
+        if selectedPlatforms.count > 1, clamped == .fixed {
+            return .scaleToFit
+        }
+        return clamped
     }
 }
 

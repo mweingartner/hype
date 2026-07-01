@@ -20,6 +20,7 @@ DOC_ICON="$ROOT_DIR/Sources/Hype/Resources/HypeDocIcon.icns"
 MICROPHONE_USAGE_DESCRIPTION="Hype uses the microphone for voice input in the AI Chat panel (transcribed locally and sent to your AI model as text) and for recording audio into Audio Recorder parts in your stacks."
 SPEECH_USAGE_DESCRIPTION="Hype uses speech recognition to transcribe voice commands in the AI Chat panel into text prompts for your AI model. Recognition is performed on-device when supported."
 APPLE_MUSIC_USAGE_DESCRIPTION="Hype uses Apple Music access only when you enable MusicKit features, authorize access, and use MusicKit Search controls or Apple Music playback in your stacks."
+LOCATION_USAGE_DESCRIPTION="Hype uses your location only when a running stack asks for it (the \"user location\" command or a map's Show User Location option), to center maps and provide your coordinates to the stack."
 
 cd "$ROOT_DIR"
 
@@ -71,6 +72,8 @@ write_default_info_plist() {
   <string>${MIN_SYSTEM_VERSION}</string>
   <key>NSAppleMusicUsageDescription</key>
   <string>${APPLE_MUSIC_USAGE_DESCRIPTION}</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>${LOCATION_USAGE_DESCRIPTION}</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>${MICROPHONE_USAGE_DESCRIPTION}</string>
   <key>NSPrincipalClass</key>
@@ -111,19 +114,35 @@ set_or_add_plist_string() {
   local key="$2"
   local value="$3"
 
-  if /usr/libexec/PlistBuddy -c "Print :${key}" "$plist" >/dev/null 2>&1; then
-    /usr/libexec/PlistBuddy -c "Set :${key} ${value}" "$plist" >/dev/null
-  else
-    /usr/libexec/PlistBuddy -c "Add :${key} string ${value}" "$plist" >/dev/null
-  fi
+  # Use plutil's argv-based -replace (insert-or-replace) rather than
+  # PlistBuddy's `-c` command string. PlistBuddy re-tokenizes the command
+  # text, so a value containing an apostrophe or embedded quotes (e.g.
+  # "a map's Show User Location option") is silently mis-parsed and NOTHING
+  # is written — shipping a bundle missing the usage string, which crashes
+  # the app the moment it touches that capability. plutil takes the value as
+  # a single literal argument, so any characters are handled safely.
+  /usr/bin/plutil -replace "$key" -string "$value" "$plist" >/dev/null
 }
 
 ensure_usage_descriptions() {
   local plist="$1"
 
   set_or_add_plist_string "$plist" "NSAppleMusicUsageDescription" "$APPLE_MUSIC_USAGE_DESCRIPTION"
+  set_or_add_plist_string "$plist" "NSLocationWhenInUseUsageDescription" "$LOCATION_USAGE_DESCRIPTION"
   set_or_add_plist_string "$plist" "NSMicrophoneUsageDescription" "$MICROPHONE_USAGE_DESCRIPTION"
   set_or_add_plist_string "$plist" "NSSpeechRecognitionUsageDescription" "$SPEECH_USAGE_DESCRIPTION"
+
+  # Defense-in-depth: a usage string that silently failed to write means the
+  # shipped app crashes when it touches that capability (mic/speech/music/
+  # location). Assert each key actually landed; abort the install if not.
+  local key
+  for key in NSAppleMusicUsageDescription NSLocationWhenInUseUsageDescription \
+             NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription; do
+    if ! /usr/bin/plutil -extract "$key" raw -o - "$plist" >/dev/null 2>&1; then
+      echo "ERROR: $key missing from $plist after ensure_usage_descriptions" >&2
+      exit 1
+    fi
+  done
 }
 
 run_with_retry() {

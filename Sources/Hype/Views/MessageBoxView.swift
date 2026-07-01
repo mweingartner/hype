@@ -80,7 +80,8 @@ struct MessageBoxView: View {
                         speechOutputProvider: OpenAISpeechOutputProvider.shared,
                         speechListenerProvider: RuntimeSpeechListenerProvider.shared,
                         approvalPrompter: AppKitNetworkPermissionPrompter(stackName: snapshot.stack.name),
-                        fileProvider: fileProvider
+                        fileProvider: fileProvider,
+                        locationProvider: RuntimeLocationProvider.shared
                     )
                 )
                 let liveDocument = await runtime.currentDocument()

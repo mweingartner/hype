@@ -150,6 +150,11 @@ struct TargetPlatformTests {
 
     @Test("layout resolver scales authored card into target safe area")
     func layoutResolverScalesAuthoredCardIntoTargetSafeArea() throws {
+        // Source 800×600, iPhone portrait (393×852, safeArea top=59 bottom=34)
+        // safeWidth = 393, safeHeight = 852 - 59 - 34 = 759
+        // scale = min(393/800, 759/600) = min(0.49125, 1.265) = 0.49125 (x dominant)
+        // offsetX = (393 - 800*0.49125) / 2 = (393 - 393) / 2 = 0
+        // offsetY = (759 - 600*0.49125) / 2 = (759 - 294.75) / 2 = 232.125
         let cardId = UUID()
         let part = Part(partType: .button, cardId: cardId, left: 400, top: 300, width: 100, height: 50)
         let profile = HypeDeviceProfileCatalog.defaultProfile(for: .iPhone)
@@ -167,9 +172,12 @@ struct TargetPlatformTests {
         #expect(resolution.layoutPolicy == .scaleToFit)
         #expect(abs(resolution.contentScaleX - 0.49125) < 0.001)
         #expect(abs(resolution.contentOffsetX) < 0.001)
-        #expect(abs(resolution.contentOffsetY) < 0.001)
+        // offsetY is now 232.125 (centering the subordinate Y axis).
+        #expect(abs(resolution.contentOffsetY - 232.125) < 0.1)
+        // geometry.left = 0 + 400 * 0.49125 + safeLeft(0) = 196.5
         #expect(abs(geometry.left - 196.5) < 0.1)
-        #expect(abs(geometry.top - 206.375) < 0.1)
+        // geometry.top = 232.125 + 300 * 0.49125 + safeTop(59) = 232.125 + 147.375 + 59 = 438.5
+        #expect(abs(geometry.top - 438.5) < 0.1)
         #expect(abs(geometry.width - 49.125) < 0.1)
     }
 
@@ -216,6 +224,145 @@ struct TargetPlatformTests {
         #expect(runtimeDocument.stack.runtimeModeEnabled)
         #expect(runtimeDocument.scriptGlobals.isEmpty)
         #expect(runtimeDocument.stack.deploymentTargets.layoutPolicy == .scaleToFit)
+    }
+
+    // MARK: - New layout-resolver tests (centering + offset invariants)
+
+    @Test("layout resolver centers scaleToFit on dominant axis")
+    func layoutResolverCentersScaleToFitOnDominantAxis() throws {
+        // Source 400×900 into iPhone portrait (393×852, safe top=59 bottom=34)
+        // safeWidth=393, safeHeight=759
+        // scale = min(393/400, 759/900) = min(0.9825, 0.8433) = 0.8433 (Y dominant)
+        // offsetX = (393 - 400*0.8433) / 2 = (393 - 337.32) / 2 = 55.68 / 2 = 27.84
+        // offsetY = (759 - 900*0.8433) / 2 = (759 - 758.97) / 2 ≈ 0
+        let cardId = UUID()
+        let part = Part(partType: .button, cardId: cardId, left: 0, top: 0, width: 10, height: 10)
+        let profile = HypeDeviceProfileCatalog.defaultProfile(for: .iPhone)
+
+        let resolution = LayoutResolver().resolve(
+            parts: [part],
+            constraints: [],
+            profile: profile,
+            sourceCanvasWidth: 400,
+            sourceCanvasHeight: 900,
+            policy: .scaleToFit
+        )
+
+        let scale = min(Double(393) / 400.0, 759.0 / 900.0)
+        let expectedOffsetX = (393.0 - 400.0 * scale) / 2
+        let expectedOffsetY = (759.0 - 900.0 * scale) / 2
+
+        #expect(abs(resolution.contentScaleX - scale) < 0.001)
+        #expect(abs(resolution.contentOffsetX - expectedOffsetX) < 0.1)
+        #expect(abs(resolution.contentOffsetY - expectedOffsetY) < 0.1)
+        // The Y axis is dominant: offsetY should be very close to 0.
+        #expect(resolution.contentOffsetY >= 0)
+        // The X axis is subordinate: offsetX should be positive.
+        #expect(resolution.contentOffsetX > 0)
+    }
+
+    @Test("layout resolver stretchToFill has zero offsets")
+    func layoutResolverStretchToFillHasZeroOffsets() throws {
+        let cardId = UUID()
+        let part = Part(partType: .button, cardId: cardId, left: 10, top: 10, width: 50, height: 50)
+        let profile = HypeDeviceProfileCatalog.defaultProfile(for: .iPhone)
+
+        let resolution = LayoutResolver().resolve(
+            parts: [part],
+            constraints: [],
+            profile: profile,
+            sourceCanvasWidth: 800,
+            sourceCanvasHeight: 600,
+            policy: .stretchToFill
+        )
+
+        #expect(resolution.contentOffsetX == 0)
+        #expect(resolution.contentOffsetY == 0)
+        // Both axes independently scale; verify they are not equal (non-uniform).
+        #expect(resolution.contentScaleX != resolution.contentScaleY)
+    }
+
+    @Test("layout resolver fixed has zero offsets and identity scale")
+    func layoutResolverFixedHasZeroOffsets() throws {
+        let cardId = UUID()
+        let part = Part(partType: .button, cardId: cardId, left: 50, top: 60, width: 100, height: 40)
+        let profile = HypeDeviceProfileCatalog.defaultProfile(for: .macOS)
+
+        let resolution = LayoutResolver().resolve(
+            parts: [part],
+            constraints: [],
+            profile: profile,
+            sourceCanvasWidth: 800,
+            sourceCanvasHeight: 600,
+            policy: .fixed
+        )
+
+        #expect(resolution.contentOffsetX == 0)
+        #expect(resolution.contentOffsetY == 0)
+        #expect(resolution.contentScaleX == 1)
+        #expect(resolution.contentScaleY == 1)
+    }
+
+    // MARK: - New deployment-targets clamp/default tests
+
+    @Test("deployment targets clamp macOS-only to fixed for scaleToFit and stretchToFill")
+    func deploymentTargetsClampMacOSOnlyToFixed() {
+        let macOnly = StackDeploymentTargets(
+            selectedPlatforms: [.macOS],
+            primaryPlatform: .macOS,
+            selectionPromptAcknowledged: true,
+            layoutPolicy: .fixed
+        )
+
+        // Both scale policies clamp to .fixed for macOS-only.
+        #expect(macOnly.clampedLayoutPolicy(.scaleToFit) == .fixed)
+        #expect(macOnly.clampedLayoutPolicy(.stretchToFill) == .fixed)
+        // Fixed stays fixed.
+        #expect(macOnly.clampedLayoutPolicy(.fixed) == .fixed)
+    }
+
+    @Test("deployment targets preserve scale/stretch policies for multi-target selections")
+    func deploymentTargetsPreserveScalePoliciesForMultiTarget() {
+        let multi = StackDeploymentTargets(
+            selectedPlatforms: [.macOS, .iPhone],
+            primaryPlatform: .macOS,
+            selectionPromptAcknowledged: true,
+            layoutPolicy: .fixed
+        )
+
+        #expect(multi.clampedLayoutPolicy(.scaleToFit) == .scaleToFit)
+        #expect(multi.clampedLayoutPolicy(.stretchToFill) == .stretchToFill)
+        #expect(multi.clampedLayoutPolicy(.fixed) == .fixed)
+    }
+
+    @Test("deployment targets default multi-target fixed to scaleToFit")
+    func deploymentTargetsDefaultMultiTargetToScaleToFit() {
+        let multi = StackDeploymentTargets(
+            selectedPlatforms: [.macOS, .iPhone],
+            primaryPlatform: .macOS,
+            selectionPromptAcknowledged: true,
+            layoutPolicy: .fixed
+        )
+
+        // defaultedLayoutPolicy promotes fixed to scaleToFit for multi-target.
+        #expect(multi.defaultedLayoutPolicy(.fixed) == .scaleToFit)
+        // Already-non-fixed policies pass through.
+        #expect(multi.defaultedLayoutPolicy(.scaleToFit) == .scaleToFit)
+        #expect(multi.defaultedLayoutPolicy(.stretchToFill) == .stretchToFill)
+    }
+
+    @Test("deployment targets default macOS-only always returns fixed")
+    func deploymentTargetsDefaultMacOSOnlyAlwaysFixed() {
+        let macOnly = StackDeploymentTargets(
+            selectedPlatforms: [.macOS],
+            primaryPlatform: .macOS,
+            selectionPromptAcknowledged: true,
+            layoutPolicy: .fixed
+        )
+        // defaultedLayoutPolicy on macOS-only: clamp wins, never promotes.
+        #expect(macOnly.defaultedLayoutPolicy(.fixed) == .fixed)
+        #expect(macOnly.defaultedLayoutPolicy(.scaleToFit) == .fixed)
+        #expect(macOnly.defaultedLayoutPolicy(.stretchToFill) == .fixed)
     }
 
     @Test("deployment validation reports unsupported existing parts per target")

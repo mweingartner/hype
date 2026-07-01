@@ -1586,7 +1586,8 @@ struct CardCanvasView: NSViewRepresentable {
                 // The StackRuntimeConfiguration default (AllowAllNetworkPermissionPrompter)
                 // exists for test harnesses only — app code always passes a real prompter.
                 approvalPrompter: AppKitNetworkPermissionPrompter(stackName: stack.name),
-                fileProvider: fileProvider
+                fileProvider: fileProvider,
+                locationProvider: RuntimeLocationProvider.shared
             )
         }
 

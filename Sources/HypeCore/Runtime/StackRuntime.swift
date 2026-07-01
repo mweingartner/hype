@@ -293,6 +293,23 @@ public protocol ScriptRuntimeProviding: Sendable {
     func setClickState(_ state: ClickState) async
     /// Read the most-recently-recorded click state.
     func clickState() async -> ClickState?
+
+    /// One-shot device location for `user location`.
+    ///
+    /// Returns `nil` when location is unavailable, denied, or timed out.
+    /// The failure reason can be retrieved via `lastLocationFailureReason()`.
+    func currentDeviceLocation() async -> DeviceCoordinate?
+    /// Returns the human-readable reason why the last `currentDeviceLocation()`
+    /// call returned `nil`. Empty string when the last call succeeded or no
+    /// call has been made.
+    func lastLocationFailureReason() async -> String
+}
+
+// MARK: - Default implementations (keep existing conformers compiling)
+
+public extension ScriptRuntimeProviding {
+    func currentDeviceLocation() async -> DeviceCoordinate? { nil }
+    func lastLocationFailureReason() async -> String { "" }
 }
 
 // MARK: - Phase 2 Session-State Value Types
@@ -399,6 +416,10 @@ public struct StackRuntimeConfiguration: Sendable {
     /// Provider for sandboxed `read from file` / `write to file` commands.
     /// `StubFileAccessProvider` (deny-all) is the default when file access is disabled.
     public var fileProvider: any FileAccessProvider
+    /// Provider for `user location` — resolves the device's current coordinate.
+    /// Defaults to `StubLocationProvider` (always returns `.unavailable`) so
+    /// existing call sites continue to compile without change.
+    public var locationProvider: any LocationProvider
 
     public init(
         dialogProvider: DialogProvider = StubDialogProvider(),
@@ -413,7 +434,8 @@ public struct StackRuntimeConfiguration: Sendable {
         approvalPrompter: any NetworkPermissionPrompting = AllowAllNetworkPermissionPrompter(),
         permissionStore: UserDefaultsNetworkPermissionStore = UserDefaultsNetworkPermissionStore(),
         clock: RuntimeClock = SystemRuntimeClock(),
-        fileProvider: any FileAccessProvider = StubFileAccessProvider()
+        fileProvider: any FileAccessProvider = StubFileAccessProvider(),
+        locationProvider: any LocationProvider = StubLocationProvider()
     ) {
         self.dialogProvider = dialogProvider
         self.drawingProvider = drawingProvider
@@ -428,6 +450,7 @@ public struct StackRuntimeConfiguration: Sendable {
         self.permissionStore = permissionStore
         self.clock = clock
         self.fileProvider = fileProvider
+        self.locationProvider = locationProvider
     }
 }
 
@@ -572,6 +595,8 @@ public actor StackRuntime: ScriptRuntimeProviding {
     private var _selectedState: SelectedState?
     /// Phase 2: last-click state for `the clickH` / `clickV` / `clickLoc` / etc.
     private var _clickState: ClickState?
+    /// Human-readable reason why the most recent `currentDeviceLocation()` returned nil.
+    private var _lastLocationFailureReason: String = ""
     #if canImport(Network)
     private var listenerBoxes: [UUID: ListenerBox] = [:]
     private var connectionBoxes: [UUID: ConnectionBox] = [:]
@@ -827,6 +852,30 @@ public actor StackRuntime: ScriptRuntimeProviding {
 
     public func clickState() async -> ClickState? {
         _clickState
+    }
+
+    // MARK: - Location
+
+    public func currentDeviceLocation() async -> DeviceCoordinate? {
+        let result = await configuration.locationProvider.currentLocation()
+        switch result {
+        case .success(let coord):
+            _lastLocationFailureReason = ""
+            return coord
+        case .denied:
+            _lastLocationFailureReason = "location access denied"
+            return nil
+        case .unavailable:
+            _lastLocationFailureReason = "location unavailable"
+            return nil
+        case .timedOut:
+            _lastLocationFailureReason = "location request timed out"
+            return nil
+        }
+    }
+
+    public func lastLocationFailureReason() async -> String {
+        _lastLocationFailureReason
     }
 
     public func publishDocument(_ updatedDocument: HypeDocument) async {

@@ -1256,16 +1256,20 @@ public struct Interpreter: Sendable {
                 case .before: env.globals[Self.messageBoxKey] = value + existing
                 }
             case .objectRef(let ref):
-                // Put into a field or button by name/number
+                // Put into a field or button by name/number (or map for coord/geocode routing).
                 let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                 if let partIndex = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
-                    switch prep {
-                    case .into:
-                        document.parts[partIndex].textContent = value
-                    case .after:
-                        document.parts[partIndex].textContent += value
-                    case .before:
-                        document.parts[partIndex].textContent = value + document.parts[partIndex].textContent
+                    if document.parts[partIndex].partType == .map, prep == .into {
+                        applyMapPut(value: value, partIndex: partIndex, document: &document)
+                    } else {
+                        switch prep {
+                        case .into:
+                            document.parts[partIndex].textContent = value
+                        case .after:
+                            document.parts[partIndex].textContent += value
+                        case .before:
+                            document.parts[partIndex].textContent = value + document.parts[partIndex].textContent
+                        }
                     }
                 }
 
@@ -1558,6 +1562,11 @@ public struct Interpreter: Sendable {
                                 supportedOrientations: document.stack.deploymentTargets.supportedOrientations,
                                 layoutPolicy: document.stack.deploymentTargets.layoutPolicy
                             )
+                            // Clamp after rebuilding so the new platform set governs policy validity.
+                            document.stack.deploymentTargets.layoutPolicy =
+                                document.stack.deploymentTargets.clampedLayoutPolicy(
+                                    document.stack.deploymentTargets.layoutPolicy
+                                )
                         }
                     case "primarytargetplatform", "primary_target_platform":
                         if let platform = HypeTargetPlatform(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -1566,7 +1575,9 @@ public struct Interpreter: Sendable {
                         }
                     case "layoutpolicy", "targetlayoutpolicy", "target_layout_policy":
                         if let policy = TargetLayoutPolicy.parse(value) {
-                            document.stack.deploymentTargets.layoutPolicy = policy
+                            // Clamp-only: script setter; macOS-only stacks always revert to .fixed.
+                            document.stack.deploymentTargets.layoutPolicy =
+                                document.stack.deploymentTargets.clampedLayoutPolicy(policy)
                         }
                     case "theme", "themename", "theme_name":
                         // Empty / `the empty` resets to the built-in
@@ -5177,6 +5188,23 @@ public struct Interpreter: Sendable {
             case "recentcards", "recent cards":
                 return await context.runtimeProvider?.recentCards() ?? ""
 
+            // `user location` — returns device coordinate as "lat,lon" or empty on failure.
+            case "user location":
+                if let coord = await context.runtimeProvider?.currentDeviceLocation() {
+                    // Clear any stale failure reason from a prior command so a
+                    // subsequent `the result` check doesn't observe an old
+                    // "location ..." message after a successful fetch.
+                    env.result = ""
+                    return coord.hypeTalkString
+                }
+                if let reason = await context.runtimeProvider?.lastLocationFailureReason(),
+                   !reason.isEmpty {
+                    env.result = reason
+                } else {
+                    env.result = "location unavailable"
+                }
+                return ""
+
             // Phase 2: click-info properties
             case "clickh":
                 return formatNumber(await context.runtimeProvider?.clickState()?.clickH ?? 0)
@@ -5628,6 +5656,8 @@ public struct Interpreter: Sendable {
         case "maptype", "map_type":             return part.mapType
         case "annotations":                     return part.mapAnnotationsJSON
         case "maplocation", "map_location":     return part.mapLocation
+        case "showsuserlocation", "shows_user_location":
+            return part.mapShowsUserLocation ? "true" : "false"
         // ColorWell
         case "color", "colorhex", "color_hex":  return part.colorWellHex
         case "interactive":                     return part.colorWellInteractive ? "true" : "false"
@@ -7354,6 +7384,30 @@ public struct Interpreter: Sendable {
     /// falls back to `env.setVariable` so unknown-property writes
     /// still land in a local variable (matching the previous
     /// default-case behaviour).
+    /// `put <value> into map "X"`:
+    /// - A two-item value that parses as `lat,lon` → recenters the map (preserves span).
+    /// - Any other non-empty value → sets `mapLocation` for geocoding.
+    /// - Empty value → clears `mapLocation`.
+    ///
+    /// Coordinate validation is performed via `DeviceCoordinate.validated` so
+    /// only WGS-84-legal values trigger a recenter; invalid-range strings like
+    /// `"999,999"` fall through to the geocode path.
+    private func applyMapPut(value: String, partIndex: Int, document: inout HypeDocument) {
+        let components = value.split(separator: ",", maxSplits: 1)
+            .map { Double($0.trimmingCharacters(in: .whitespaces)) }
+        if components.count == 2,
+           let lat = components[0],
+           let lon = components[1],
+           let coord = DeviceCoordinate.validated(latitude: lat, longitude: lon) {
+            document.parts[partIndex].mapCenterLat = coord.latitude
+            document.parts[partIndex].mapCenterLon = coord.longitude
+            // Preserve the existing map span (zoom level).
+            document.parts[partIndex].mapLocation = ""
+        } else {
+            document.parts[partIndex].mapLocation = String(value.prefix(256))
+        }
+    }
+
     private func applyPartPropertySet(
         partIndex: Int,
         property: String,
@@ -7620,6 +7674,8 @@ public struct Interpreter: Sendable {
             // Clamp to 256 chars — anything longer is bogus and would just
             // bloat the document without helping geocoding.
             document.parts[partIndex].mapLocation = String(value.prefix(256))
+        case "showsuserlocation", "shows_user_location":
+            document.parts[partIndex].mapShowsUserLocation = isTruthy(value)
         // ColorWell
         case "color", "colorhex", "color_hex":
             document.parts[partIndex].colorWellHex = value

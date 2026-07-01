@@ -325,10 +325,17 @@ public enum HIGLayoutCatalog {
             guard let parsed = TargetLayoutPolicy.parse(layoutPolicy) else {
                 return "Invalid layout_policy '\(layoutPolicy)'. Valid: fixed, scaleToFit, stretchToFill."
             }
-            document.stack.deploymentTargets.layoutPolicy = parsed
-        } else if document.stack.deploymentTargets.selectedPlatforms.count > 1,
-                  document.stack.deploymentTargets.layoutPolicy == .fixed {
-            document.stack.deploymentTargets.layoutPolicy = .scaleToFit
+            // Clamp the explicitly-provided policy through the single owner rule.
+            document.stack.deploymentTargets.layoutPolicy =
+                document.stack.deploymentTargets.clampedLayoutPolicy(parsed)
+        } else {
+            // When no policy is supplied, apply the defaulted rule: multi-target
+            // stacks that are still on .fixed are promoted to .scaleToFit so
+            // authored parts do not overflow smaller target safe areas.
+            document.stack.deploymentTargets.layoutPolicy =
+                document.stack.deploymentTargets.defaultedLayoutPolicy(
+                    document.stack.deploymentTargets.layoutPolicy
+                )
         }
 
         let sourceWidth = Double(document.stack.width)

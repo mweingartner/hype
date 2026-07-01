@@ -3465,6 +3465,16 @@ public struct Parser: Sendable {
             return negated ? .thereIsNo(objectType, nameExpr) : .thereIsA(objectType, nameExpr)
 
         case .identifier:
+            // `user location` — two-token global property; must be intercepted
+            // before `advance()` so the lookahead is still available.
+            if current.value.lowercased() == "user",
+               pos + 1 < tokens.count,
+               tokens[pos + 1].type == .identifier,
+               tokens[pos + 1].value.lowercased() == "location" {
+                _ = advance()  // user
+                _ = advance()  // location
+                return .propertyAccess("user location", nil)
+            }
             let tok = advance()
             // `msg` / `message` / `message box` — the message-box container.
             // Recognized as a read/write container identical to `the message`.
@@ -3782,6 +3792,21 @@ public struct Parser: Sendable {
             let adjective = advance().value
             let dateOrTime = advance().value
             return .propertyAccess("\(adjective) \(dateOrTime)", nil)
+        }
+
+        // `the user location` — article-led form of the `user location`
+        // global expression. parsePrimary intercepts the article-less form;
+        // mirror it here so `the user location` (and
+        // `put the user location into …`) parse to the same AST instead of
+        // stranding the `location` token.
+        if current.type == .identifier,
+           current.value.lowercased() == "user",
+           pos + 1 < tokens.count,
+           tokens[pos + 1].type == .identifier,
+           tokens[pos + 1].value.lowercased() == "location" {
+            _ = advance()  // user
+            _ = advance()  // location
+            return .propertyAccess("user location", nil)
         }
 
         // Apple HyperTalk function syntax accepts `the abs of factor`

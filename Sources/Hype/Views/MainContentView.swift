@@ -49,6 +49,64 @@ private struct TargetCanvasFrameModifier: ViewModifier {
     }
 }
 
+/// Non-animated overlay banner shown when `.fixed` emulation is active and one
+/// or more parts extend beyond the target device frame.
+///
+/// Overflow is a visual+textual signal only — no part coordinates are moved.
+/// The color (orange) is always paired with descriptive text to satisfy WCAG AA
+/// (no color-only signal). No animation is used; honors `accessibilityReduceMotion`.
+private struct FixedEmulationOverflowIndicator: View {
+    let document: HypeDocument
+    let cardId: UUID
+    let profile: HypeDeviceProfile
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var overflowCount: Int {
+        let resolution = LayoutResolver().resolve(
+            document: document,
+            profile: profile,
+            cardId: cardId
+        )
+        return TargetPreviewOverflow.overflowingPartIds(
+            resolution: resolution,
+            profile: profile
+        ).count
+    }
+
+    var body: some View {
+        // Resolve once per render pass (a single LayoutResolver.resolve), then
+        // reuse the count for the guard, the label, and the accessibility text.
+        let count = overflowCount
+        if count > 0 {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(overflowMessage(count: count))
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundStyle(Color.orange)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(Color.orange.opacity(0.12))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.orange.opacity(0.35), lineWidth: 0.5)
+            )
+            .padding(.top, 8)
+            .accessibilityLabel(overflowMessage(count: count))
+        }
+    }
+
+    private func overflowMessage(count: Int) -> String {
+        let plural = count == 1 ? "part extends" : "parts extend"
+        return "\(count) \(plural) beyond the \(profile.displayName) frame and will be clipped at runtime."
+    }
+}
+
 private struct ScriptActivityStatusControl: View {
     let runningScripts: [RuntimeStatusSnapshot.RunningScriptSummary]
     var action: () -> Void
@@ -355,6 +413,17 @@ struct MainContentView: View {
     private var emulatedProfile: HypeDeviceProfile? {
         guard let emulatedProfileId else { return nil }
         return HypeDeviceProfileCatalog.profile(id: emulatedProfileId)
+    }
+
+    /// The effective layout policy during emulation.
+    ///
+    /// Returns `nil` when no emulation is active. When emulation is on,
+    /// returns the stack's current layout policy, which governs whether the
+    /// canvas shows the live editor (`.fixed`) or the read-only preview
+    /// (`.scaleToFit` / `.stretchToFill`).
+    private var emulationLayoutPolicy: TargetLayoutPolicy? {
+        guard emulatedProfile != nil else { return nil }
+        return document.document.stack.deploymentTargets.layoutPolicy
     }
 
     private var effectiveCurrentCardId: UUID? {
@@ -757,6 +826,19 @@ struct MainContentView: View {
                 currentTool = .select
             }
         }
+        // Side-effect-free observation hooks — these trigger canvasArea re-evaluation
+        // so emulation preview stays in sync when layout policy or primary platform
+        // changes without an explicit emulation toggle. No auto-resize or
+        // coordinate movement happens here; resize confirmation is owned by the sheet.
+        .onChange(of: document.document.stack.deploymentTargets.layoutPolicy) { _, _ in
+            // No action needed: SwiftUI re-evaluates canvasArea which reads
+            // emulationLayoutPolicy. This onChange is a visibility prompt only.
+        }
+        .onChange(of: document.document.stack.deploymentTargets.primaryPlatform) { _, _ in
+            // Reserved for Part 5 interactive resize confirmation (owned by the
+            // StackTargetSelectionSheet). Programmatic AI/script primary changes
+            // set primaryPlatform directly without a resize or confirmation.
+        }
         .onChange(of: document.document.stack.userLevel) { _, _ in
             coerceCurrentToolForUserLevel()
         }
@@ -789,23 +871,59 @@ struct MainContentView: View {
     private var canvasArea: some View {
         VStack(spacing: 0) {
             if let cardId = effectiveCurrentCardId {
-                CardCanvasView(
-                    document: trackedDocumentBinding,
-                    currentCardId: cardId,
-                    currentTool: currentTool,
-                    selectedPartIds: $selectedPartIds,
-                    editingBackground: editingBackground,
-                    paintColorHex: paintColor.toHex(),
-                    pencilRadius: Int(pencilRadius)
-                )
-                .accessibilityIdentifier(HypeAccessibilityID.canvas(cardId: cardId))
-                .modifier(TargetCanvasFrameModifier(stack: document.document.stack, emulatedProfile: emulatedProfile))
-                // Canvas margin — the area visible when the window
-                // is larger than the card. Pulls from the active
-                // theme's canvasMargin so a Sunset theme tints the
-                // surround warm and a Neon theme drops it to near-
-                // black, matching the card surface.
-                .background(resolvedTheme.canvasMargin.swiftUIColor)
+                // Branch on emulation state and layout policy:
+                //   - No emulation, or emulation + .fixed: show the live editable canvas.
+                //   - Emulation + .scaleToFit / .stretchToFill: show a read-only
+                //     layout preview rendered from LayoutResolver output (same
+                //     projection as export). The live canvas is not shown to
+                //     avoid coordinate-space ambiguity — scaleEffect/transformEffect
+                //     are never applied to the live CardCanvasView.
+                if let profile = emulatedProfile,
+                   let policy = emulationLayoutPolicy,
+                   policy != .fixed {
+                    // Read-only scaled/stretched preview. Authoring paused.
+                    // No animation on the swap — honors reduce-motion.
+                    TargetPreviewCanvasView(
+                        document: document.document,
+                        cardId: cardId,
+                        profile: profile
+                    )
+                    .accessibilityIdentifier(HypeAccessibilityID.canvas(cardId: cardId))
+                    .modifier(TargetCanvasFrameModifier(stack: document.document.stack, emulatedProfile: profile))
+                    .background(resolvedTheme.canvasMargin.swiftUIColor)
+                } else {
+                    // Live editable canvas. For .fixed emulation, show
+                    // it framed at device size (with optional overflow indicator).
+                    CardCanvasView(
+                        document: trackedDocumentBinding,
+                        currentCardId: cardId,
+                        currentTool: currentTool,
+                        selectedPartIds: $selectedPartIds,
+                        editingBackground: editingBackground,
+                        paintColorHex: paintColor.toHex(),
+                        pencilRadius: Int(pencilRadius)
+                    )
+                    .accessibilityIdentifier(HypeAccessibilityID.canvas(cardId: cardId))
+                    .modifier(TargetCanvasFrameModifier(stack: document.document.stack, emulatedProfile: emulatedProfile))
+                    // Overflow indicator for .fixed emulation: shown as a non-animated
+                    // dashed border + text caption when parts extend beyond the device frame.
+                    .overlay(alignment: .top) {
+                        if let profile = emulatedProfile,
+                           emulationLayoutPolicy == .fixed {
+                            FixedEmulationOverflowIndicator(
+                                document: document.document,
+                                cardId: cardId,
+                                profile: profile
+                            )
+                        }
+                    }
+                    // Canvas margin — the area visible when the window
+                    // is larger than the card. Pulls from the active
+                    // theme's canvasMargin so a Sunset theme tints the
+                    // surround warm and a Neon theme drops it to near-
+                    // black, matching the card surface.
+                    .background(resolvedTheme.canvasMargin.swiftUIColor)
+                }
             } else {
                 Text("No cards in stack")
                     .frame(minWidth: CGFloat(document.document.stack.width), minHeight: CGFloat(document.document.stack.height))
@@ -1168,7 +1286,8 @@ struct MainContentView: View {
             // The StackRuntimeConfiguration default (AllowAllNetworkPermissionPrompter)
             // exists for test harnesses only — app code always passes a real prompter.
             approvalPrompter: AppKitNetworkPermissionPrompter(stackName: stack.name),
-            fileProvider: fileProvider
+            fileProvider: fileProvider,
+            locationProvider: RuntimeLocationProvider.shared
         )
     }
 
@@ -1805,7 +1924,8 @@ private struct NavigationHandlers: ViewModifier {
                 // Production site: must use AppKitNetworkPermissionPrompter,
                 // not the AllowAll default that exists for test harnesses only.
                 approvalPrompter: AppKitNetworkPermissionPrompter(stackName: stack.name),
-                fileProvider: fileProvider
+                fileProvider: fileProvider,
+                locationProvider: RuntimeLocationProvider.shared
             )
         )
         let result = await runtime.dispatchAndWait(

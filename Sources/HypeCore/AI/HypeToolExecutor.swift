@@ -4833,6 +4833,11 @@ public struct HypeToolExecutor: Sendable {
                     supportedOrientations: document.stack.deploymentTargets.supportedOrientations,
                     layoutPolicy: document.stack.deploymentTargets.layoutPolicy
                 )
+                // Clamp after rebuilding so the new platform set governs policy validity.
+                document.stack.deploymentTargets.layoutPolicy =
+                    document.stack.deploymentTargets.clampedLayoutPolicy(
+                        document.stack.deploymentTargets.layoutPolicy
+                    )
             case "primarytargetplatform", "primary_target_platform":
                 guard let platform = HypeTargetPlatform(rawValue: value.trimmingCharacters(in: .whitespacesAndNewlines)) else {
                     return "Invalid value for primaryTargetPlatform: '\(value)' (expected macOS, iPhone, iPad, or tvOS)"
@@ -4845,7 +4850,10 @@ public struct HypeToolExecutor: Sendable {
                 guard let policy = TargetLayoutPolicy.parse(value) else {
                     return "Invalid value for layoutPolicy: '\(value)' (expected fixed, scaleToFit, or stretchToFill)"
                 }
-                document.stack.deploymentTargets.layoutPolicy = policy
+                // Clamp-only: programmatic setter respects explicit choice but
+                // macOS-only stacks always revert to .fixed.
+                document.stack.deploymentTargets.layoutPolicy =
+                    document.stack.deploymentTargets.clampedLayoutPolicy(policy)
             case "theme", "themename", "theme_name":
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
                 document.stack.themeName = trimmed.isEmpty ? BuiltInThemes.fallbackName : trimmed

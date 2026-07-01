@@ -208,6 +208,11 @@ public struct Part: Identifiable, Codable, Sendable {
     /// back into the part so HypeTalk reads and save/load always
     /// see authoritative coordinates. Empty = use lat/lon directly.
     public var mapLocation: String
+    /// When true, the live MapKit view shows the device's current-location
+    /// blue dot (`MKMapView.showsUserLocation`). Default false — enabling it
+    /// triggers a Core Location authorization prompt the first time the map
+    /// is shown in browse mode. Author-controlled, persisted, HypeTalk-settable.
+    public var mapShowsUserLocation: Bool
 
     // ColorWell-specific
     /// Currently-bound color as a hex string (e.g. "#FF5500").
@@ -522,6 +527,7 @@ public struct Part: Identifiable, Codable, Sendable {
         self.mapType = "standard"
         self.mapAnnotationsJSON = ""
         self.mapLocation = ""
+        self.mapShowsUserLocation = false
         self.colorWellHex = "#FF5500"
         self.colorWellInteractive = true
         self.controlValue = 0
@@ -695,6 +701,8 @@ public struct Part: Identifiable, Codable, Sendable {
         mapAnnotationsJSON = try container.decodeIfPresent(String.self, forKey: .mapAnnotationsJSON) ?? ""
         // mapLocation — added after the initial map schema; backward-compat optional.
         mapLocation = try container.decodeIfPresent(String.self, forKey: .mapLocation) ?? ""
+        // mapShowsUserLocation — added with "user location" feature; backward-compat optional.
+        mapShowsUserLocation = try container.decodeIfPresent(Bool.self, forKey: .mapShowsUserLocation) ?? false
         // ColorWell fields — backward-compat optional.
         colorWellHex = try container.decodeIfPresent(String.self, forKey: .colorWellHex) ?? "#FF5500"
         colorWellInteractive = try container.decodeIfPresent(Bool.self, forKey: .colorWellInteractive) ?? true

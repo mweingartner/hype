@@ -368,7 +368,8 @@ struct NetworkPanelView: View {
             speechOutputProvider: OpenAISpeechOutputProvider.shared,
             speechListenerProvider: RuntimeSpeechListenerProvider.shared,
             approvalPrompter: AppKitNetworkPermissionPrompter(stackName: stack.name),
-            fileProvider: fileProvider
+            fileProvider: fileProvider,
+            locationProvider: RuntimeLocationProvider.shared
         )
         Task {
             let runtime = await StackRuntimeRegistry.shared.runtime(for: snapshot, configuration: configuration)

@@ -8,10 +8,10 @@ import HypeCore
 /// re-centers/zooms whenever the part's center/span fields change.
 /// Map type updates apply on the next frame.
 ///
-/// `showsUserLocation` is intentionally NOT exposed in v1 — that
-/// path requires `NSLocationUsageDescription` and a Core Location
-/// authorization round-trip we'd rather not add to every Hype
-/// install. v2 can add it as an opt-in property.
+/// `showsUserLocation` is opt-in via the part property `mapShowsUserLocation`
+/// (HypeTalk: `set the showsUserLocation of map "X" to true`). Enabling it
+/// triggers a Core Location authorization prompt the first time the map is
+/// shown in browse mode.
 final class MapHostNSView: NSView, MKMapViewDelegate {
 
     let mapView = MKMapView()
@@ -75,6 +75,11 @@ final class MapHostNSView: NSView, MKMapViewDelegate {
             appliedLat = part.mapCenterLat
             appliedLon = part.mapCenterLon
             appliedSpan = part.mapSpan
+        }
+
+        // Mirror the author's showsUserLocation flag onto the live MapKit view.
+        if mapView.showsUserLocation != part.mapShowsUserLocation {
+            mapView.showsUserLocation = part.mapShowsUserLocation
         }
 
         // Re-build annotations only when the JSON actually changed —

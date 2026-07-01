@@ -25,6 +25,16 @@ public struct LayoutResolution: Sendable, Equatable {
     public var safeContentTop: Double
     public var safeContentWidth: Double
     public var safeContentHeight: Double
+    /// The safe-area-relative projection transform components.
+    ///
+    /// `contentScaleX`/`contentScaleY` are the per-axis scale factors from
+    /// source-design space into the target safe-area space. `contentOffsetX`/
+    /// `contentOffsetY` are the centering offsets (non-zero only for
+    /// `.scaleToFit` when the subordinate axis is padded).
+    ///
+    /// Consumed by:
+    ///   - `TargetPreviewCanvasView` (editor emulation overlay)
+    ///   - `preview_layout_profile` AI layout-preview tool
     public var contentScaleX: Double
     public var contentScaleY: Double
     public var contentOffsetX: Double
@@ -157,11 +167,18 @@ public struct LayoutResolver: Sendable {
     ) -> (scaleX: Double, scaleY: Double, offsetX: Double, offsetY: Double) {
         switch policy {
         case .fixed:
+            // Identity transform: coordinates are preserved as authored.
             return (1, 1, 0, 0)
         case .scaleToFit:
+            // Uniform scale so the dominant axis fills; the subordinate axis
+            // is centered within the safe area. Offsets are non-negative.
             let scale = min(safeWidth / sourceWidth, safeHeight / sourceHeight)
-            return (scale, scale, 0, 0)
+            let offsetX = (safeWidth - sourceWidth * scale) / 2
+            let offsetY = (safeHeight - sourceHeight * scale) / 2
+            return (scale, scale, offsetX, offsetY)
         case .stretchToFill:
+            // Independent per-axis scale maps source exactly to safe area;
+            // both axes fill so centering offsets are intentionally 0.
             return (safeWidth / sourceWidth, safeHeight / sourceHeight, 0, 0)
         }
     }

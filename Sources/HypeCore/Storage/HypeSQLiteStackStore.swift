@@ -779,6 +779,11 @@ public final class HypeSQLiteStackStore {
         try db.execute("CREATE VIEW v_missing_asset_refs AS SELECT scene_nodes.id AS node_id, scene_nodes.name, scene_nodes.asset_id FROM scene_nodes LEFT JOIN assets ON assets.id = scene_nodes.asset_id WHERE scene_nodes.asset_id IS NOT NULL AND assets.id IS NULL")
         try db.execute("CREATE VIEW v_music_patterns AS SELECT music_patterns.name AS pattern, music_patterns.tempo, music_tracks.name AS track, music_tracks.instrument, music_tracks.document_order FROM music_patterns LEFT JOIN music_tracks ON music_tracks.pattern_id = music_patterns.id")
         try db.execute("CREATE VIEW v_apple_music_items AS SELECT title, artist, album, source_kind, item_kind, id FROM apple_music_items")
+        // v_deployment_targets: query-only projection of the deployment_targets
+        // columns (primary_target, prompt_acknowledged, layout_policy). The
+        // source of truth for all deployment-target state is stacks.payload_json.
+        // These columns are written for observability / external SQL queries only;
+        // the load path never reads them. Do NOT add a load-path dependency here.
         try db.execute("CREATE VIEW v_deployment_targets AS SELECT stacks.name AS stack, deployment_targets.platform, deployment_targets.display_name, deployment_targets.width, deployment_targets.height, deployment_targets.primary_target, deployment_targets.layout_policy FROM deployment_targets JOIN stacks ON stacks.id = deployment_targets.stack_id")
         try db.execute("CREATE VIEW v_runtime_ai_settings AS SELECT stacks.name AS stack, runtime_ai_settings.provider_policy, runtime_ai_settings.allow_side_effect_tools, runtime_ai_settings.allowed_tools_text, runtime_ai_settings.persist_transcript FROM runtime_ai_settings JOIN stacks ON stacks.id = runtime_ai_settings.stack_id")
     }
@@ -1198,6 +1203,15 @@ public final class HypeSQLiteStackStore {
         )
     }
 
+    // MARK: - Deployment target persistence
+    //
+    // Source of truth: `stacks.payload_json` (the full JSON-encoded Stack value
+    // including StackDeploymentTargets). The `deployment_targets` table columns
+    // (primary_target, prompt_acknowledged, layout_policy) are write-only
+    // denormalizations — they exist so external tools can query target state via
+    // SQL without decoding JSON. The load path reads exclusively from payload_json
+    // and must never acquire a dependency on these columns. No schema migration
+    // is required when the layout policy model changes.
     private func insertDeploymentTargets(_ targets: StackDeploymentTargets, stackId: UUID, db: SQLiteDatabase) throws {
         var normalized = targets
         normalized.normalize()
