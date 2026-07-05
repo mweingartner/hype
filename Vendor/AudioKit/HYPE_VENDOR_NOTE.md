@@ -26,10 +26,10 @@ raised minimum is satisfied everywhere this copy is built.
 
 ## Relationship to runtime export
 
-`TargetRuntimePackageBuilder` still pins AudioKit `5.2.3` by URL in generated
-iPhone/iPad/tvOS runtime packages (built with the iOS/tvOS SDKs, where the
-macOS annotation does not apply). Vendoring the same 5.2.3 sources keeps the
-authoring build and generated runtime shells API-identical.
+`TargetRuntimePackageBuilder` embeds this vendored AudioKit copy into generated
+iPhone/iPad/tvOS runtime packages and points the generated `HypeRuntimeCore`
+package at `Vendor/AudioKit`. Runtime exports therefore build from the same
+patched source as the authoring app and do not need a remote AudioKit fetch.
 
 ## Upgrading
 

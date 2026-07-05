@@ -733,6 +733,13 @@ factors, safe areas, and input models differ.
   full shipped SwiftUI runtime adapter set; tvOS exposes only the focus-safe
   runtime set. Sprite areas, audio recorders, and legacy music queues remain
   macOS-authoring controls until standalone target adapters exist.
+- **tvOS support warning:** tvOS runtime support is intentionally early and
+  narrow. Hype can plan/package a tvOS runtime shell and validates unsupported
+  controls fail closed, but the shipped tvOS adapter set is limited to
+  focus-safe display/playback controls. Text entry, web/PDF/map/calendar/form
+  controls, Apple Music browsing, SpriteKit sprite areas, audio recording, and
+  runtime AI need further tvOS-specific design and implementation before tvOS
+  should be presented as production-ready.
 - Non-macOS runtime AI is target-aware: iPhone and iPad plans default runtime
   script AI to Apple Foundation Models, tvOS marks runtime AI unavailable until
   Apple provides a supported on-device model there, and macOS keeps the

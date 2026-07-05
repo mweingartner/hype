@@ -111,6 +111,46 @@ struct SimulatorRuntimeLauncherTests {
         #expect(commands.contains { $0.arguments == ["simctl", "launch", "PHONE-1", "com.hype.runtime.launch-test.iphone"] })
     }
 
+    @Test("launcher treats Simulator UI open as best effort")
+    func launcherDoesNotFailWhenSimulatorAppOpenFails() async throws {
+        var document = HypeDocument.newDocument(name: "Launch Test")
+        document.stack.deploymentTargets = StackDeploymentTargets(
+            selectedPlatforms: [.iPhone],
+            primaryPlatform: .iPhone,
+            selectionPromptAcknowledged: true,
+            layoutPolicy: .scaleToFit
+        )
+        document.addPart(Part(partType: .button, cardId: document.cards[0].id, name: "Tap Me"))
+
+        let device = HypeSimulatorDevice(
+            name: "iPhone 17",
+            udid: "PHONE-1",
+            platform: .iPhone,
+            runtimeIdentifier: "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+            runtimeName: "iOS 26.5",
+            deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+            state: "Shutdown"
+        )
+        let output = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HypeSimulatorLauncherOpenFailureTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: output) }
+
+        let runner = RecordingSimulatorCommandRunner(failOpen: true)
+        let launcher = HypeSimulatorRuntimeLauncher(commandRunner: runner)
+        let result = try await launcher.launch(
+            document: document,
+            platform: .iPhone,
+            device: device,
+            outputDirectory: output
+        )
+        let commands = await runner.recordedCommands()
+
+        #expect(result.manifest.platform == .iPhone)
+        #expect(commands.contains { $0.executableURL.path == "/usr/bin/open" })
+        #expect(commands.contains { $0.arguments.prefix(3) == ["simctl", "install", "PHONE-1"] })
+        #expect(commands.contains { $0.arguments == ["simctl", "launch", "PHONE-1", "com.hype.runtime.launch-test.iphone"] })
+    }
+
     @Test(
         "live simulator smoke builds, installs, and launches a generated runtime app",
         .enabled(if: ProcessInfo.processInfo.environment["HYPE_LIVE_SIMULATOR_SMOKE"] == "1")
@@ -736,12 +776,24 @@ struct SimulatorRuntimeLauncherTests {
 
 private actor RecordingSimulatorCommandRunner: HypeSimulatorCommandRunning {
     private var commands: [HypeSimulatorCommand] = []
+    private let failOpen: Bool
+
+    init(failOpen: Bool = false) {
+        self.failOpen = failOpen
+    }
 
     func run(_ command: HypeSimulatorCommand) async throws -> HypeSimulatorCommandResult {
         commands.append(command)
         if command.executableURL.path == "/usr/bin/xcrun",
            command.arguments.first == "xcodebuild" {
             try createFakeBuildProduct(for: command)
+        }
+        if failOpen, command.executableURL.path == "/usr/bin/open" {
+            return HypeSimulatorCommandResult(
+                command: command,
+                terminationStatus: 1,
+                outputData: Data("Unable to find application named 'Simulator'".utf8)
+            )
         }
         return HypeSimulatorCommandResult(
             command: command,

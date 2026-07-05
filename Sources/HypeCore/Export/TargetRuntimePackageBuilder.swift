@@ -1275,28 +1275,30 @@ public struct TargetRuntimePackageBuilder {
     private func writeRuntimeCoreSourcePackage(to sourcePackageDir: URL, generatedFiles: inout [String]) throws {
         guard let sourceRoot = inferredSourceRoot() else {
             throw TargetRuntimePackageBuilderError.runtimeSourceUnavailable(
-                "Could not locate HypeCore source files to embed in the iOS runtime package."
+                "Could not locate HypeCore source files to embed in the Apple runtime package."
             )
         }
         let fm = FileManager.default
         try fm.createDirectory(at: sourcePackageDir.appendingPathComponent("Sources", isDirectory: true), withIntermediateDirectories: true)
+        try fm.createDirectory(at: sourcePackageDir.appendingPathComponent("Vendor", isDirectory: true), withIntermediateDirectories: true)
         try copyDirectory(
             from: sourceRoot.appendingPathComponent("Sources/HypeCore", isDirectory: true),
             to: sourcePackageDir.appendingPathComponent("Sources/HypeCore", isDirectory: true)
         )
+        try removeRuntimeExcludedSourceDirectories(from: sourcePackageDir)
         try copyDirectory(
             from: sourceRoot.appendingPathComponent("Sources/CStackImport", isDirectory: true),
             to: sourcePackageDir.appendingPathComponent("Sources/CStackImport", isDirectory: true)
+        )
+        try copyDirectory(
+            from: sourceRoot.appendingPathComponent("Vendor/AudioKit", isDirectory: true),
+            to: sourcePackageDir.appendingPathComponent("Vendor/AudioKit", isDirectory: true)
         )
         try runtimeCorePackageSwift().write(to: sourcePackageDir.appendingPathComponent("Package.swift"), atomically: true, encoding: .utf8)
         generatedFiles.append("\(Self.shellDirectoryName)/HypeSource/Package.swift")
         generatedFiles.append("\(Self.shellDirectoryName)/HypeSource/Sources/HypeCore")
         generatedFiles.append("\(Self.shellDirectoryName)/HypeSource/Sources/CStackImport")
-        let resolved = sourceRoot.appendingPathComponent("Package.resolved")
-        if fm.fileExists(atPath: resolved.path) {
-            try fm.copyItem(at: resolved, to: sourcePackageDir.appendingPathComponent("Package.resolved"))
-            generatedFiles.append("\(Self.shellDirectoryName)/HypeSource/Package.resolved")
-        }
+        generatedFiles.append("\(Self.shellDirectoryName)/HypeSource/Vendor/AudioKit")
     }
 
     private func inferredSourceRoot() -> URL? {
@@ -1311,6 +1313,19 @@ public struct TargetRuntimePackageBuilder {
             }
         }
         return nil
+    }
+
+    private func removeRuntimeExcludedSourceDirectories(from sourcePackageDir: URL) throws {
+        let fm = FileManager.default
+        let excludedDirectories = ["MCP"]
+        for relativePath in excludedDirectories {
+            let url = sourcePackageDir
+                .appendingPathComponent("Sources/HypeCore", isDirectory: true)
+                .appendingPathComponent(relativePath, isDirectory: true)
+            if fm.fileExists(atPath: url.path) {
+                try fm.removeItem(at: url)
+            }
+        }
     }
 
     private func copyDirectory(from source: URL, to destination: URL) throws {
@@ -1342,7 +1357,7 @@ public struct TargetRuntimePackageBuilder {
                 .library(name: "HypeCore", targets: ["HypeCore"]),
             ],
             dependencies: [
-                .package(url: "https://github.com/AudioKit/AudioKit.git", exact: "5.2.3"),
+                .package(path: "Vendor/AudioKit"),
             ],
             targets: [
                 .target(
@@ -1352,6 +1367,7 @@ public struct TargetRuntimePackageBuilder {
                         .product(name: "AudioKit", package: "AudioKit"),
                     ],
                     path: "Sources/HypeCore",
+                    exclude: ["MCP"],
                     resources: [
                         .process("Resources/MeshyAnimationCatalog.json"),
                     ],

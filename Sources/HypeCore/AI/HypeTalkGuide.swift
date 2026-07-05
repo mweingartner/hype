@@ -1222,7 +1222,9 @@ public enum HypeTalkGuide {
         | `copy template` | No-op. | — |
         | `type "X"` | Puts `"X"` into `it`; no UI input is simulated. | Set field text directly with `put`. |
         | `the result` | Returns diagnostics/results only for operations that set it explicitly. | Read sync return values from `it`; for async, use the callback handler and `the body of request <id>`. |
-        | `the target` | Returns `""`. | Use `the name of me` or pass identifiers explicitly. |
+
+        `the target` is supported: it returns the original dispatch target descriptor
+        (short by default; use `the long target` for the fully qualified form).
 
         ## Common AI hallucinations to AVOID
         - **`int`** is NOT a HypeTalk keyword. To negate a number, just write `-1`, not `-int 1`.

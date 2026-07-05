@@ -288,10 +288,7 @@ public actor HypeSimulatorRuntimeLauncher {
         }
 
         try await boot(device)
-        try await runRequired(
-            executableURL: Self.openURL,
-            arguments: ["-a", "Simulator", "--args", "-CurrentDeviceUDID", device.udid]
-        )
+        await openSimulatorUI(for: device)
         try await runRequired(
             executableURL: Self.xcrunURL,
             arguments: ["simctl", "install", device.udid, appBundleURL.path]
@@ -306,6 +303,15 @@ public actor HypeSimulatorRuntimeLauncher {
             appBundleURL: appBundleURL,
             manifest: manifest,
             device: device
+        )
+    }
+
+    private func openSimulatorUI(for device: HypeSimulatorDevice) async {
+        _ = try? await commandRunner.run(
+            HypeSimulatorCommand(
+                executableURL: Self.openURL,
+                arguments: ["-a", "Simulator", "--args", "-CurrentDeviceUDID", device.udid]
+            )
         )
     }
 
