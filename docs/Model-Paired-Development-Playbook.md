@@ -186,14 +186,16 @@ what one pass cannot.**
 
 > **Model-tier nuance (important):** the persona definition files may default to
 > one tier, but the operating rules **override the model per invocation** and you
-> should pass it explicitly every time. The judgment/creative planning phases —
-> **Design and Architecture** — are the deep-cognition tier; the execution/review
-> phases are standard. **Claude:** Designer and Architect → `fable` (fall back to
-> the latest Opus when Fable is unavailable); Security, Builder, Tester → the
-> latest `sonnet`. **Codex:** Designer and Architect → GPT-5.6 Sol; Security,
-> Builder, Tester → Terra (Luna, the lightest tier, is unassigned by default).
-> Spend the deepest model where judgment matters most — design and architecture —
-> and the standard model for the well-specified execution and review roles.
+> should pass it explicitly every time. The judgment/creative planning and
+> validation phases — **Design, Architecture, and Doc Validation** — are the
+> deep-cognition tier; the execution/synthesis/review phases are standard.
+> **Claude:** Designer and Architect → `fable` (fall back to the latest Opus when
+> Fable is unavailable), including as Doc Validation reviewers; Security, Builder,
+> Tester, Documenter → the latest `sonnet`. **Codex:** the deep tier → GPT-5.6
+> Sol; the standard tier → Terra (Luna, the lightest tier, is unassigned by
+> default). Spend the deepest model where judgment matters most — design,
+> architecture, and validating the docs — and the standard model for the
+> well-specified execution, synthesis, and review roles.
 > Don't rely on the agent-definition default — state the tier on every call.
 
 ### 4.2 Why distinct personas beat one smart context
@@ -412,7 +414,7 @@ risk, but lifecycle order does not:
 
 ```
 Design Mock → Architecture → Design Review/Revision → Security (plan) →
-Build → Security (code) → Design Sign-off → Test → Deploy
+Build → Security (code) → Design Sign-off → Test → Documentation → Deploy → Doc Validation
 ```
 
 Pre-grep (`git status` plus existing implementation/design/test inspection) is
@@ -735,7 +737,7 @@ tools: Read, Glob, Grep, WebSearch, WebFetch, Task
 
 You are a Senior Software Architect in this ordered lifecycle:
 Design Mock → Architecture → Design Review/Revision → Security (plan) → Build →
-Security (code) → Design Sign-off → Test → Deploy.
+Security (code) → Design Sign-off → Test → Documentation → Deploy → Doc Validation.
 
 Core principles:
 1. Explore exhaustively before planning — read every file that could be affected;
@@ -765,7 +767,7 @@ fuzz/property/metamorphic evidence.)*
 
 Canonical sequence for every change:
 Design Mock → Architecture → Design Review/Revision → Security (plan) → Build →
-Security (code) → Design Sign-off → Test → Deploy.
+Security (code) → Design Sign-off → Test → Documentation → Deploy → Doc Validation.
 
 Only the three Design stages may be N/A, only when there is no human-visible
 behavior or interaction impact, and only with a written rationale. All other
@@ -773,11 +775,12 @@ stages run with depth proportionate to semantic risk. Novel threat surface gets
 an explicit threat model, independently separated roles, deep testing, and
 Security reruns after fixes.
 
-Model assignments (pass explicitly every call). Design and Architecture are the
-deep tier; all other phases are standard. Claude: Designer and Architect → fable
-(fall back to the latest Opus when Fable is unavailable); Security, Builder,
-Tester → the latest sonnet. Codex: Designer and Architect → GPT-5.6 Sol; Security,
-Builder, Tester → Terra (Luna unassigned).
+Model assignments (pass explicitly every call). Design, Architecture, and Doc
+Validation are the deep tier; all other phases are standard. Claude: Designer and
+Architect → fable (fall back to the latest Opus when Fable is unavailable),
+including as Doc Validation reviewers; Security, Builder, Tester, Documenter → the
+latest sonnet. Codex: deep tier → GPT-5.6 Sol; standard tier → Terra (Luna
+unassigned).
 
 Every review returns PASS / CONDITIONAL PASS / FAIL. A conditional pass names
 conditions, owner, and closing evidence. FAIL blocks; material changes rerun

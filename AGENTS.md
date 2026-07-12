@@ -43,7 +43,7 @@ links — that is the memory system's documented format, intentionally unchanged
 
 Meaningful changes should follow this sequence:
 
-`Design Mock → Architecture → Design Review/Revision → Security (plan) → Build → Security (code) → Design Sign-off → Test → Deploy`
+`Design Mock → Architecture → Design Review/Revision → Security (plan) → Build → Security (code) → Design Sign-off → Test → Documentation → Deploy → Doc Validation`
 
 1. Design Mock: for human-visible or interactive changes, audit Hype's existing design work and specify an elegant, discoverable design contract with states, accessibility, and acceptance criteria.
 2. Architecture: identify the affected subsystem, exact implementation plan, expected behavior, risks, tests, and deployment proof.
@@ -67,7 +67,7 @@ This repo is initialized for `mpd` (Model-Paired Development) — the workflow
 above is gated by the `mpd` CLI. For any non-trivial change, drive it through
 `mpd` rather than editing ad hoc:
 
-1. `mpd status` — the current change and phase. If none: `mpd begin <kebab-name>` (add `--ui` for human-visible changes).
+1. `mpd status` — the current change and phase. If none: `mpd begin <kebab-name>` (add `--ui` for human-visible changes; `--fix` or `--chore` to skip the Documentation phases for defect fixes / non-functional work).
 2. `mpd next --harness <codex|claude-code>` — prints the phase's persona, the model to use, the artifacts to produce, and the gate command. Do exactly that work, then record the gate.
 3. When a phase produces OpenSpec artifacts, author them under `openspec/changes/<name>/` (proposal.md, specs/*/spec.md, design.md, tasks.md). `design.md` MUST end with a "## Conditions for Builder" section.
 4. Record the gate only after the work is done AND verified:
@@ -78,9 +78,14 @@ above is gated by the `mpd` CLI. For any non-trivial change, drive it through
 
 Never bypass a FAIL gate or commit around the pre-commit hook (`.githooks/pre-commit`). Intentional fixture secrets go in `.mpd/secret-allowlist.json` (suppressions are always reported).
 
-**Model policy (per phase tier).** The judgment/creative planning phases — Design and Architecture — are the deep-cognition tier; the execution/review phases (Security, Build, Test) are standard.
+A feature change also runs **Documentation** (after Test — the Documenter
+synthesizes a durable doc; a structural gate checks it) and **Doc Validation**
+(after Deploy — the Architect and Designer both validate it for accuracy). The
+doc folds into `docs/<name>.md` at archive. `--fix`/`--chore` skip both.
 
-| Harness | Design + Architecture (deep) | Security / Build / Test (standard) |
+**Model policy (per phase tier).** The judgment/creative planning and validation phases — Design, Architecture, and Doc Validation — are the deep-cognition tier; the execution/synthesis/review phases (Security, Build, Test, Documentation) are standard.
+
+| Harness | Design · Architecture · Doc Validation (deep) | Security · Build · Test · Documentation (standard) |
 |---|---|---|
 | **Codex** | GPT-5.6 **Sol** | GPT-5.6 **Terra** |
 | **Claude Code** | **Fable** (fall back to the latest Opus if Fable is unavailable) | latest **Sonnet** |
