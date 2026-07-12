@@ -1,13 +1,16 @@
 ---
 type: guide
 title: The Model-Paired Development Playbook
-description: Reusable recipe for building quality software while pairing with AI models — markdown context, adversarial personas, machine-enforced gates.
-updated: 2026-06-13
+description: Reusable recipe for building quality software with design, architecture, security, build, test, and deployment gates.
+updated: 2026-07-09
 ---
 
 # The Model-Paired Development Playbook
 
 *How to build quality software by pairing with AI models — a reproducible recipe.*
+
+**Protocol version:** 2026-07-09. This Markdown file is the canonical editable
+source; `/Users/mweingar/Documents/ModelPairedDev.pdf` is a generated export.
 
 This guide distills the method used to build **Hype** (a Swift 6 HyperCard
 revival) with an AI coding agent. It is not a description of one project; it is a
@@ -58,8 +61,8 @@ The value proposition, stated plainly:
   reached, not just accept it.
 - **Durable intent.** The domain knowledge accumulates in markdown the model
   re-reads each session, so quality compounds instead of resetting.
-- **Economical.** Tiering (below) means you spend the ceremony only where the
-  threat/novelty justifies it; trivial work stays fast.
+- **Proportionate.** Every gate remains visible, while artifact depth scales to
+  semantic risk; small work stays concise without creating bypasses.
 
 This is the difference between *"the model wrote some code"* and *"a disciplined
 team shipped a verified change."*
@@ -72,7 +75,8 @@ Everything else is mechanics. The method rests on three pillars:
 
 1. **Markdown as the shared brain** — written intent, written plans, written
    decisions. The model reads them before acting and writes them after.
-2. **Separated adversarial personas** — architect, security, builder, tester, run
+2. **Separated adversarial personas** — designer, architect, security, builder,
+   tester, run
    as distinct sub-agents with distinct incentives and (deliberately) different
    model tiers.
 3. **Testing & verification as a gate** — not a final chore but an invariant that
@@ -170,20 +174,26 @@ sub-agents, each with a single job, its own system prompt, and a deliberately
 chosen model tier. **Separation creates the adversarial diversity that catches
 what one pass cannot.**
 
-### 4.1 The four personas
+### 4.1 The five personas
 
 | Persona | Model tier | Tools | Single job | Why it's separate |
 |---|---|---|---|---|
+| **Designer** | **Opus** (strongest) | Read-only + design/runtime inspection | Audit the existing product design, create the design contract, review the architecture for fidelity, and sign off the built surface. **Writes no production code.** | A feature can be technically complete yet undiscoverable, incoherent, or inelegant. A dedicated design critic protects user intent at three separate gates. |
 | **Architect** | **Opus** (strongest) | Read-only + web + Task | Explore exhaustively, design, produce a zero-ambiguity written plan. **Writes no code.** | Planning is the highest-leverage step; it deserves the strongest model and a context uncontaminated by implementation detail. |
 | **Security** | Sonnet | Read-only + web | Find real vulnerabilities in the *plan*, then in the *code*. Cite file:line + severity + exact fix. | A reviewer who also wrote the code rubber-stamps it. A dedicated skeptic is incentivized to find holes. |
 | **Builder** | Sonnet | Read/Edit/Write/Bash | Implement the plan faithfully, match existing patterns, keep the build green. | Implementation should *follow* the contract, not re-litigate the design mid-stream. |
-| **Tester** | Sonnet | Read/Edit/Write/Bash | Read the real implementation, write white-box tests, run the **full** suite, fix until green. | A tester who only saw the plan tests the fantasy; one who reads the code tests reality. |
+| **Tester** | Sonnet | Read/Edit/Write/Bash | Read the real implementation; run functional, non-functional, regression, and applicable fuzz/property/metamorphic testing; run the **full** suite; fix until green. | A tester who only saw the plan tests the fantasy; one who reads the code tests reality. |
 
 > **Model-tier nuance (important):** the persona definition files may default to
 > one tier, but the operating rules **override the model per invocation** and you
-> should pass it explicitly every time. In Hype: Architect → `opus`; Security,
-> Builder, Tester → `sonnet`. Spend the expensive model where judgment matters
-> most (design), and use the faster model for the well-specified execution roles.
+> should pass it explicitly every time. The judgment/creative planning phases —
+> **Design and Architecture** — are the deep-cognition tier; the execution/review
+> phases are standard. **Claude:** Designer and Architect → `fable` (fall back to
+> the latest Opus when Fable is unavailable); Security, Builder, Tester → the
+> latest `sonnet`. **Codex:** Designer and Architect → GPT-5.6 Sol; Security,
+> Builder, Tester → Terra (Luna, the lightest tier, is unassigned by default).
+> Spend the deepest model where judgment matters most — design and architecture —
+> and the standard model for the well-specified execution and review roles.
 > Don't rely on the agent-definition default — state the tier on every call.
 
 ### 4.2 Why distinct personas beat one smart context
@@ -201,13 +211,42 @@ what one pass cannot.**
   paragraph to fix; the same flaw found after implementation costs a rewrite. The
   plan-stage security pass exists precisely to move discovery left.
 
-### 4.3 The hand-off contract
+### 4.3 Designer discipline
+
+The Designer owns the user's experience, not decoration. Before proposing a
+change, it audits the existing screens, components, tokens, interaction patterns,
+copy, accessibility behavior, and relevant prior design decisions. It then makes
+every capability and state discoverable, legible, coherent, and appropriately
+prominent. "Elegant" must be made auditable through acceptance criteria tied to
+the existing design system, information hierarchy, platform conventions,
+accessibility, adaptive behavior, and empty/loading/error/partial/overflow states.
+
+The Designer runs at three distinct points:
+
+1. **Design Mock** — produce the design specification and acceptance criteria
+   before Architecture.
+2. **Design Review/Revision** — review the Architect's plan before Build and send
+   it back if the plan degrades, buries, or omits the design intent.
+3. **Design Sign-off** — inspect the actual built surface and representative
+   runtime states before Test. This is a visual/interaction conformance gate, not
+   a substitute for independent functional testing.
+
+The three Design phases may be recorded as **N/A only when the change has no
+human-visible behavior or interaction impact**, with a written rationale. CLI
+behavior, user-facing errors, configuration ergonomics, accessibility, and
+developer-facing workflows can carry UX and must not be dismissed as "backend"
+without analysis.
+
+### 4.4 The hand-off contract
 
 Each persona's output is the next one's input, verbatim. The critical
-augmentation the Hype workflow adds: the architect's plan ends with a **"Conditions
+augmentation the Hype workflow adds: the Designer's acceptance criteria and the
+architect's plan are separate written contracts. The plan ends with a **"Conditions
 for Builder"** section enumerating every security/correctness invariant discovered
-during planning. That embedded checklist *is* the design-stage security review for
-routine work, and it travels with the contract so the builder cannot miss it.
+during planning. The plan must also map each identified risk or invariant to
+expected verification and state why any test category is inapplicable. These
+contracts travel together so the builder cannot miss design, security, or test
+intent.
 
 ---
 
@@ -225,10 +264,15 @@ insecure code physically cannot land).
 
 - For **new (greenfield) code**, the builder writes the tests **inline, in the
   same pass** as the implementation. Code and its tests are one unit of work.
-- The **tester persona** is for *investigating failures* and writing
-  **regression tests when a bug is found** — not for back-filling tests the
-  builder should have written. Don't spawn a tester to test brand-new code; spawn
-  it when something broke and you need to pin the behavior.
+- The **tester persona** reads the real implementation, deepens the Builder's
+  coverage, investigates failures, and adds regression tests when a bug is
+  found. It independently exercises functional behavior, error and boundary
+  paths, integration, and the non-functional qualities affected by the change:
+  performance, load/stress, resource use, concurrency, accessibility, resilience,
+  and other applicable quality attributes.
+- The test artifact includes a risk-to-test matrix. Each plan invariant maps to
+  functional, regression, non-functional, fuzz, property, or metamorphic
+  evidence; omitted categories carry an explicit applicability rationale.
 - Tests must assert **content**, not existence. "Returns non-nil" is not a test.
   "Returns `8` for `value(\"2 * (3+1)\")`" is.
 
@@ -242,10 +286,17 @@ insecure code physically cannot land).
    requires the check (branch protection). "Tests pass" reported by the agent is
    a *claim*; a hook that blocked the push, or a green required check, is a
    *fact*. (See §5.7 for the enforcement ladder and toolchain specifics.)
-3. **In the full tier, code cannot reach the tester without passing security.**
+3. **Code cannot reach Design Sign-off or the Tester without passing the
+   code-stage Security gate.**
 4. **Stage specific files; never `git add -A`.** You commit what you reviewed.
 5. **One logical change per commit**, with a clear message and co-author tag.
-6. **One install/deploy at the end**, not after every phase.
+6. **One install/deploy at the end**, not after every phase. The Deploy stage is
+   mandatory as a readiness and real-target verification gate, but it does not
+   create authority for an external release. Actually deploy only when the user
+   explicitly requested it or current repository instructions name the command,
+   target, and workflow as already authorized. Otherwise stop with deploy-ready
+   evidence. Consequential deployments require target confirmation, a rollback
+   plan, and post-deploy verification.
 
 ### 5.3 Verify your verification
 
@@ -356,54 +407,61 @@ you have.
 
 ## 6. The pipeline (the workflow)
 
-Tie the pillars together into a repeatable sequence. **Match the ceremony to the
-risk** — most work uses the Lite tier.
-
-### 6.1 Choose the tier by *novelty of threat surface*, not file count
-
-**Lite tier (default for most multi-file work):**
+Tie the pillars together into one ordered sequence. Rigor scales with semantic
+risk, but lifecycle order does not:
 
 ```
-Pre-grep the tree → Architect (plan + "Conditions for Builder")
-  → Builder (code + inline tests) → Security (code review)
-  → run tests → one install → commit
+Design Mock → Architecture → Design Review/Revision → Security (plan) →
+Build → Security (code) → Design Sign-off → Test → Deploy
 ```
 
-**Full tier (only for genuinely novel risk):** trigger when the change involves
-auth/credentials, network egress, file I/O on untrusted input, dynamic code
-execution, sandboxing, cryptography, or any capability with **no analog already
-shipped** in the codebase.
+Pre-grep (`git status` plus existing implementation/design/test inspection) is
+required setup before the persona phases. Commit is source-control work performed
+after Test and before an authorized Deploy when the repository workflow requires
+it; it is not a persona gate.
 
-```
-Architect → Security (plan) → Builder → Security (code) → Tester
-  → one install → commit
-```
+### 6.1 Applicability and rigor
 
-The difference is the **plan-stage security pass** and a **dedicated tester
-pass**. The Lite tier folds plan-stage security into the architect's "Conditions
-for Builder" and lets the builder write tests inline — because the architectural
-decisions for familiar work are already encoded in the predecessor you're
-modeling after.
+Every change passes Architecture, both Security gates, Build/change execution,
+Test, and Deploy/readiness. Small or documentation-only changes use proportionate
+artifacts, but no size-based category silently bypasses security impact analysis
+or verification. A one-line entitlement, dependency, parser, signing, network,
+CI, or deployment change can be high risk.
 
-### 6.2 Skip the pipeline entirely for
+Only **Design Mock, Design Review/Revision, and Design Sign-off** may be marked
+N/A, only when the change has no human-visible behavior or interaction impact,
+and only with a written rationale recorded before Build.
 
-Single-line fixes, typos, comment/config changes, and **additions that mirror an
-existing pattern verbatim** (e.g. adding another control modeled on an existing
-one — the design is already encoded in the predecessor; just edit directly).
-Running a six-agent pipeline for a one-line fix is malpractice in the other
-direction.
+Novel threat surface — auth/credentials, network egress, untrusted input or file
+I/O, dynamic execution, sandboxing, cryptography, persistence formats, or any
+capability with no shipped analog — requires the deepest Security and Tester
+evidence, independently separated roles, an explicit threat model, and rerunning
+Security after every fix. Routine changes keep the same phases with proportionate
+depth.
 
-### 6.3 The gates between phases
+### 6.2 Gate semantics and backward edges
 
-- **After the architect:** present the plan summary to the human (when engaged);
-  proceed only when the design is agreed. In full tier, security must PASS/
-  CONDITIONAL-PASS the *plan* first.
-- **After the builder:** security reviews the *actual code on disk* (it greps real
-  files — it catches what plan review can't). 1–3 small findings? Fix inline. More
-  than that, or anything critical/high? Send it back; don't sail past.
-- **Before commit:** full suite green, specific files staged, message written.
+Every review ends in **PASS**, **CONDITIONAL PASS**, or **FAIL**. A conditional
+pass lists each condition, its owner, and the evidence needed to close it;
+unresolved Security or Test conditions block actual deployment. A FAIL blocks
+progress. Findings return work to the earliest affected Design, Architecture, or
+Build phase, and every invalidated downstream gate reruns after material changes.
 
-### 6.4 Keep the human in the loop at decision points
+- **After Design Mock:** present the design specification to the human when
+  engaged; Architecture builds against it.
+- **After Architecture:** present the plan summary. Design Review/Revision must
+  approve UI/UX fidelity, then Security must approve the plan.
+- **After Build:** Security reviews the actual code on disk. Design Sign-off then
+  inspects the real built surface and representative states; it cannot approve
+  unseen work.
+- **Test:** the Tester reads the implementation and executes the risk-to-test
+  matrix, the full project gate, and real-target checks. Commands, counts, exit
+  status, and any omitted-category rationale are reported.
+- **Deploy:** deploy only with explicit authority or concrete current repository
+  instructions naming the command and target; otherwise produce deploy-ready
+  evidence. Verify the real target after deployment.
+
+### 6.3 Keep the human in the loop at decision points
 
 The pipeline is autonomous *execution*, not autonomous *judgment*. When a genuine
 trade-off exceeds a pre-agreed threshold, **stop and ask** rather than rationalize
@@ -427,6 +485,7 @@ sub-agents (the examples use Claude Code's `Task`/sub-agent mechanism).
   CLAUDE.md                 # global operating rules (pipeline, source control, model tiers)
   ddd-collaboration.md      # collaboration / domain-modeling principles
   agents/
+    designer.md             # persona: design mock, plan review, built-surface sign-off
     architect.md            # persona: model + tools + system prompt
     security.md
     builder.md
@@ -453,9 +512,10 @@ sub-agents (the examples use Claude Code's `Task`/sub-agent mechanism).
 1. **Persona definitions** (`agents/*.md`). Each is a markdown file with
    frontmatter (`name`, `description`, `model`, `tools`) and a system prompt that
    gives the persona one job and explicit rules. Use the appendix templates as a
-   starting point. Pin the **tools** narrowly: the architect and security get
-   **read-only** tools (Read/Grep/Glob/web) so they cannot accidentally write
-   code; the builder and tester get Edit/Write/Bash.
+   starting point. Pin the **tools** narrowly: Designer, Architect, and Security
+   are non-implementation roles; Builder and Tester get Edit/Write/Bash. Designer
+   may use read-only runtime/design inspection tools needed to examine the real
+   surface but never writes production code.
 2. **The global `CLAUDE.md`** — the operating rules: the pipeline, the tier
    trigger list, the **mandatory model assignments**, and the source-control law
    (stage specific files, one logical change per commit, co-author tag, never
@@ -483,8 +543,8 @@ sub-agents (the examples use Claude Code's `Task`/sub-agent mechanism).
 
 ### 7.3 Configuration that matters
 
-- **Model tiers, explicit per call.** Architect = strongest; security/builder/
-  tester = a fast capable model. State the tier on every invocation — don't trust
+- **Model tiers, explicit per call.** Designer and Architect = strongest;
+  security/builder/tester = a fast capable model. State the tier on every invocation — don't trust
   defaults.
 - **Read-only tools for the thinkers.** Enforced tool scoping is what makes "the
   architect writes no code" a guarantee instead of a hope.
@@ -495,10 +555,11 @@ sub-agents (the examples use Claude Code's `Task`/sub-agent mechanism).
 
 ### 7.4 Cost & ergonomics
 
-A full-tier run spends real tokens (six agents, exhaustive reads). That's the
-point — you're buying defect-discovery you'd otherwise pay for in production. Keep
-it economical by defaulting to Lite, skipping trivial work, and doing **one
-install at the end** rather than rebuilding after every phase.
+A deep run spends real tokens and exhaustive reads. That's the point — you're
+buying defect discovery you'd otherwise pay for in production. Keep it
+proportionate by scaling artifact depth to semantic risk and doing **one install
+at the end** rather than rebuilding after every phase; do not delete mandatory
+gates to save time.
 
 ---
 
@@ -516,23 +577,28 @@ mobile, ideally watchOS-capable."*
 2. **Establish baselines (verify-first).** Before optimizing, *measure*: capture
    the interpreter's `__text` size and a benchmark of representative workloads, so
    every later claim has a before-number.
-3. **Architect the plan (Opus, read-only).** Produce a phased plan — compatibility
+3. **Design applicability.** This interpreter task had no new human-visible
+   interaction, so the three Design phases were recorded N/A with that rationale.
+4. **Architect the plan (Opus, read-only).** Produce a phased plan — compatibility
    gaps, speed, size, watchOS — each phase with file paths, exact edits, expected
    wins, and a **"Conditions for Builder"** section (e.g. "dynamic `value()`
    evaluation must reuse the existing recursion-depth and byte-size caps").
-4. **Implement in slices, each verified and committed.** Close the compatibility
+5. **Security-review the plan, then implement in slices.** Close the compatibility
    gaps (with inline fidelity tests); then the speed change (gate per-statement
    work to visible effects) — *proven* with publish-count and wall-clock numbers,
    and a correctness argument that the final render still flushes; then the size
    change (`-Osize`) — *measured* at −48% with a median-of-three CPU cost.
-5. **Verify the hard claim empirically.** "watchOS-capable" wasn't asserted — a
+6. **Security-review the code and verify independently.** Review the actual diff,
+   then have the Tester exercise functional behavior, regressions, performance,
+   and the seeded fuzz/property suite. "watchOS-capable" wasn't asserted — a
    throwaway sub-agent and then a committed script **compiled the interpreter
    kernel for the watchOS triple**, proving 192/214 source files build for watch
    and naming the exact device-only files that don't.
-6. **Surface the trade-off.** The `-Osize` CPU cost exceeded the pre-agreed gate,
+7. **Surface the trade-off.** The `-Osize` CPU cost exceeded the pre-agreed gate,
    so the decision went **back to the human** with the numbers — not quietly
    absorbed.
-7. **Land it cleanly.** Full suite green (3,026 tests, serial for determinism);
+8. **Land and deploy/readiness-check it cleanly.** Full suite green (3,026 tests,
+   serial for determinism);
    **specific files staged** (the unrelated work-in-progress from another task was
    *excluded*, not swept in); logical commits with co-author tags; docs updated in
    the same change; push.
@@ -551,6 +617,10 @@ checklist while reviewing the model's work.
 
 ### 9.1 Green flags (the method is being followed)
 
+- **The Designer is grounded in existing work.** The mock cites established
+  components/patterns/tokens, covers every state and accessibility requirement,
+  and ends in checkable acceptance criteria. Review and Sign-off compare the plan
+  and real built surface against that contract.
 - **The architect's plan is specific.** File paths, type signatures, dependency
   order, edge cases, and a **"Conditions for Builder"** section. Not prose like
   "we'll update the parser to handle this."
@@ -558,7 +628,9 @@ checklist while reviewing the model's work.
   exact remediation`, and an explicit **PASS / CONDITIONAL PASS / FAIL** verdict.
   It names what it *did* review, and admits what it *couldn't*.
 - **Tests are real and counted.** The output shows a concrete suite result
-  (*"3,026 tests passed"*), run on the **full** suite, with assertions on content.
+  (*"3,026 tests passed"*), run on the **full** suite, with assertions on content,
+  a risk-to-test matrix, applicable functional/non-functional/fuzz evidence, and
+  explicit rationale for omitted categories.
 - **Claims carry evidence.** Performance/size statements come with the command and
   before/after numbers; "it works" comes with output from running the real thing.
 - **Commits are clean.** *Specific* files staged, one logical change each, clear
@@ -582,7 +654,11 @@ checklist while reviewing the model's work.
 - **Round-number metrics with no source.** A "50% improvement" that never shows
   the before, the after, or the command.
 - **Phases skipped or collapsed.** Code appears with no plan; "security reviewed"
-  with no findings and no verdict; a tester that clearly only read the plan.
+  with no findings and no verdict; a tester that clearly only read the plan; or a
+  UI/UX change with no design contract and built-surface Sign-off.
+- **N/A without a reason.** A Design stage disappears because the change was
+  called "backend" even though a human-visible behavior, error, CLI, workflow, or
+  accessibility surface changed.
 - **One giant commit**, or `git add -A`, or unrelated files swept in, or a missing
   co-author tag.
 - **The model rationalizes past a gate** it set itself ("technically this exceeds
@@ -627,14 +703,19 @@ model faking it scrambles — which is itself the signal.
   didn't make, *exclude* them from your commits and say so. Never `git add -A`.
 - **Letting the architect write code or the builder redesign.** Role bleed
   destroys the separation that makes the method work. Enforce it with tool scoping.
-- **Ceremony for trivial work.** A six-agent pipeline for a typo wastes tokens and
-  trust. Tier honestly; skip when the predecessor already encodes the design.
+- **Scaling by file count instead of semantic risk.** Keep artifacts concise for
+  a typo or comment, but still record proportionate architecture/impact,
+  security, verification, and deployment-readiness checks. A one-line security,
+  entitlement, dependency, parser, or release change is not trivial.
 - **Deleting/overwriting without looking.** Before destroying anything you didn't
   create, read it — if it contradicts how it was described, surface that instead
   of proceeding.
 - **Rationalizing past your own gate.** If you set a threshold, honor it: when
   reality exceeds it, that's a *decision point for the human*, not a paragraph of
   justification.
+- **Approving an unseen interface.** Design Sign-off must inspect the actual built
+  surface and representative states. When tooling cannot observe them, it returns
+  a concrete verification checklist; it does not rubber-stamp the plan.
 
 ---
 
@@ -645,13 +726,16 @@ model faking it scrambles — which is itself the signal.
 ```markdown
 ---
 name: architect
-description: Senior architect. Use FIRST for any feature. Explores the codebase,
+description: Senior architect. Use after Design Mock for UI/UX work and first
+  when Design is explicitly N/A. Explores the codebase,
   designs the approach, produces a file-by-file plan. Writes no code.
-model: opus
+model: fable   # deep-cognition tier; fall back to opus when Fable is unavailable
 tools: Read, Glob, Grep, WebSearch, WebFetch, Task
 ---
 
-You are a Senior Software Architect — phase 1 of Architect → Builder → Tester.
+You are a Senior Software Architect in this ordered lifecycle:
+Design Mock → Architecture → Design Review/Revision → Security (plan) → Build →
+Security (code) → Design Sign-off → Test → Deploy.
 
 Core principles:
 1. Explore exhaustively before planning — read every file that could be affected;
@@ -667,42 +751,47 @@ why); Data-model changes; Dependency order; Edge cases; Testing notes; and a fin
 NEVER write implementation code — only signatures and plan detail.
 ```
 
-*(Make analogous files for `security`, `builder`, `tester` — each with one job,
-read-only vs. write tools as appropriate, and explicit "never do X" rules. The
-security persona must end every review with a PASS / CONDITIONAL PASS / FAIL
-verdict and cite `[SEVERITY] FILE:LINE → fix` for each finding.)*
+*(Make analogous files for `designer`, `security`, `builder`, and `tester` — each
+with one job, narrowly scoped tools, and explicit "never do X" rules. The
+Designer owns Mock, Review/Revision, and built-surface Sign-off; Security must end
+both reviews with PASS / CONDITIONAL PASS / FAIL and cite `[SEVERITY] FILE:LINE →
+fix`; the Tester owns functional, non-functional, regression, and applicable
+fuzz/property/metamorphic evidence.)*
 
 ### 11.2 Operating-rules block for `CLAUDE.md`
 
 ```markdown
 ## Multi-Agent Pipeline (DEFAULT WORKFLOW)
 
-Two tiers, chosen by novelty of threat surface (not file count).
+Canonical sequence for every change:
+Design Mock → Architecture → Design Review/Revision → Security (plan) → Build →
+Security (code) → Design Sign-off → Test → Deploy.
 
-Lite tier (default): pre-grep the tree → Architect (plan + "Conditions for
-Builder") → Builder (code + inline tests) → Security (code) → run tests →
-one install → commit.
+Only the three Design stages may be N/A, only when there is no human-visible
+behavior or interaction impact, and only with a written rationale. All other
+stages run with depth proportionate to semantic risk. Novel threat surface gets
+an explicit threat model, independently separated roles, deep testing, and
+Security reruns after fixes.
 
-Full tier (auth, network egress, untrusted I/O, dynamic exec, sandboxing,
-crypto, or any capability with no analog already shipped):
-Architect → Security (plan) → Builder → Security (code) → Tester → install → commit.
+Model assignments (pass explicitly every call). Design and Architecture are the
+deep tier; all other phases are standard. Claude: Designer and Architect → fable
+(fall back to the latest Opus when Fable is unavailable); Security, Builder,
+Tester → the latest sonnet. Codex: Designer and Architect → GPT-5.6 Sol; Security,
+Builder, Tester → Terra (Luna unassigned).
 
-Model assignments (pass explicitly every call): Architect → opus; Security,
-Builder, Tester → sonnet.
-
-Skip entirely for: one-line fixes, typos, comments, config, and additions that
-mirror an existing pattern verbatim.
-
-Invariants: code-stage security review is mandatory in both tiers; all tests pass
-before deploy; in full tier code cannot reach the Tester without passing Security;
-stage specific files (never `git add -A`); one logical change per commit; one
-install at the end; present the plan summary to the user before proceeding.
+Every review returns PASS / CONDITIONAL PASS / FAIL. A conditional pass names
+conditions, owner, and closing evidence. FAIL blocks; material changes rerun
+affected downstream gates. All tests pass before an authorized deployment.
+Deploy is also a readiness gate and does not create release authority: actually
+deploy only when explicitly requested or when current repo instructions name the
+command and target. Stage specific files (never `git add -A`), keep one logical
+change per commit, and present design/plan summaries to the user when engaged.
 ```
 
 ### 11.3 Source-control rules
 
 ```markdown
-- Tests pass → stage specific files → commit → deploy.
+- Tests pass → stage specific files → commit → authorized deploy or readiness evidence.
 - Stage specific files — never `git add -A`.
 - Never commit secrets (.env, keys, .p8) or build artifacts.
 - One logical change per commit; clear imperative message.
@@ -714,8 +803,11 @@ install at the end; present the plan summary to the user before proceeding.
 
 ```
 PLAN
+[ ] Design applicability recorded; N/A has a no-UI/UX rationale
+[ ] UI/UX change has a Design Spec grounded in existing design + acceptance criteria
 [ ] Plan exists as text, with file paths + signatures + dependency order
 [ ] "Conditions for Builder" lists security/correctness invariants
+[ ] Design Review/Revision approved the plan before code was written
 [ ] Plan summary was shown to me before code was written
 
 SECURITY
@@ -727,7 +819,10 @@ SECURITY
 BUILD & TEST
 [ ] Builder read the existing file before editing it (pattern match)
 [ ] Build is green; output shown
+[ ] UI/UX implementation received built-surface Design Sign-off
 [ ] FULL test suite run; real count reported; assertions on content
+[ ] Functional + regression matrix covers success/error/boundary/integration paths
+[ ] Applicable non-functional tests cover performance/load/resource/a11y/concurrency
 [ ] Parser/interpreter/format/protocol change → property/fuzz suite green (+ extended)
 [ ] Adequacy reported where configured (coverage / mutation), not just pass-count
 [ ] Performance/size claims have before+after numbers + the command
@@ -744,6 +839,10 @@ COMMIT
 [ ] One logical change; clear message; co-author tag
 [ ] Docs updated in the same change
 [ ] Unrelated/foreign changes were excluded and called out
+
+DEPLOY / READINESS
+[ ] Deploy target, command, authority, rollback, and post-deploy proof are explicit
+[ ] If deployment is not authorized, deploy-ready evidence is delivered instead
 
 JUDGMENT
 [ ] Trade-offs exceeding a threshold were brought to me with numbers

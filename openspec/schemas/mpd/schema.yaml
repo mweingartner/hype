@@ -1,0 +1,67 @@
+name: mpd
+version: 1
+description: >
+  Model-Paired Development — the OpenSpec spec-driven workflow (proposal →
+  specs → design → tasks) extended so the design artifact carries the
+  "Conditions for Builder" security/correctness invariants that the adversarial
+  gate pipeline enforces.
+artifacts:
+  - id: proposal
+    generates: proposal.md
+    description: Why the change is needed, what changes, and its impact.
+    template: proposal.md
+    instruction: |
+      Establish WHY this change is needed.
+      Sections: Why, What Changes (mark **BREAKING**), Capabilities
+      (New / Modified — each maps to a specs/<name>/spec.md), Impact.
+      Keep it to 1-2 pages; the "how" belongs in design.md.
+    requires: []
+
+  - id: specs
+    generates: "specs/**/*.md"
+    description: Delta specs defining WHAT the system must do.
+    template: spec.md
+    instruction: |
+      One delta spec per capability from the proposal, using delta headers:
+      ## ADDED / MODIFIED / REMOVED / RENAMED Requirements.
+      Each requirement: `### Requirement: <name>` + a SHALL/MUST statement.
+      Each scenario: `#### Scenario: <name>` (EXACTLY four hashes) with
+      WHEN/THEN bullets. Every requirement needs at least one scenario.
+    requires:
+      - proposal
+
+  - id: design
+    generates: design.md
+    description: HOW to implement, plus the Conditions for Builder.
+    template: design.md
+    instruction: |
+      Explain the technical approach: Context, Goals/Non-Goals, Decisions
+      (with alternatives), Risks/Trade-offs, Migration Plan, Open Questions.
+
+      REQUIRED for mpd — end with a "## Conditions for Builder" section
+      enumerating the security and correctness invariants discovered while
+      planning (trust boundaries, untrusted input, irreversible operations,
+      credential handling). These conditions are what the Security (plan) and
+      Security (code) gates verify against.
+    requires:
+      - proposal
+
+  - id: tasks
+    generates: tasks.md
+    description: Implementation checklist tracked by the Build phase.
+    template: tasks.md
+    instruction: |
+      Break the work into checkboxes: `- [ ] X.Y Task` grouped under
+      `## N. Heading`. Order by dependency. The Build phase marks `- [x]`
+      as tasks complete.
+    requires:
+      - specs
+      - design
+
+apply:
+  requires:
+    - tasks
+  tracks: tasks.md
+  instruction: |
+    Implement pending tasks faithfully, writing initial tests in the same pass.
+    Mark tasks complete as you go. Pause on blockers.

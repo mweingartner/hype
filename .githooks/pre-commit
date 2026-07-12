@@ -1,0 +1,17 @@
+#!/bin/sh
+# mpd pre-commit gate: fast secret scan on staged changes (tests run at the
+# Build/Test gate and in CI, not on every commit).
+# Bypass a single commit with MPD_GATE_SKIP=1.
+if [ "$MPD_GATE_SKIP" = "1" ]; then
+    echo "mpd: pre-commit gate skipped (MPD_GATE_SKIP=1)"
+    exit 0
+fi
+if command -v mpd >/dev/null 2>&1; then
+    mpd check --staged || {
+        echo "mpd: commit blocked by pre-commit gate (run 'mpd check --staged' for detail)"
+        exit 1
+    }
+else
+    echo "mpd: binary not on PATH; pre-commit gate not enforced"
+fi
+exit 0
