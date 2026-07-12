@@ -2,7 +2,7 @@
 type: decisions
 title: Hype Decisions & Guardrails
 description: Durable product-behavior and build guardrails (persistence, scripting, AI tooling, providers, runtime) — mandatory for substantive changes.
-updated: 2026-06-21
+updated: 2026-07-12
 ---
 
 # decisions.md
@@ -42,6 +42,7 @@ document semantics.
 - Keep SQLite storage diagnosable: core stack layout, scripts, assets, AI context, SpriteKit scenes/nodes, and search indexes should be inspectable through tables, indexes, and validation views.
 - Breaking document-model changes must bump `HypeDocument.currentDocumentVersion`, write the new version into `manifest.json` and `document_values`, and add a forward migration hook in `HypeSQLiteStackStore` before any old payloads are decoded.
 - Migrations run on a temporary database copy during load/search/validation. Opening an older stack must not rewrite the user's source package until the user explicitly saves it.
+- Only stack document windows persist launch window geometry; auxiliary windows (tool-hover panels, the script editor, the asset repository, About, the console, Theme Designer, import helper windows, and Settings) must never write it. Saved frames are app-local `UserDefaults` state (`AppLaunchState`), keyed per stack file's canonical path with a legacy global frame as the untitled-document fallback — never part of the `.hype` package. Hype does not use `NSQuitAlwaysKeepsWindows` or any system window-restoration override; the app delegate manually reopens only the single last-opened stack, so multi-window-at-launch OS restoration does not apply, and the residual race where a second document window could persist mid-session is accepted as self-healing rather than actively prevented.
 
 ## HypeTalk Behavior Guardrails
 

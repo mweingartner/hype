@@ -9,6 +9,12 @@ import AppKit
 final class HypeAppDelegate: NSObject, NSApplicationDelegate {
     private let launchState = AppLaunchState()
     private var pendingWindowFrame: NSRect?
+    /// The stack file `pendingWindowFrame` was computed for; `nil` means
+    /// the untitled/global fallback. Checked against a window's own
+    /// document URL before ever applying the pending frame, so a window
+    /// belonging to a different (or still-opening) stack can never
+    /// receive it.
+    private var pendingWindowFrameURL: URL?
     private var hasAppliedPendingFrame = false
     private var debugDefaultsObserver: NSObjectProtocol?
 
@@ -27,8 +33,10 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.set(0.35, forKey: "NSInitialToolTipDelay")
         UserDefaults.standard.register(defaults: ["hype.debug.enabled": true])
 
-        pendingWindowFrame = launchState.visibleWindowFrame(
-            using: NSScreen.screens.map(\.visibleFrame)
+        pendingWindowFrameURL = launchState.lastOpenedFileURL
+        pendingWindowFrame = launchState.restorableWindowFrame(
+            forFileAt: pendingWindowFrameURL,
+            visibleScreenFrames: visibleScreenFrames
         )
         installWindowObservers()
         updateDebugServerState()
@@ -105,7 +113,11 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         HypeDebugServer.shared.stop()
         HypeDocumentMutationCoordinator.shared.flushAllAutosaves()
 
-        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+        // Prefer `mainWindow`: document windows are main, while `keyWindow`
+        // may be a floating auxiliary panel (script editor, console) that
+        // happened to have focus at quit. `persistState(for:)`'s document
+        // guard makes this safe regardless of which window is picked.
+        if let window = NSApp.mainWindow ?? NSApp.keyWindow {
             persistState(for: window)
         }
 
@@ -139,40 +151,91 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The visible area of every attached screen, in the global
+    /// bottom-left coordinate space `AppLaunchState` clamps against. Read
+    /// fresh each time rather than cached, since displays can connect or
+    /// disconnect between launch and any later recompute.
+    private var visibleScreenFrames: [NSRect] {
+        NSScreen.screens.map(\.visibleFrame)
+    }
+
     private func openDocument(at url: URL) {
         NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { [weak self] document, _, error in
             guard let self else { return }
 
             if error != nil && document == nil {
                 self.launchState.clearLastOpenedFile()
+                // The stack the pending frame was computed for failed to
+                // open. Retarget at the global fallback so the untitled
+                // replacement window restores the last document window's
+                // frame instead of carrying forward a frame keyed to a
+                // file that just failed to load.
+                self.pendingWindowFrameURL = nil
+                self.pendingWindowFrame = self.launchState.restorableWindowFrame(
+                    forFileAt: nil,
+                    visibleScreenFrames: self.visibleScreenFrames
+                )
                 NSDocumentController.shared.newDocument(nil)
             }
 
             if let window = document?.windowControllers.first?.window {
                 self.applyPendingWindowFrame(to: window)
-            } else if let window = NSApp.keyWindow ?? NSApp.mainWindow {
-                self.applyPendingWindowFrame(to: window)
+            } else {
+                // SwiftUI's DocumentGroup may not have attached the window
+                // controller yet when this completion fires. Retry once on
+                // the next runloop tick; `windowDidBecomeMain` remains the
+                // backstop if the window still isn't attached by then.
+                DispatchQueue.main.async {
+                    if let window = document?.windowControllers.first?.window {
+                        self.applyPendingWindowFrame(to: window)
+                    }
+                }
             }
         }
     }
 
     private func persistState(for window: NSWindow) {
-        launchState.save(windowFrame: window.frame)
-        if let url = fileURL(for: window) {
+        // Auxiliary windows — panels, sheets, the script editor, the asset
+        // repository, About, the console, and Settings — are never owned
+        // by an NSDocument. This guard is the fix for the poisoned-launch-
+        // geometry bug: only a stack's own document window may persist
+        // launch geometry.
+        guard let document = document(for: window) else { return }
+        launchState.save(windowFrame: window.frame, forFileAt: document.fileURL)
+        if let url = document.fileURL {
             launchState.save(fileURL: url)
         }
     }
 
-    private func fileURL(for window: NSWindow) -> URL? {
+    /// The open `NSDocument` that owns `window`, if any. Used both to
+    /// resolve a window's file URL and to gate which windows may persist
+    /// launch geometry — a window with no owning document is always an
+    /// auxiliary window.
+    private func document(for window: NSWindow) -> NSDocument? {
         NSDocumentController.shared.documents.first { document in
             document.windowControllers.contains { $0.window === window }
-        }?.fileURL
+        }
+    }
+
+    private func fileURL(for window: NSWindow) -> URL? {
+        document(for: window)?.fileURL
     }
 
     private func applyPendingWindowFrame(to window: NSWindow?) {
         guard !hasAppliedPendingFrame,
               let frame = pendingWindowFrame,
-              let window else { return }
+              let window,
+              let document = document(for: window) else { return }
+
+        // Skip WITHOUT consuming the pending frame when the window's own
+        // stack doesn't match the one the frame was computed for —
+        // `hasAppliedPendingFrame` stays false so a later `becomeMain` for
+        // the *right* window can still apply it. Both sides `nil`
+        // (untitled) counts as a match.
+        let windowFrameKey = document.fileURL.map(AppLaunchState.frameKey(forFileAt:))
+        let pendingFrameKey = pendingWindowFrameURL.map(AppLaunchState.frameKey(forFileAt:))
+        guard windowFrameKey == pendingFrameKey else { return }
+
         window.setFrame(frame, display: true)
         hasAppliedPendingFrame = true
     }
@@ -188,8 +251,11 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
         // SwiftUI tooltip code paths depend on that. Cheap to
         // set, defensive against future regressions.
         window.acceptsMouseMovedEvents = true
-        persistState(for: window)
+        // Apply the restored frame before persisting: reversing this order
+        // would immediately overwrite the just-restored geometry with
+        // whatever default frame the window opened at.
         applyPendingWindowFrame(to: window)
+        persistState(for: window)
     }
 
     @objc

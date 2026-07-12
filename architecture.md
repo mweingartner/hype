@@ -2,7 +2,7 @@
 type: architecture
 title: Hype Architecture
 description: The product and runtime architecture — source of truth for subsystems, persistence, scripting, rendering, AI, and platform footprint.
-updated: 2026-06-21
+updated: 2026-07-12
 ---
 
 # Hype Architecture
@@ -645,6 +645,23 @@ Stack-authored mode flags that affect portability, including
 `Stack.userLevel`, live in the stack model rather than `UserDefaults`;
 purely local window geometry, selected AI provider, and API keys remain local
 app preferences or Keychain entries.
+
+Window launch geometry is one such purely local preference, but it is not a
+single global value: `AppLaunchState` (`Sources/Hype/AppLaunchState.swift`)
+stores the last window frame per stack file under that file's canonicalized
+path (standardized, symlinks resolved), pruned to the 32 most-recently-used
+entries, alongside one legacy global frame used as the untitled-document
+fallback and as the pre-multi-stack backward-compatible read. Only a stack's
+own document window may persist this geometry — `HypeAppDelegate.persistState(for:)`
+gates every write on the window belonging to an open `NSDocument`
+(`HypeApp.swift`), so auxiliary windows (tool-hover panels, the script editor,
+the asset repository, About, the console, Theme Designer, import helper
+windows, and Settings) can never overwrite it. At launch, the frame for the
+stack being reopened is looked up and clamped to the currently visible
+screens — used as-is when it fits entirely on one screen, translated when
+partially off-screen, shrunk only as needed when larger than every screen —
+and applied at most once per process, only to that stack's matching document
+window.
 
 `Stack.userLevel` is a progressive authoring capability level saved with the
 stack: 1 Browsing, 2 Typing, 3 Painting, 4 Authoring, 5 Scripting. It drives the

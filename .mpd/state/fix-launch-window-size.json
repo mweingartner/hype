@@ -1,0 +1,78 @@
+{
+  "change": "fix-launch-window-size",
+  "schema": "mpd",
+  "ui": false,
+  "phase": "done",
+  "gates": {
+    "architecture": {
+      "verdict": "pass",
+      "by": "Architect",
+      "evidence": "openspec/changes/fix-launch-window-size/design.md#conditions-for-builder",
+      "at": "2026-07-12"
+    },
+    "security-plan": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "all 3 conditions verified in code by the Security-code gate (optional-casts, degenerate-screen filter, timestamp .isFinite)",
+      "at": "2026-07-12"
+    },
+    "build": {
+      "verdict": "pass",
+      "by": "Builder",
+      "evidence": "openspec/changes/fix-launch-window-size/tasks.md#4 (26 AppLaunchStateTests green; core+CLI suite green)",
+      "checks": {
+        "tests_passed": 3142,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-07-12"
+    },
+    "security-code": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "security-code review: 15 conditions verified in code; secret scan clean; 2 Low advisories deferred",
+      "checks": {
+        "secrets_clean": true,
+        "scanner": "builtin"
+      },
+      "at": "2026-07-12"
+    },
+    "test": {
+      "verdict": "pass",
+      "by": "Tester",
+      "evidence": "30 AppLaunchStateTests + core/CLI suite green; per-path isolation regression + CWE-400 stress added",
+      "checks": {
+        "tests_passed": 3172,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-07-12"
+    },
+    "deploy": {
+      "verdict": "pass",
+      "by": "main-session",
+      "evidence": "/Users/mweingar/dev/hype-v2/openspec/changes/archive/2026-07-12-fix-launch-window-size",
+      "at": "2026-07-12"
+    }
+  },
+  "conditions": [
+    {
+      "text": "Builder: decode lastWindowFrameByPath with optional casts only at every level",
+      "owner": "Security",
+      "closed": true
+    },
+    {
+      "text": "Builder: drop degenerate (non-positive) screen rects before clamping",
+      "owner": "Security",
+      "closed": true
+    },
+    {
+      "text": "Security-code: verify .isFinite covers the lastUsed timestamp element",
+      "owner": "Security",
+      "closed": true
+    },
+    {
+      "text": "Architect: window-restoration race resolved (no NSQuitAlwaysKeepsWindows; accepted self-healing)",
+      "owner": "Security",
+      "closed": true
+    }
+  ]
+}
