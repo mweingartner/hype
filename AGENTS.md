@@ -55,7 +55,7 @@ Meaningful changes should follow this sequence:
 8. Test: read the implementation, add/update regression coverage, run functional and applicable non-functional tests, and run the narrowest relevant tests plus a broader suite when shared runtime code changed.
    - **Parser / interpreter / chunk / file-format / network-protocol changes MUST keep the property/fuzz suite green** and, when they add a new language construct or format rule, extend it. See `Tests/HypeCoreTests/InterpreterFuzzTests.swift` (seeded grammar fuzzer + metamorphic relations). When the fuzzer finds a failure it prints the seed and source — add that seed to `regressionSeeds` to pin it.
    - Assert on **content**, never just existence (`#expect(x == 8)`, not `#expect(x != nil)`).
-9. Deploy/readiness: do not rely on "tests pass" reported by hand — the suite must actually run (a real, non-zero count), including the interpreter fuzz suite for language/format changes (see below). When authorized by the current repo workflow, install `/Applications/Hype.app` and verify the real target; otherwise deliver deploy-ready evidence. Never commit secrets.
+9. Deploy/readiness: do not rely on "tests pass" reported by hand — the suite must actually run (a real, non-zero count), including the interpreter fuzz suite for language/format changes (see below). **Installing `/Applications/Hype.app` is the standing end-of-cycle default** — the `mpd` Deploy gate builds and installs it via `scripts/mpd-deploy.sh`; verify the real target by launching it. Skip only when the change produces nothing installable. Never commit secrets.
 
 Only the three Design stages may be marked N/A, only when the change has no human-visible behavior or interaction impact, and only with a written rationale. All other stages run with depth proportionate to semantic risk. Every gate returns PASS, CONDITIONAL PASS, or FAIL; conditions name their owner and closing evidence, FAIL blocks, and material changes invalidate downstream approvals. The canonical cross-project protocol is [`docs/Model-Paired-Development-Playbook.md`](docs/Model-Paired-Development-Playbook.md), version 2026-07-09.
 
@@ -72,8 +72,9 @@ above is gated by the `mpd` CLI. For any non-trivial change, drive it through
 3. When a phase produces OpenSpec artifacts, author them under `openspec/changes/<name>/` (proposal.md, specs/*/spec.md, design.md, tasks.md). `design.md` MUST end with a "## Conditions for Builder" section.
 4. Record the gate only after the work is done AND verified:
    - `mpd gate <phase> --pass --evidence <pointer>` — or `--fail` (do not advance).
-   - Build/Test gates re-run `swift test`; security-code runs a secret scan. You cannot fake these.
-5. Loop `mpd next` → work → `mpd gate` until Deploy, then `mpd archive` (preview the spec merge) → `mpd archive --yes`.
+   - Build/Test gates re-run `swift test`; security-code runs a secret scan; the **Deploy gate runs the configured deploy command** and refuses PASS if it exits non-zero. You cannot fake these.
+   - A CONDITIONAL PASS records open conditions that block archive; close them with `mpd resolve <n>` (or `mpd resolve --all`) once done.
+5. Loop `mpd next` → work → `mpd gate` until Deploy. **Deploying to `/Applications` is the standing end-of-cycle default**: `mpd gate deploy --pass` runs the `deploy` command in `.mpd/config.json` (`scripts/mpd-deploy.sh` → `script/build_and_run.sh --deploy`), which builds Hype and installs `/Applications/Hype.app`. Then `mpd archive` (preview the spec merge) → `mpd archive --yes`, and `open /Applications/Hype.app` to verify the real target. Skip the deploy only when the change genuinely produces nothing installable (pure docs/tooling).
 
 Never bypass a FAIL gate or commit around the pre-commit hook (`.githooks/pre-commit`). Intentional fixture secrets go in `.mpd/secret-allowlist.json` (suppressions are always reported).
 
