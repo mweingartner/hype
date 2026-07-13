@@ -1,0 +1,58 @@
+{
+  "change": "repository-retention-audit",
+  "schema": "mpd",
+  "ui": false,
+  "kind": "chore",
+  "phase": "done",
+  "gates": {
+    "architecture": {
+      "verdict": "pass",
+      "by": "Architect",
+      "evidence": "design.md final Conditions 10-11: preserve unique v3/v4 measurements non-operatively in training README before deleting RESUME_V4; exact deletions unchanged; 886/64 post-count",
+      "at": "2026-07-13"
+    },
+    "security-plan": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "openspec/changes/repository-retention-audit/design.md#architecture-conditions-restated-canonically-after-review-evidence",
+      "at": "2026-07-13"
+    },
+    "build": {
+      "verdict": "pass",
+      "by": "Builder",
+      "evidence": "openspec/changes/repository-retention-audit/design.md#build-evidence",
+      "checks": {
+        "tests_passed": 6344,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-07-13"
+    },
+    "security-code": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "openspec/changes/repository-retention-audit/design.md#security-code-remediation-evidence",
+      "checks": {
+        "secrets_clean": true,
+        "scanner": "builtin+gitleaks"
+      },
+      "at": "2026-07-13"
+    },
+    "test": {
+      "verdict": "pass",
+      "by": "Tester",
+      "evidence": "openspec/changes/repository-retention-audit/design.md#test-evidence",
+      "checks": {
+        "tests_passed": 6344,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-07-13"
+    },
+    "deploy": {
+      "verdict": "pass",
+      "by": "main-session",
+      "evidence": "/Users/mweingar/dev/hype-v2/openspec/changes/archive/2026-07-13-repository-retention-audit",
+      "at": "2026-07-13"
+    }
+  },
+  "conditions": []
+}

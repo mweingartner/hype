@@ -184,6 +184,17 @@ Set as Hype's default via `make set-default`. To revert:
 defaults write com.hype.app ollamaModel "gemma4:31b"
 ```
 
+## Historical v3/v4 training snapshot (2026-04-22)
+
+This subsection preserves measurements from a dated experiment record only. It
+is non-operative: it is not a resume guide and makes no claim about current
+training state, available checkpoints, or model defaults.
+
+- The v4 run began with validation loss **1.311**.
+- Its training loss was **0.106 at iteration 100** and **0.057 at iteration 190**.
+- The v3 run reached validation loss **0.020 at iteration 800**, but only **3/26
+  quality prompts passed** in runtime evaluation.
+
 ## (Historical) known issues with the v1 (570-row) tuned model
 
 `hypetalk-gemma4:27b-v1` produced from the current corpus has three

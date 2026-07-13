@@ -1,0 +1,889 @@
+path	category	extension	bytes	last_update	last_commit	inbound_exact	inbound_basename	ownership	disposition
+.envrc	repository-config	[none]	102	2026-05-28	b02b9ab	1	1	tool configuration	retain-pending-builder-content-verification
+.githooks/pre-commit	project-asset-or-tool	[none]	553	2026-07-12	b006e2b	1	2	root asset/entrypoint	retain-pending-builder-content-verification
+.githooks/pre-push	project-asset-or-tool	[none]	3221	2026-06-13	21889a1	4	8	root asset/entrypoint	retain-pending-builder-content-verification
+.github/pull_request_template.md	github-metadata	.md	1190	2026-05-28	73f48ed	2	2	GitHub collaboration	retain-pending-builder-content-verification
+.github/workflows/self-hosted-macos.yml	self-hosted-ci	.yml	2500	2026-06-14	f6943e1	1	1	manual self-hosted Actions workflow	retain-pending-builder-content-verification
+.gitignore	repository-config	[none]	903	2026-06-10	79e0c36	1	1	tool configuration	retain-pending-builder-content-verification
+.gitleaks.toml	repository-config	.toml	298	2026-07-13	1319d49	2	2	tool configuration	retain-pending-builder-content-verification
+.gitleaksignore	repository-config	[none]	153	2026-07-13	1319d49	2	2	tool configuration	retain-pending-builder-content-verification
+.mpd/config.json	mpd-process	.json	73	2026-07-12	c355ec3	3	6	mpd gate/runtime	retain-pending-builder-content-verification
+.mpd/directives/personas/architect.md	mpd-process	.md	1242	2026-07-12	fe55f68	0	2	mpd gate/runtime	retain-pending-builder-content-verification
+.mpd/directives/personas/builder.md	mpd-process	.md	822	2026-07-12	fe55f68	0	2	mpd gate/runtime	retain-pending-builder-content-verification
+.mpd/directives/personas/designer.md	mpd-process	.md	1280	2026-07-12	fe55f68	0	2	mpd gate/runtime	retain-pending-builder-content-verification
+.mpd/directives/personas/documenter.md	mpd-process	.md	1088	2026-07-12	fe55f68	0	0	mpd gate/runtime	retain-pending-builder-content-verification
+.mpd/directives/personas/security.md	mpd-process	.md	1321	2026-07-12	fe55f68	0	2	mpd gate/runtime	retain-pending-builder-content-verification
+.mpd/directives/personas/tester.md	mpd-process	.md	865	2026-07-12	fe55f68	0	2	mpd gate/runtime	retain-pending-builder-content-verification
+.mpd/directives/protocol.md	mpd-process	.md	4641	2026-07-12	fe55f68	0	0	mpd gate/runtime	retain-pending-builder-content-verification
+.mpd/secret-allowlist.json	mpd-process	.json	405	2026-07-12	b006e2b	1	1	mpd gate/runtime	retain-pending-builder-content-verification
+.mpd/state/fix-launch-window-size.json	mpd-process	.json	2356	2026-07-12	4faa8ff	0	0	mpd gate/runtime	retain-pending-builder-content-verification
+.mpd/state/refresh-github-readme.json	mpd-process	.json	2477	2026-07-13	1319d49	1	1	mpd gate/runtime	retain-pending-builder-content-verification
+AGENTS.md	root-doc	.md	14104	2026-07-12	f04d23e	13	13	documentation graph or explicit historical record	retain-pending-builder-content-verification
+ActiveAIDesign.md	root-doc	.md	25165	2026-05-27	f7a7322	0	0	documentation graph or explicit historical record	retain-pending-builder-content-verification
+CODEX.md	root-doc	.md	3339	2026-06-10	79e0c36	0	0	documentation graph or explicit historical record	retain-pending-builder-content-verification
+CONTRIBUTING.md	root-doc	.md	4409	2026-05-28	73f48ed	4	4	documentation graph or explicit historical record	retain-pending-builder-content-verification
+HypeTalk-LLM-Context.md	root-doc	.md	20572	2026-06-17	8d7f07e	4	4	documentation graph or explicit historical record	retain-pending-builder-content-verification
+HypeTalk.mlproj/Data Sources/hype-v2.json	project-asset-or-tool	.json	878	2026-04-14	aa5d485	0	0	root asset/entrypoint	retain-pending-builder-content-verification
+HypeTalk.mlproj/Model Containers/HypeTalk 1.json	project-asset-or-tool	.json	3986	2026-04-14	aa5d485	0	0	root asset/entrypoint	retain-pending-builder-content-verification
+HypeTalk.mlproj/Project.json	project-asset-or-tool	.json	862	2026-04-14	aa5d485	0	0	root asset/entrypoint	retain-pending-builder-content-verification
+HyperTalk_Reference.md	root-doc	.md	362741	2026-04-14	aa5d485	3	3	documentation graph or explicit historical record	retain-pending-builder-content-verification
+LICENSE	license	[none]	1076	2026-06-03	289ccb8	4	4	licensing	retain-pending-builder-content-verification
+Package.resolved	swiftpm-manifest	.resolved	409	2026-06-10	61f355c	1	1	SwiftPM build	retain-pending-builder-content-verification
+Package.swift	swiftpm-manifest	.swift	4331	2026-06-11	08fcebb	17	17	SwiftPM build	retain-pending-builder-content-verification
+README.md	root-doc	.md	13261	2026-07-13	1319d49	10	10	documentation graph or explicit historical record	retain-pending-builder-content-verification
+Sources/CStackImport/include/stackimport_c.h	production-source	.h	9183	2026-05-27	c7839d7	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/CStackImport/include/stackimport_version.h	production-source	.h	546	2026-05-27	c7839d7	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/CStackImport/module.modulemap	production-source	.modulemap	83	2026-05-27	c7839d7	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/AR/ARQuickLookPresenter.swift	production-source	.swift	14137	2026-05-27	0f7e7b5	2	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Accessibility/CardCanvasAccessibility.swift	production-source	.swift	31930	2026-06-07	d7883ba	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Accessibility/HypeAccessibilityID.swift	production-source	.swift	2955	2026-05-27	0f7e7b5	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/AppKitFileAccessProvider.swift	production-source	.swift	2659	2026-05-29	efd61ea	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/AppKitHostApplicationProvider.swift	production-source	.swift	24317	2026-06-17	8d7f07e	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/AppKitNetworkPermissionPrompter.swift	production-source	.swift	4764	2026-06-10	129cd06	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/AppLaunchState.swift	production-source	.swift	12865	2026-07-12	4faa8ff	4	4	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/AuthoringCommandBridge.swift	production-source	.swift	667	2026-06-07	d7883ba	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/DocumentMutationCoordinator.swift	production-source	.swift	21972	2026-06-10	8935f4f	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/HypeApp.swift	production-source	.swift	45969	2026-07-12	4faa8ff	2	5	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/HypeDebugServer.swift	production-source	.swift	112313	2026-06-17	2d216d0	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/LiveMeshyScriptingProvider.swift	production-source	.swift	12072	2026-05-27	0f7e7b5	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/MCP/HypeAutomationRegistry.swift	production-source	.swift	2901	2026-05-27	f7a7322	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/MenuCommandScoping.swift	production-source	.swift	3637	2026-06-10	401e5b6	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/OpenAISpeechOutputProvider.swift	production-source	.swift	2521	2026-05-11	4b349b7	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/ProjectNavigationRouter.swift	production-source	.swift	2725	2026-05-31	008588e	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Resources/AppIcon.icns	production-source	.icns	3782022	2026-04-14	aa5d485	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Resources/HypeDocIcon.icns	production-source	.icns	3384634	2026-04-14	aa5d485	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Resources/OpenSourceManifest.json	production-source	.json	821	2026-05-27	12a9c87	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/RuntimeLocationProvider.swift	production-source	.swift	3913	2026-06-30	dff7aad	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/RuntimeSpeechListenerProvider.swift	production-source	.swift	2153	2026-05-11	4b349b7	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/ButtonPartNode.swift	production-source	.swift	2289	2026-06-10	f27dc86	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/CardPartNode.swift	production-source	.swift	529	2026-04-14	aa5d485	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/CardSKScene.swift	production-source	.swift	6110	2026-05-27	0f7e7b5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/FieldPartNode.swift	production-source	.swift	2486	2026-06-10	f27dc86	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/HypeKeyInput.swift	production-source	.swift	2010	2026-05-22	0d23e83	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/HypeSKScene.swift	production-source	.swift	5521	2026-05-23	6029a9f	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/ImagePartNode.swift	production-source	.swift	1399	2026-04-14	aa5d485	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/LiveSceneStateSync.swift	production-source	.swift	4586	2026-06-10	048bae9	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/NodeRegistry.swift	production-source	.swift	801	2026-04-14	aa5d485	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/PaintLayerNode.swift	production-source	.swift	816	2026-05-10	07475ca	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/README.md	production-source	.md	1382	2026-05-22	b3eb0c2	1	11	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/SceneBridge.swift	production-source	.swift	43795	2026-05-27	0f7e7b5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/ShapePartNode.swift	production-source	.swift	2768	2026-05-10	07475ca	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/SpriteKit/SpriteAreaNode.swift	production-source	.swift	2144	2026-05-27	0f7e7b5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/AIChatInputView.swift	production-source	.swift	12398	2026-05-22	0d23e83	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/AIChatPanel.swift	production-source	.swift	122384	2026-06-30	dff7aad	4	12	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/AIChatSessionStore.swift	production-source	.swift	2478	2026-06-14	8f9914c	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/AIChatStreamingTranscript.swift	production-source	.swift	4330	2026-06-14	8f9914c	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/AIContextLibraryView.swift	production-source	.swift	18138	2026-05-29	30afe95	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/AIPanel.swift	production-source	.swift	5585	2026-05-24	6c4aefe	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/AISpeechCapture.swift	production-source	.swift	12485	2026-05-10	07475ca	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/AnimationPickerView.swift	production-source	.swift	9932	2026-05-11	7ec9c75	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/AppleMusicBrowserHostView.swift	production-source	.swift	15143	2026-05-26	5615699	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/AssetRepositoryAIChatView.swift	production-source	.swift	17791	2026-06-17	2d216d0	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/AssetRepositoryView.swift	production-source	.swift	89608	2026-06-17	db9df3e	2	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/AudioRecorderHostView.swift	production-source	.swift	15573	2026-05-24	6c4aefe	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/CalendarHostView.swift	production-source	.swift	8342	2026-06-01	2e3ddd5	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/CardCanvasView.swift	production-source	.swift	311367	2026-06-30	dff7aad	6	7	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/ChartHostView.swift	production-source	.swift	48231	2026-06-10	61f355c	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/ChatMarkdownRenderer.swift	production-source	.swift	11457	2026-06-14	8f9914c	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/ColorWellHostView.swift	production-source	.swift	2230	2026-05-02	76d6dfb	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/CompletionPopup.swift	production-source	.swift	1958	2026-04-14	aa5d485	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/ConsoleLogView.swift	production-source	.swift	12369	2026-05-27	963c9b1	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/FormControlHostViews.swift	production-source	.swift	13896	2026-06-03	dd6435c	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/GaugeHostView.swift	production-source	.swift	8151	2026-05-03	dbed88f	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/Generate3DSheet.swift	production-source	.swift	31799	2026-05-27	0f7e7b5	1	3	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/GoMenuCommands.swift	production-source	.swift	37646	2026-06-17	d8e07a4	1	3	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/HypeFieldEditorCell.swift	production-source	.swift	4607	2026-05-10	07475ca	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/HypeTalkTextView.swift	production-source	.swift	18189	2026-05-22	0d23e83	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/MainContentView.swift	production-source	.swift	106610	2026-06-30	dff7aad	2	6	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/MapGeocodeCache.swift	production-source	.swift	1927	2026-05-02	cde500f	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/MapHostView.swift	production-source	.swift	5535	2026-06-30	dff7aad	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/MapLocationGeocoder.swift	production-source	.swift	8960	2026-05-07	27d61d1	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/MessageBoxView.swift	production-source	.swift	5598	2026-06-30	dff7aad	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/MusicInstrumentPopupHostView.swift	production-source	.swift	2263	2026-05-27	f7a7322	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/NetworkPanelView.swift	production-source	.swift	17936	2026-06-30	dff7aad	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/ObjectToolCatalog.swift	production-source	.swift	10604	2026-06-07	d7883ba	2	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/ObjectsToolPanel.swift	production-source	.swift	25510	2026-06-10	401e5b6	1	4	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/PDFHostView.swift	production-source	.swift	4436	2026-05-31	86649db	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/PreferencesView.swift	production-source	.swift	69925	2026-06-07	d7883ba	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/ProgressViewHostView.swift	production-source	.swift	8734	2026-05-05	f52e077	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/PropertyInspector.swift	production-source	.swift	258815	2026-06-10	83a38a6	4	8	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/RemeshAndRetextureCoordinator.swift	production-source	.swift	14512	2026-05-27	0f7e7b5	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/RigAndAnimateCoordinator.swift	production-source	.swift	17297	2026-05-27	0f7e7b5	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/Scene3DHostView.swift	production-source	.swift	9535	2026-06-06	7a56ccd	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/Scene3DInspectorARButton.swift	production-source	.swift	2485	2026-05-27	0f7e7b5	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/ScriptEditor.swift	production-source	.swift	35040	2026-05-29	24c6c28	0	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/ScriptEditorAIView.swift	production-source	.swift	14028	2026-05-10	07475ca	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/SimulatorLaunchSheet.swift	production-source	.swift	11005	2026-05-31	93a851d	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/SpriteSceneSetupGuide.swift	production-source	.swift	39543	2026-06-10	83a38a6	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/StackTargetSelectionSheet.swift	production-source	.swift	12881	2026-06-30	dff7aad	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/TargetPreviewCanvasView.swift	production-source	.swift	8212	2026-06-30	dff7aad	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/Themes/ThemeColorWell.swift	production-source	.swift	8526	2026-05-23	6029a9f	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/Themes/ThemeDesignerView.swift	production-source	.swift	5590	2026-04-30	c71f5c0	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/Themes/ThemeDesignerWindowController.swift	production-source	.swift	3760	2026-05-27	0f7e7b5	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/Themes/ThemeEditor.swift	production-source	.swift	16519	2026-04-30	c71f5c0	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/Themes/ThemePreview.swift	production-source	.swift	7971	2026-04-30	c71f5c0	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/Themes/ThemeSidebar.swift	production-source	.swift	10751	2026-05-14	d4cb9c5	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/Hype/Views/ToolName.swift	production-source	.swift	9911	2026-05-29	24c6c28	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCLI/HypeCLI.swift	production-source	.swift	62004	2026-06-20	2d4eede	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCLI/HypeTalkBenchmark.swift	production-source	.swift	27343	2026-06-11	a4d267a	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/AIChatInferenceProvider.swift	production-source	.swift	2634	2026-05-24	6c4aefe	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/AIContextLibrary.swift	production-source	.swift	31912	2026-05-29	30afe95	2	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/AIContextToolPolicy.swift	production-source	.swift	3153	2026-05-29	30afe95	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/AIEditTransaction.swift	production-source	.swift	12818	2026-05-27	0f7e7b5	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/AIPromptBudget.swift	production-source	.swift	6833	2026-04-14	aa5d485	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/AIProviderParityHarness.swift	production-source	.swift	6322	2026-05-10	07475ca	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/AIScriptingProvider.swift	production-source	.swift	5916	2026-05-25	c99d2cd	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/AIService.swift	production-source	.swift	6227	2026-05-08	899cbb5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/CardCaptureBudget.swift	production-source	.swift	3857	2026-05-01	e81175f	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/CardCaptureCoordinator.swift	production-source	.swift	4885	2026-05-01	e81175f	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/CardCaptureResult.swift	production-source	.swift	5453	2026-05-01	e81175f	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/CardImageCapturer.swift	production-source	.swift	5959	2026-05-01	e81175f	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/Executors/FileIOExecutorBranches.swift	production-source	.swift	4413	2026-05-22	42aa2b2	1	3	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/Executors/GameRecipeExecutorBranches.swift	production-source	.swift	43599	2026-06-10	4a5927e	0	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/Executors/Scene3DExecutorBranches.swift	production-source	.swift	33642	2026-05-27	0f7e7b5	1	3	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/Executors/SceneNodeExecutorBranches.swift	production-source	.swift	18927	2026-05-22	6108c3a	1	3	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/Executors/WebAssetExecutorBranches.swift	production-source	.swift	13275	2026-05-27	0f7e7b5	1	3	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/FileSystemProviding.swift	production-source	.swift	2485	2026-05-22	42aa2b2	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/Generate3DJob.swift	production-source	.swift	13424	2026-05-27	0f7e7b5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/HypeAIClient.swift	production-source	.swift	13407	2026-05-31	cab680e	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/HypeAIResponseRepair.swift	production-source	.swift	27780	2026-04-25	849ff7f	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/HypeTalkGuide.swift	production-source	.swift	84543	2026-07-05	a6c4098	9	14	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/HypeTalkScriptValidator.swift	production-source	.swift	26218	2026-06-11	fa0b211	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/HypeTalkSkillCatalog.swift	production-source	.swift	28685	2026-05-25	56d8e86	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/HypeToolExecutor.swift	production-source	.swift	353866	2026-06-30	dff7aad	4	5	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/HypeTools.swift	production-source	.swift	167585	2026-06-10	4a5927e	5	8	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/LlamaSwapClient.swift	production-source	.swift	9455	2026-05-24	6c4aefe	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/Meshy3DAssetImporter.swift	production-source	.swift	24201	2026-05-27	0f7e7b5	2	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/Meshy3DGate.swift	production-source	.swift	1974	2026-05-11	d50dd58	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/Meshy3DToolProgressReporter.swift	production-source	.swift	3199	2026-05-11	9f38778	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/MeshyAIClient.swift	production-source	.swift	38036	2026-05-14	d4cb9c5	2	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/MeshyAnimationCatalog.swift	production-source	.swift	4629	2026-05-11	7ec9c75	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/MeshyAnimationModels.swift	production-source	.swift	6136	2026-05-11	7ec9c75	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/MeshyError.swift	production-source	.swift	6108	2026-05-14	d4cb9c5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/MeshyImageInput.swift	production-source	.swift	13034	2026-05-27	0f7e7b5	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/MeshyImageRequests.swift	production-source	.swift	4124	2026-05-14	d4cb9c5	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/MeshyModels.swift	production-source	.swift	19095	2026-05-14	d4cb9c5	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/MeshyRemeshModels.swift	production-source	.swift	3672	2026-05-11	7ed3347	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/MeshyRetextureModels.swift	production-source	.swift	4514	2026-05-11	7ed3347	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/MeshyRiggingModels.swift	production-source	.swift	3272	2026-05-11	7ec9c75	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/MeshyScriptingProvider.swift	production-source	.swift	4516	2026-05-11	7ed3347	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/MeshyTaskMonitor.swift	production-source	.swift	11235	2026-05-14	d4cb9c5	2	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/MeshyWebhookPayload.swift	production-source	.swift	6278	2026-05-11	7ed3347	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/OllamaProviderDiagnostics.swift	production-source	.swift	4992	2026-05-24	6c4aefe	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/OllamaToolClient.swift	production-source	.swift	57613	2026-05-24	6c4aefe	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/OpenAIChatCompletionsClient.swift	production-source	.swift	28916	2026-05-24	31c45d5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/OpenAIImageGenerationClient.swift	production-source	.swift	8721	2026-05-31	cab680e	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/OpenAIResponsesClient.swift	production-source	.swift	25618	2026-05-24	31c45d5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/OpenAISpeechClient.swift	production-source	.swift	5578	2026-05-08	899cbb5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/Recipe/BehaviorCompiler.swift	production-source	.swift	38940	2026-06-10	5315d11	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/Recipe/GenrePresetLibrary.swift	production-source	.swift	40814	2026-06-10	5315d11	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/Recipe/RecipeCompiler.swift	production-source	.swift	52160	2026-06-10	5315d11	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/Recipe/RolePhysics.swift	production-source	.swift	7239	2026-06-10	5315d11	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/RemeshAndRetextureFlow.swift	production-source	.swift	9670	2026-05-27	0f7e7b5	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/RigAndAnimateFlow.swift	production-source	.swift	10096	2026-05-27	0f7e7b5	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/RuntimeAIProvider.swift	production-source	.swift	18298	2026-06-11	08fcebb	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/RuntimeAIToolCatalog.swift	production-source	.swift	5202	2026-05-25	c99d2cd	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/SceneAuthoringAssistant.swift	production-source	.swift	71216	2026-05-27	0f7e7b5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/ScriptAutoFixer.swift	production-source	.swift	8389	2026-05-10	07475ca	2	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/ScriptDraftCoordinator.swift	production-source	.swift	7703	2026-05-05	5dfd5f5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/ScriptDraftRefusal.swift	production-source	.swift	9622	2026-05-01	655e5df	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/SpeechOutputProvider.swift	production-source	.swift	1544	2026-05-11	4b349b7	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/SpriteGameTemplateBuilder.swift	production-source	.swift	102663	2026-05-31	805f213	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/SpriteGameTemplateCatalog.swift	production-source	.swift	37589	2026-05-31	e8d7593	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/SpriteKitDirectSceneEdit.swift	production-source	.swift	8855	2026-05-31	e8d7593	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/SpriteKitRequestRouter.swift	production-source	.swift	11664	2026-06-10	4a5927e	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/StackGenerator.swift	production-source	.swift	3217	2026-04-04	20bb17a	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/WebAssetSearch/KeychainProviding.swift	production-source	.swift	3106	2026-05-22	42aa2b2	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/WebAssetSearch/KeychainStore.swift	production-source	.swift	7083	2026-05-31	91db2b6	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/WebAssetSearch/Providers/OpenverseProvider.swift	production-source	.swift	5335	2026-04-19	42a7e26	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/WebAssetSearch/Providers/PexelsProvider.swift	production-source	.swift	5779	2026-04-19	42a7e26	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/WebAssetSearch/Providers/WikimediaProvider.swift	production-source	.swift	9080	2026-04-19	42a7e26	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/WebAssetSearch/SVGSanitizer.swift	production-source	.swift	12212	2026-05-31	91db2b6	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/WebAssetSearch/StackScriptAttributionSync.swift	production-source	.swift	9974	2026-05-27	0f7e7b5	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/WebAssetSearch/WebAssetImportPipeline.swift	production-source	.swift	5858	2026-05-27	0f7e7b5	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/WebAssetSearch/WebAssetProviderRegistry.swift	production-source	.swift	1120	2026-04-19	42a7e26	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/WebAssetSearch/WebAssetSearchClient.swift	production-source	.swift	6986	2026-04-19	42a7e26	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/WebAssetSearch/WebAssetSession.swift	production-source	.swift	3680	2026-04-19	42a7e26	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/AI/WebAssetSearch/WebAssetURLSessionFactory.swift	production-source	.swift	15880	2026-05-23	cc478fc	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Animation/GIFAnimator.swift	production-source	.swift	17060	2026-05-23	0539a01	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Animation/GIFDecoder.swift	production-source	.swift	6916	2026-04-21	f4cde25	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Animation/PartAnimator.swift	production-source	.swift	8277	2026-06-10	f27dc86	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Audio/AppKitSystemProvider.swift	production-source	.swift	5839	2026-05-27	f7a7322	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Audio/AppleMusicProvider.swift	production-source	.swift	29505	2026-06-11	08fcebb	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Audio/AudioKitMusicProvider.swift	production-source	.swift	9679	2026-05-27	f7a7322	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Audio/NoteParser.swift	production-source	.swift	5715	2026-05-23	a7a3224	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Audio/SoundPlayer.swift	production-source	.swift	17068	2026-06-07	95aef86	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Audio/ToneSynthesizer.swift	production-source	.swift	5263	2026-05-27	f7a7322	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Controls/PaintImageCodec.swift	production-source	.swift	3310	2026-05-29	efd61ea	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Controls/PaintLayer.swift	production-source	.swift	12539	2026-05-10	07475ca	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Controls/VisualEffects.swift	production-source	.swift	6088	2026-05-10	07475ca	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Controls/WebPageController.swift	production-source	.swift	1689	2026-04-04	0169b34	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Export/DeploymentAppIntentDescriptor.swift	production-source	.swift	2089	2026-05-25	c99d2cd	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Export/DocumentExporter.swift	production-source	.swift	3731	2026-05-10	07475ca	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Export/SimulatorRuntimeLauncher.swift	production-source	.swift	18422	2026-07-05	a6c4098	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Export/StackDeploymentPlanner.swift	production-source	.swift	6378	2026-05-25	1184612	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Export/TargetRuntimeAdapterCatalog.swift	production-source	.swift	4531	2026-05-31	91db2b6	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Export/TargetRuntimeControlViews.swift	production-source	.swift	103745	2026-06-01	2e3ddd5	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Export/TargetRuntimePackageBuilder.swift	production-source	.swift	97529	2026-07-05	a6c4098	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Export/TargetRuntimeStyleSupport.swift	production-source	.swift	1902	2026-06-01	2e3ddd5	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Extensions/ExtensionManager.swift	production-source	.swift	1602	2026-04-04	20bb17a	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/HyperCardBinaryReader.swift	production-source	.swift	3395	2026-05-23	db8b321	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/HyperCardBlockParser.swift	production-source	.swift	3184	2026-05-23	db8b321	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/HyperCardExternalEmulation.swift	production-source	.swift	137078	2026-06-06	7a56ccd	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/HyperCardImportedGlobalSeeder.swift	production-source	.swift	6259	2026-05-31	dbfc019	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/HyperCardInputNormalizer.swift	production-source	.swift	3548	2026-05-23	db8b321	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/HyperCardToHypeConverter.swift	production-source	.swift	28178	2026-05-31	261c8ba	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/LegacyImportModels.swift	production-source	.swift	33432	2026-06-01	732d0dc	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/LooseMediaManifestImporter.swift	production-source	.swift	17410	2026-06-01	fd1ea0f	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/MacResourceForkReader.swift	production-source	.swift	6738	2026-05-23	db8b321	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/PNGEncoding.swift	production-source	.swift	1712	2026-05-31	91db2b6	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/StackImportCImporter.swift	production-source	.swift	18558	2026-05-31	91db2b6	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/StackImportPackageConverter.swift	production-source	.swift	50993	2026-05-31	93a851d	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/StackImportPackageDocumentImporter.swift	production-source	.swift	33312	2026-06-01	fd1ea0f	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/HyperCardImport/StackImportRuntime.swift	production-source	.swift	9757	2026-05-27	4242e61	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Layout/AlignmentGuide.swift	production-source	.swift	8773	2026-05-24	31c45d5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Layout/ConstraintSolver.swift	production-source	.swift	6927	2026-04-07	7ddd1af	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Layout/HIGLayoutCatalog.swift	production-source	.swift	39039	2026-06-30	dff7aad	2	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Layout/LayoutConstraint.swift	production-source	.swift	1267	2026-04-07	f7b8dd8	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Layout/LayoutGrid.swift	production-source	.swift	7552	2026-06-01	2e3ddd5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Layout/LayoutResolver.swift	production-source	.swift	7615	2026-06-30	dff7aad	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Layout/TargetPreviewOverflow.swift	production-source	.swift	1711	2026-06-30	dff7aad	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Logging/HypeLogger.swift	production-source	.swift	8111	2026-05-27	28e9b56	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/MCP/HypeMCPDocumentBackend.swift	production-source	.swift	36579	2026-06-07	95aef86	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/MCP/HypeMCPPreferenceStore.swift	production-source	.swift	9537	2026-05-27	bfe3820	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/MCP/HypeMCPToolBridge.swift	production-source	.swift	11018	2026-06-07	95aef86	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/MCP/HypeMCPTypes.swift	production-source	.swift	12739	2026-05-27	f7a7322	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/AssetRef.swift	production-source	.swift	512	2026-04-14	aa5d485	2	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/AssetRepository.swift	production-source	.swift	35463	2026-06-01	fd1ea0f	2	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/Background.swift	production-source	.swift	1538	2026-04-30	c71f5c0	0	18	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/Behavior.swift	production-source	.swift	5502	2026-06-10	c133183	0	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/Card.swift	production-source	.swift	1845	2026-04-30	c71f5c0	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/ChartModel.swift	production-source	.swift	28004	2026-05-30	1b33abc	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/GameRecipe.swift	production-source	.swift	26605	2026-06-10	c133183	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/HypeDocument.swift	production-source	.swift	17118	2026-05-31	261c8ba	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/HypeStack.swift	production-source	.swift	6134	2026-05-25	f5b4be3	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/HypeStackLibrary.swift	production-source	.swift	6461	2026-05-31	ba888da	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/HypeUserLevel.swift	production-source	.swift	3042	2026-06-07	d7883ba	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/JSONCodec.swift	production-source	.swift	1766	2026-05-23	6029a9f	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/MultiSelectionEditing.swift	production-source	.swift	2840	2026-05-06	6601162	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/MusicModel.swift	production-source	.swift	46050	2026-05-27	f7a7322	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/NetworkManifest.swift	production-source	.swift	2295	2026-04-14	aa5d485	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/Part.swift	production-source	.swift	47052	2026-06-30	dff7aad	3	4	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/PartDuplication.swift	production-source	.swift	6435	2026-06-01	c6dbf18	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/PartGrouping.swift	production-source	.swift	8584	2026-05-10	07475ca	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/PartLayerTransfer.swift	production-source	.swift	7379	2026-06-01	2e3ddd5	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/RuntimeAISettings.swift	production-source	.swift	3060	2026-05-25	c99d2cd	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/Scene3DModelBindingResolver.swift	production-source	.swift	3625	2026-05-27	0f7e7b5	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/Scene3DRepositoryAssetResolver.swift	production-source	.swift	4206	2026-05-27	0f7e7b5	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/SceneAuthoringSupport.swift	production-source	.swift	13020	2026-05-27	0f7e7b5	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/SceneDiff.swift	production-source	.swift	10577	2026-04-14	aa5d485	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/SceneSpec.swift	production-source	.swift	33458	2026-05-11	4b349b7	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/SliderControlOrientation.swift	production-source	.swift	863	2026-05-27	f7a7322	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/SpriteAreaSpec.swift	production-source	.swift	14829	2026-06-10	c133183	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/Stack.swift	production-source	.swift	9894	2026-06-07	d7883ba	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/StackAssetEmbedder.swift	production-source	.swift	16349	2026-05-31	86649db	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/TargetPlatform.swift	production-source	.swift	26437	2026-06-30	dff7aad	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Models/TextStyleFlags.swift	production-source	.swift	3866	2026-05-06	4b749ab	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Navigation/CardNavigator.swift	production-source	.swift	1474	2026-04-04	2aeabe4	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Navigation/CurrentCardSelectionResolver.swift	production-source	.swift	1254	2026-05-27	8840569	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/AudioRecorderRenderer.swift	production-source	.swift	3061	2026-06-10	f27dc86	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/ButtonRenderer.swift	production-source	.swift	25017	2026-06-10	f27dc86	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/CalendarRenderer.swift	production-source	.swift	12165	2026-06-10	f27dc86	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/CardRenderer.swift	production-source	.swift	9435	2026-05-27	f7a7322	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/ChartRenderer.swift	production-source	.swift	3365	2026-05-29	24c6c28	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/ColorWellRenderer.swift	production-source	.swift	2535	2026-06-10	f27dc86	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/DividerRenderer.swift	production-source	.swift	1675	2026-05-05	712031e	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/FieldRenderer.swift	production-source	.swift	8079	2026-06-10	f27dc86	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/FieldTextLayout.swift	production-source	.swift	7032	2026-05-10	07475ca	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/FormControlsRenderer.swift	production-source	.swift	7067	2026-06-03	180091d	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/GaugeRenderer.swift	production-source	.swift	6846	2026-06-10	f27dc86	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/GlassRenderer.swift	production-source	.swift	8883	2026-06-10	f27dc86	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/ImageChromaKey.swift	production-source	.swift	10489	2026-05-23	6029a9f	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/ImageFilter.swift	production-source	.swift	6262	2026-05-23	6029a9f	0	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/ImageRenderer.swift	production-source	.swift	4116	2026-05-02	3592add	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/MapRenderer.swift	production-source	.swift	4216	2026-06-10	f27dc86	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/MusicControlsRenderer.swift	production-source	.swift	17157	2026-06-10	f27dc86	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/PDFRenderer.swift	production-source	.swift	5107	2026-06-10	f27dc86	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/ProgressViewRenderer.swift	production-source	.swift	6062	2026-06-10	f27dc86	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/RenderGeometry.swift	production-source	.swift	3805	2026-06-10	f27dc86	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/STLConverter.swift	production-source	.swift	16953	2026-05-03	61f23ca	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/Scene3DAssetConverter.swift	production-source	.swift	6304	2026-05-22	0d23e83	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/Scene3DAssetLoader.swift	production-source	.swift	6479	2026-05-14	d4cb9c5	1	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/Scene3DRenderer.swift	production-source	.swift	4618	2026-06-10	f27dc86	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/ShapeRenderer.swift	production-source	.swift	6100	2026-06-10	f27dc86	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/SpriteAreaRenderer.swift	production-source	.swift	1987	2026-04-30	c71f5c0	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/VideoRenderer.swift	production-source	.swift	1781	2026-04-07	cafa5d7	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Rendering/WebPageRenderer.swift	production-source	.swift	1955	2026-04-06	f2e0b30	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Resources/MeshyAnimationCatalog.json	production-source	.json	9876	2026-05-11	7ec9c75	0	4	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Runtime/DeviceCoordinate.swift	production-source	.swift	3021	2026-06-30	dff7aad	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Runtime/HypeTalkTickSchedule.swift	production-source	.swift	1397	2026-05-27	779c088	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Runtime/LocationProvider.swift	production-source	.swift	1400	2026-06-30	dff7aad	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Runtime/ProjectNavigationTargetResolver.swift	production-source	.swift	3288	2026-05-31	008588e	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Runtime/RuntimeDocumentMerge.swift	production-source	.swift	9330	2026-06-06	7a56ccd	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Runtime/StackRuntime.swift	production-source	.swift	83672	2026-06-30	dff7aad	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Script/AST.swift	production-source	.swift	18492	2026-06-11	fa0b211	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Script/ChunkWriter.swift	production-source	.swift	15594	2026-06-11	fa0b211	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Script/ExecutionDiagnostics.swift	production-source	.swift	4296	2026-05-23	1b9ecbf	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Script/FileAccessProvider.swift	production-source	.swift	9226	2026-05-29	efd61ea	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Script/HypeTalkHighlighter.swift	production-source	.swift	8044	2026-05-05	aef321f	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Script/Interpreter.swift	production-source	.swift	450085	2026-06-30	dff7aad	2	4	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Script/Lexer.swift	production-source	.swift	11867	2026-06-07	d89adb2	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Script/MessageDispatcher.swift	production-source	.swift	31506	2026-06-11	fa0b211	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Script/Parser.swift	production-source	.swift	168109	2026-06-30	dff7aad	1	4	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Script/SpriteSceneMouseState.swift	production-source	.swift	2234	2026-04-21	f4cde25	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Script/Token.swift	production-source	.swift	2752	2026-05-29	6787e3d	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/SpriteKit/CoordinateConverter.swift	production-source	.swift	1029	2026-04-14	aa5d485	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Storage/HypeSQLiteStackStore.swift	production-source	.swift	81403	2026-06-30	dff7aad	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Sync/SyncService.swift	production-source	.swift	17435	2026-05-31	91db2b6	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Theme/BuiltInThemes.swift	production-source	.swift	18854	2026-05-22	6106ff2	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Theme/ColorContrast.swift	production-source	.swift	11205	2026-05-06	8ced7f3	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Theme/ColorRef.swift	production-source	.swift	7874	2026-04-30	c71f5c0	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Theme/HypeTheme.swift	production-source	.swift	22753	2026-06-10	843eb5e	0	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Theme/ThemeEnvironment.swift	production-source	.swift	11181	2026-05-31	91db2b6	0	2	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Theme/ThemeResolver.swift	production-source	.swift	10561	2026-04-30	c71f5c0	2	7	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Tools/MouseAction.swift	production-source	.swift	2628	2026-05-24	31c45d5	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Tools/ToolManager.swift	production-source	.swift	1713	2026-05-25	3a10d63	1	1	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypeCore/Utilities/HypeDebugDirectory.swift	production-source	.swift	1494	2026-05-27	c82ca33	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+Sources/HypePacmanTestbedBuilder/main.swift	production-source	.swift	2662	2026-05-22	0d23e83	0	0	SwiftPM target/resource discovery	retain-pending-builder-content-verification
+SpriteKit-Tutorial.md	root-doc	.md	15789	2026-06-05	8c2d9c8	1	1	documentation graph or explicit historical record	retain-pending-builder-content-verification
+TestStacks/PacmanAccessibilityTestbed.hype	runtime-fixture	.hype	51652	2026-05-22	0d23e83	3	3	runtime regression	retain-pending-builder-content-verification
+Tests/HypeCLITests/HypeCLITests.swift	test-source	.swift	27541	2026-06-20	2d4eede	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AIAndExportTests.swift	test-source	.swift	7661	2026-05-10	07475ca	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AIContextLibraryTests.swift	test-source	.swift	5862	2026-05-29	30afe95	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AIContextToolExecutorTests.swift	test-source	.swift	6535	2026-05-27	0f7e7b5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AIContextToolPolicyTests.swift	test-source	.swift	3072	2026-05-29	30afe95	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AIEditTransactionTests.swift	test-source	.swift	3479	2026-05-10	07475ca	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AIPromptBudgetTests.swift	test-source	.swift	10662	2026-04-14	aa5d485	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AIProviderParityHarnessTests.swift	test-source	.swift	4663	2026-05-24	9f8bddd	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AIToolCatalogIntegrityTests.swift	test-source	.swift	12571	2026-06-10	a3303bd	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AIToolChainRegressionTests.swift	test-source	.swift	18670	2026-05-22	0d23e83	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AIToolPropertyScopeTests.swift	test-source	.swift	17262	2026-06-07	d7883ba	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AlignmentTests.swift	test-source	.swift	5493	2026-05-24	31c45d5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AnimateCommandTests.swift	test-source	.swift	6210	2026-05-05	b22c69f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AssetAttributionParentTaskIdTests.swift	test-source	.swift	6158	2026-05-11	7ed3347	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AssetAttributionTaskIdCodableTests.swift	test-source	.swift	5032	2026-05-11	7ed3347	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AssetMetadataCodableTests.swift	test-source	.swift	8407	2026-05-27	338bc89	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AssetProvenanceCodableTests.swift	test-source	.swift	7840	2026-05-27	0f7e7b5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AssetRepositoryAuthoringToolsTests.swift	test-source	.swift	4130	2026-05-27	70c1504	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AssetRepositoryTests.swift	test-source	.swift	8977	2026-06-01	fd1ea0f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AudioKitMusicTests.swift	test-source	.swift	53334	2026-05-27	0f7e7b5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/AudioRecorderTests.swift	test-source	.swift	14584	2026-05-23	fdfba2b	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/BackgroundUsageTests.swift	test-source	.swift	12093	2026-05-05	b22c69f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/BehaviorCompilationTests.swift	test-source	.swift	21975	2026-06-10	5315d11	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/CalendarPartTests.swift	test-source	.swift	10162	2026-06-01	2e3ddd5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/CardCaptureBudgetTests.swift	test-source	.swift	6913	2026-05-01	e81175f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/CardCaptureCoordinatorTests.swift	test-source	.swift	6523	2026-05-01	e81175f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/CardCaptureExecutorIntegrationTests.swift	test-source	.swift	9899	2026-05-01	e81175f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/CardCaptureResultTests.swift	test-source	.swift	5405	2026-05-01	e81175f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/CardImageCapturerTests.swift	test-source	.swift	7711	2026-05-01	e81175f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ChartDataPointPropertyTests.swift	test-source	.swift	29914	2026-05-29	24c6c28	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ChartToolTests.swift	test-source	.swift	49805	2026-05-30	1b33abc	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/CheckScriptToolTests.swift	test-source	.swift	12642	2026-06-01	54517b3	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ChickGIFDiagnosticTest.swift	test-source	.swift	3005	2026-05-22	d66dd74	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ChunkPutTests.swift	test-source	.swift	9736	2026-06-10	97c4483	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ChunkWriterTests.swift	test-source	.swift	10798	2026-06-10	5358981	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ComprehensiveScriptTests.swift	test-source	.swift	66912	2026-05-27	c62bd23	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ControlCleanupTests.swift	test-source	.swift	24218	2026-05-06	8ced7f3	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ControlsTests.swift	test-source	.swift	5026	2026-05-10	07475ca	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/CreateImageToolErrorTests.swift	test-source	.swift	14804	2026-06-17	2d216d0	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/CurrentCardSelectionResolverTests.swift	test-source	.swift	1781	2026-05-27	8840569	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/DividerTests.swift	test-source	.swift	13016	2026-05-03	ed632dd	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/EndToEndAIDispatchTests.swift	test-source	.swift	14583	2026-04-25	849ff7f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/EventDispatchTests.swift	test-source	.swift	34086	2026-05-23	ad21700	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/FieldRendererPaddingTests.swift	test-source	.swift	4151	2026-05-10	07475ca	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/FormControlsTests.swift	test-source	.swift	12838	2026-05-27	f7a7322	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/GIFAnimatorTests.swift	test-source	.swift	24988	2026-05-23	0539a01	1	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/GIFDecoderTests.swift	test-source	.swift	13862	2026-04-21	f4cde25	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/GIFScriptingTests.swift	test-source	.swift	27617	2026-05-23	0539a01	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/GameRecipeCodecTests.swift	test-source	.swift	17580	2026-06-10	c133183	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/GameRecipeIntentIntegrationTests.swift	test-source	.swift	9913	2026-06-10	4a5927e	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/GameRecipeToolTests.swift	test-source	.swift	25188	2026-06-10	4a5927e	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/GaugeTests.swift	test-source	.swift	18488	2026-05-03	dbed88f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Generate3DJobTests.swift	test-source	.swift	22234	2026-05-22	42aa2b2	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/GenrePresetTests.swift	test-source	.swift	26102	2026-06-10	5315d11	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HelpTextTests.swift	test-source	.swift	7774	2026-05-08	d6bd102	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeAIConfigurationTests.swift	test-source	.swift	3822	2026-05-24	6c4aefe	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeAIResponseRepairTests.swift	test-source	.swift	12283	2026-04-25	849ff7f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeDocumentSelfContainedPersistenceTests.swift	test-source	.swift	24132	2026-06-01	6aee3c7	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeLoggerTests.swift	test-source	.swift	2164	2026-05-05	712031e	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeMCPTests.swift	test-source	.swift	15214	2026-06-07	95aef86	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeNodeSpecLenientDecodeTests.swift	test-source	.swift	12454	2026-04-16	f941e0d	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeStackLibraryTests.swift	test-source	.swift	5135	2026-05-31	ba888da	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeTalkAITests.swift	test-source	.swift	8986	2026-05-11	4b349b7	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeTalkAskMeshyExpressionInterpreterTests.swift	test-source	.swift	7690	2026-05-27	0f7e7b5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeTalkAskMeshyExpressionParserTests.swift	test-source	.swift	3986	2026-05-11	11f1040	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeTalkAskMeshyInterpreterTests.swift	test-source	.swift	8138	2026-05-24	6c4aefe	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeTalkAskMeshyParserTests.swift	test-source	.swift	5511	2026-05-11	7ec9c75	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeTalkGuideTests.swift	test-source	.swift	19199	2026-06-17	8d7f07e	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeTalkHighlighterThemeTests.swift	test-source	.swift	5508	2026-05-05	aef321f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeTalkRemeshRetextureInterpreterTests.swift	test-source	.swift	7246	2026-05-11	7ed3347	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeTalkRemeshRetextureParserTests.swift	test-source	.swift	5935	2026-05-11	7ed3347	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeTalkScene3DModelBindingTests.swift	test-source	.swift	13282	2026-05-27	0f7e7b5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeTalkScriptValidatorTests.swift	test-source	.swift	11191	2026-05-01	655e5df	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeTalkSkillCatalogTests.swift	test-source	.swift	5293	2026-06-01	54517b3	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeTalkTickScheduleTests.swift	test-source	.swift	1095	2026-05-27	779c088	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeThemeTests.swift	test-source	.swift	12045	2026-05-05	712031e	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeToolsRemeshRetextureSchemaTests.swift	test-source	.swift	3159	2026-05-11	7ed3347	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HypeUserLevelTests.swift	test-source	.swift	874	2026-06-07	d7883ba	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HyperCardImportTests.swift	test-source	.swift	53809	2026-06-01	732d0dc	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HyperCardImportedGlobalSeederTests.swift	test-source	.swift	2761	2026-05-31	dbfc019	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/HyperTalkReferenceCompatibilityTests.swift	test-source	.swift	11588	2026-06-07	d89adb2	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ImageFilterTests.swift	test-source	.swift	6715	2026-05-02	3592add	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/InterpreterFuzzTests.swift	test-source	.swift	12602	2026-06-12	0044b0f	3	3	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/InterpreterPublishGatingTests.swift	test-source	.swift	21719	2026-06-11	a7af934	1	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/KeychainStoreTests.swift	test-source	.swift	6962	2026-05-24	836131f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/LayoutAuthoringTests.swift	test-source	.swift	5837	2026-06-01	2e3ddd5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/LayoutNormalizationTests.swift	test-source	.swift	21029	2026-06-30	dff7aad	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/LazyImageClientConstructionTests.swift	test-source	.swift	5507	2026-06-17	2d216d0	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/LiquidGlassAlignmentTests.swift	test-source	.swift	6570	2026-05-22	6106ff2	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/LlamaSwapClientTests.swift	test-source	.swift	7707	2026-05-24	6c4aefe	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/LocationExpressionTests.swift	test-source	.swift	26466	2026-06-30	dff7aad	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/LooseMediaManifestImporterTests.swift	test-source	.swift	12810	2026-06-01	fd1ea0f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Meshy3DAssetImporterTests.swift	test-source	.swift	8451	2026-05-14	d4cb9c5	1	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Meshy3DGateTests.swift	test-source	.swift	1797	2026-05-11	d50dd58	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Meshy3DToolProgressReporterTests.swift	test-source	.swift	4389	2026-05-11	9f38778	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyAIClientAnimationTaskTests.swift	test-source	.swift	5116	2026-05-11	7ec9c75	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyAIClientFetchTaskKindRoutingTests.swift	test-source	.swift	6351	2026-05-11	7ed3347	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyAIClientImageTaskTests.swift	test-source	.swift	11221	2026-05-11	973b4eb	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyAIClientRemeshTaskTests.swift	test-source	.swift	8313	2026-05-11	7ed3347	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyAIClientRetextureTaskTests.swift	test-source	.swift	8204	2026-05-11	7ed3347	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyAIClientRiggingTaskTests.swift	test-source	.swift	7336	2026-05-11	7ec9c75	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyAIClientTests.swift	test-source	.swift	17374	2026-05-14	d4cb9c5	1	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyAnimationCatalogTests.swift	test-source	.swift	9134	2026-05-11	7ec9c75	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyAnimationModelsCodableTests.swift	test-source	.swift	5608	2026-05-11	7ec9c75	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyAssetKindCodableTests.swift	test-source	.swift	7770	2026-05-27	15c76c4	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyImageInputTests.swift	test-source	.swift	11292	2026-05-27	0f7e7b5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyImageRequestsCodableTests.swift	test-source	.swift	5066	2026-05-14	d4cb9c5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyKeychainAccountTests.swift	test-source	.swift	2843	2026-05-22	42aa2b2	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyModelsCodableTests.swift	test-source	.swift	5100	2026-05-14	d4cb9c5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyPolledFactSanitizerTests.swift	test-source	.swift	5782	2026-05-14	d4cb9c5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyRemeshModelsCodableTests.swift	test-source	.swift	5512	2026-05-11	7ed3347	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyRetextureModelsCodableTests.swift	test-source	.swift	5604	2026-05-11	7ed3347	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyRiggingModelsCodableTests.swift	test-source	.swift	5138	2026-05-11	7ec9c75	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyTaskMonitorTests.swift	test-source	.swift	14166	2026-05-14	d4cb9c5	1	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyToolAIEditTransactionTests.swift	test-source	.swift	11556	2026-06-17	2d216d0	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyToolExecutorTests.swift	test-source	.swift	20141	2026-06-17	2d216d0	0	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyToolMultiImageBoundaryTests.swift	test-source	.swift	30644	2026-06-17	2d216d0	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MeshyWebhookPayloadTests.swift	test-source	.swift	12952	2026-05-22	51753b6	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ModelTests.swift	test-source	.swift	12365	2026-05-22	0d23e83	0	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MultiSelectionEditingTests.swift	test-source	.swift	9992	2026-05-06	6601162	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/MystStackImportAcceptanceTests.swift	test-source	.swift	63286	2026-06-01	2c8fe1a	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/NoteParserTests.swift	test-source	.swift	4837	2026-04-14	aa5d485	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/OllamaMessageImagesTests.swift	test-source	.swift	5217	2026-05-01	e81175f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/OllamaProviderDiagnosticsTests.swift	test-source	.swift	3024	2026-05-24	6c4aefe	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/OllamaToolClientTests.swift	test-source	.swift	38744	2026-05-24	6c4aefe	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/OpenAIChatCompletionsClientTests.swift	test-source	.swift	15814	2026-05-24	31c45d5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/OpenAIImageGenerationClientTests.swift	test-source	.swift	6285	2026-05-31	cab680e	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/OpenAIImageToolExecutorTests.swift	test-source	.swift	6081	2026-06-17	2d216d0	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/OpenAIResponsesClientTests.swift	test-source	.swift	9571	2026-05-24	31c45d5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/OpenverseProviderTests.swift	test-source	.swift	8716	2026-04-19	42a7e26	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/PartAnimatorSafetyTests.swift	test-source	.swift	3844	2026-06-10	469a369	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/PartDuplicationTests.swift	test-source	.swift	8714	2026-06-01	c6dbf18	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/PartGroupingTests.swift	test-source	.swift	5235	2026-05-10	07475ca	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/PartLayerTransferTests.swift	test-source	.swift	7839	2026-06-01	2e3ddd5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/PartScene3DAssetRefCodableTests.swift	test-source	.swift	2265	2026-05-11	d50dd58	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/PexelsProviderTests.swift	test-source	.swift	11563	2026-04-19	42a7e26	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Phase1ControlsTests.swift	test-source	.swift	23444	2026-05-29	0308e98	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Phase1FidelityTests.swift	test-source	.swift	37391	2026-06-11	fa0b211	1	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Phase1StubCompletionTests.swift	test-source	.swift	27679	2026-05-29	4c16c4d	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Phase2FindSelectClickTests.swift	test-source	.swift	31827	2026-05-29	4c16c4d	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Phase3HostApplicationProviderTests.swift	test-source	.swift	18304	2026-06-17	8d7f07e	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Phase4DoEvalTests.swift	test-source	.swift	16006	2026-06-07	d89adb2	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Phase4FileAccessTests.swift	test-source	.swift	17216	2026-05-29	6787e3d	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Phase5PaintIOTests.swift	test-source	.swift	19558	2026-05-29	efd61ea	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Phase5VideoTransportTests.swift	test-source	.swift	15560	2026-05-29	efd61ea	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/PlayCommandTests.swift	test-source	.swift	16340	2026-06-07	95aef86	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ProgressViewTests.swift	test-source	.swift	15628	2026-05-05	6c46bbd	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/PropertyAuditTests.swift	test-source	.swift	20634	2026-05-05	b22c69f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/RealStackToolSmokeTests.swift	test-source	.swift	5148	2026-04-25	849ff7f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/RecipeCompilerGoldenTests.swift	test-source	.swift	11776	2026-06-10	5315d11	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/RecipeCompositionTests.swift	test-source	.swift	8661	2026-06-10	5315d11	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/RecipeInjectionAndBoundsTests.swift	test-source	.swift	45915	2026-06-10	5315d11	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/RecipeMergeTests.swift	test-source	.swift	8148	2026-06-10	5315d11	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/RecipeRuleCompilationTests.swift	test-source	.swift	16834	2026-06-10	5315d11	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/RendererDegenerateGeometryTests.swift	test-source	.swift	19321	2026-06-10	f27dc86	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/RigAndAnimateFlowTests.swift	test-source	.swift	10467	2026-05-11	7ed3347	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/RuntimeAIProviderTests.swift	test-source	.swift	5106	2026-05-25	c99d2cd	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/RuntimeDocumentMergeTests.swift	test-source	.swift	7278	2026-06-06	c683921	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/STLConverterTests.swift	test-source	.swift	22868	2026-05-03	61f23ca	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/SVGSanitizerTests.swift	test-source	.swift	16083	2026-04-19	42a7e26	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Scene3DAssetConverterTests.swift	test-source	.swift	4143	2026-05-11	7ed3347	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Scene3DAssetLoaderTests.swift	test-source	.swift	5059	2026-05-14	d4cb9c5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/Scene3DTests.swift	test-source	.swift	15991	2026-05-27	0f7e7b5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/SceneAuthoringAssistantTests.swift	test-source	.swift	6439	2026-04-14	aa5d485	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/SceneAuthoringSupportTests.swift	test-source	.swift	4149	2026-05-27	0f7e7b5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/SceneScriptSanitizationTests.swift	test-source	.swift	11511	2026-04-16	be88b19	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ScriptAutoFixerTests.swift	test-source	.swift	5280	2026-05-05	5dfd5f5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ScriptDraftCoordinatorTests.swift	test-source	.swift	8596	2026-05-01	655e5df	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ScriptErrorObjectIdTests.swift	test-source	.swift	10352	2026-05-27	28e9b56	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ScriptNumericSafetyTests.swift	test-source	.swift	6611	2026-06-10	f27dc86	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ScriptStorageGateIntegrationTests.swift	test-source	.swift	12801	2026-05-01	655e5df	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ScriptTests.swift	test-source	.swift	185072	2026-06-20	1f85788	0	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/SecurityRegressionTests.swift	test-source	.swift	17969	2026-05-05	bf20ea4	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/SimulatorRuntimeLauncherTests.swift	test-source	.swift	35646	2026-07-05	a6c4098	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/SpriteAreaTransparencyTests.swift	test-source	.swift	4447	2026-04-30	c71f5c0	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/SpriteGameTemplateTests.swift	test-source	.swift	45660	2026-05-31	e8d7593	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/SpriteKitDirectSceneEditTests.swift	test-source	.swift	6711	2026-05-31	e8d7593	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/SpriteKitRequestRouterTests.swift	test-source	.swift	15984	2026-05-22	0d23e83	1	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/StackAssetEmbedderTests.swift	test-source	.swift	6763	2026-05-31	86649db	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/StackCodingKeysRoundTripTests.swift	test-source	.swift	10072	2026-06-07	d7883ba	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/StackImportPackageDocumentImporterTests.swift	test-source	.swift	24168	2026-05-31	6902c18	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/StackMeshyEnabledTests.swift	test-source	.swift	2188	2026-05-11	d50dd58	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/StackPropertyTests.swift	test-source	.swift	8606	2026-06-07	d7883ba	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/StackRuntimeAsyncTests.swift	test-source	.swift	38735	2026-05-27	748b517	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/StackRuntimeBindScopeTests.swift	test-source	.swift	17472	2026-06-10	129cd06	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/StackRuntimeStartMeshyRequestTests.swift	test-source	.swift	7761	2026-05-24	6c4aefe	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/StackRuntimeStartRemeshRequestTests.swift	test-source	.swift	7755	2026-05-11	7ed3347	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/StackScriptAttributionSyncTests.swift	test-source	.swift	16509	2026-05-27	0f7e7b5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/StructuredChatDecodingTests.swift	test-source	.swift	26566	2026-04-16	f941e0d	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/TargetPlatformTests.swift	test-source	.swift	49517	2026-07-05	a6c4098	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/TestSupport/AsyncDispatch.swift	test-source	.swift	1420	2026-05-05	b22c69f	0	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/TestSupport/InMemoryFileSystem.swift	test-source	.swift	3388	2026-05-22	42aa2b2	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/TestSupport/InMemoryKeychain.swift	test-source	.swift	1671	2026-05-22	42aa2b2	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/TestSupport/MockURLProtocol.swift	test-source	.swift	12896	2026-05-24	31c45d5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/TestSupport/MockURLSession.swift	test-source	.swift	1705	2026-05-22	42aa2b2	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/TextStylingTests.swift	test-source	.swift	18317	2026-05-06	4b749ab	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ThemeAIToolsTests.swift	test-source	.swift	11330	2026-05-10	07475ca	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ThemeContrastAuditTests.swift	test-source	.swift	5949	2026-04-30	c71f5c0	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ThemeInspectorBindingTests.swift	test-source	.swift	6250	2026-04-30	c71f5c0	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ThemeResolverTests.swift	test-source	.swift	12121	2026-04-30	c71f5c0	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ThemeScriptingTests.swift	test-source	.swift	5324	2026-05-10	07475ca	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/TileMapTests.swift	test-source	.swift	38307	2026-05-27	227a70a	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ToolStateBrowseGuardTests.swift	test-source	.swift	3802	2026-05-23	0539a01	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/ToolTests.swift	test-source	.swift	8339	2026-05-24	31c45d5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/TransparentBackgroundTests.swift	test-source	.swift	8316	2026-04-30	c71f5c0	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/UserScriptRepro.swift	test-source	.swift	8717	2026-05-05	b22c69f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/UserScriptRepro2.swift	test-source	.swift	9752	2026-05-05	b22c69f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/WebAssetImportPipelineTests.swift	test-source	.swift	12623	2026-05-27	0f7e7b5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/WebAssetSessionTests.swift	test-source	.swift	9188	2026-04-19	42a7e26	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/WebAssetToolExecutorTests.swift	test-source	.swift	21057	2026-04-19	42a7e26	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/WebAssetURLSessionFactoryTests.swift	test-source	.swift	10869	2026-04-19	42a7e26	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeCoreTests/WikimediaProviderTests.swift	test-source	.swift	11744	2026-04-19	42a7e26	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/AIChatSessionStoreTests.swift	test-source	.swift	3381	2026-06-14	8f9914c	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/AIChatStreamingTranscriptTests.swift	test-source	.swift	4237	2026-06-14	8f9914c	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/ARQuickLookPresenterTests.swift	test-source	.swift	15959	2026-05-27	0f7e7b5	1	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/AppKitHostApplicationProviderTests.swift	test-source	.swift	8423	2026-06-17	8d7f07e	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/AppLaunchStateTests.swift	test-source	.swift	29132	2026-07-12	4faa8ff	4	4	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/CardCanvasAccessibilityTests.swift	test-source	.swift	4721	2026-05-22	0d23e83	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/CardCanvasDeletionTests.swift	test-source	.swift	1769	2026-05-29	24c6c28	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/CardCanvasFieldTabOrderTests.swift	test-source	.swift	3015	2026-04-25	487d2ca	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/CardCanvasGroupingInteractionTests.swift	test-source	.swift	19794	2026-06-07	95aef86	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/CardCanvasHoverInfrastructureTests.swift	test-source	.swift	3359	2026-05-10	07475ca	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/CardCanvasMusicControlTests.swift	test-source	.swift	6902	2026-05-27	f7a7322	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/CardCanvasRedrawPolicyTests.swift	test-source	.swift	11163	2026-05-29	0308e98	1	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/CardCanvasTransitionTests.swift	test-source	.swift	1719	2026-05-10	07475ca	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/CardCanvasVideoSourceResolverTests.swift	test-source	.swift	3902	2026-05-31	aa0fc04	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/CardSKSceneNativeRenderingTests.swift	test-source	.swift	3139	2026-05-10	07475ca	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/ChartHostViewRenderingTests.swift	test-source	.swift	16732	2026-06-07	95aef86	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/ChatMarkdownDocumentTests.swift	test-source	.swift	2248	2026-06-14	8f9914c	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/ConsoleScriptEditorRoutingTests.swift	test-source	.swift	1234	2026-05-29	0308e98	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/DebugServerMutationGateTests.swift	test-source	.swift	4456	2026-06-10	129cd06	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/DocumentMutationCoordinatorTests.swift	test-source	.swift	21481	2026-06-10	8935f4f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/FieldEditorCellLayoutTests.swift	test-source	.swift	1759	2026-05-10	07475ca	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/FormControlHostViewTests.swift	test-source	.swift	12467	2026-06-07	95aef86	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/Generate3DSheetImageTabTests.swift	test-source	.swift	14185	2026-05-27	0f7e7b5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/Generate3DSheetLifecycleTests.swift	test-source	.swift	25076	2026-05-22	9473475	3	4	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/Generate3DSheetTests.swift	test-source	.swift	13005	2026-05-27	0f7e7b5	1	2	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/HypeDebugImportOutputResolverTests.swift	test-source	.swift	3499	2026-05-31	5cbf7df	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/HypeDebugImportedStartupGlobalSeederTests.swift	test-source	.swift	2809	2026-06-02	9a3958c	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/HypeDebugScriptGlobalSeedParserTests.swift	test-source	.swift	2082	2026-05-31	62990b3	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/HypeSKSceneKeyInputTests.swift	test-source	.swift	5153	2026-05-22	0d23e83	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/LiveSceneStateMutabilityTests.swift	test-source	.swift	9567	2026-06-10	048bae9	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/LiveSceneStateReadbackTests.swift	test-source	.swift	10940	2026-06-10	048bae9	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/MapGeocodeCacheTests.swift	test-source	.swift	6716	2026-05-02	cde500f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/MenuCommandScopingTests.swift	test-source	.swift	5820	2026-06-10	401e5b6	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/MenuCommandSourceTests.swift	test-source	.swift	4064	2026-06-05	1f6e39f	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/ObjectToolCatalogTests.swift	test-source	.swift	12296	2026-06-07	d7883ba	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/PreferencesUserLevelSelectionTests.swift	test-source	.swift	1594	2026-06-07	d7883ba	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/ProjectNavigationRouterTests.swift	test-source	.swift	1837	2026-05-31	008588e	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/PropertyInspectorGameRecipeHelpersTests.swift	test-source	.swift	16368	2026-06-10	83a38a6	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/PropertyInspectorMusicTests.swift	test-source	.swift	4488	2026-05-27	f7a7322	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/RemeshAndRetextureCoordinatorLifecycleTests.swift	test-source	.swift	19861	2026-05-27	0f7e7b5	1	1	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/RigAndAnimateCoordinatorLifecycleTests.swift	test-source	.swift	23740	2026-05-27	0f7e7b5	3	4	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/Scene3DHostViewTests.swift	test-source	.swift	3490	2026-05-27	0f7e7b5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/SceneBridgeSmokeTests.swift	test-source	.swift	11233	2026-05-27	0f7e7b5	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tests/HypeTests/ScriptEditorAITests.swift	test-source	.swift	4290	2026-05-11	4b349b7	0	0	SwiftPM test-target discovery	retain-pending-builder-content-verification
+Tools/hype-mcp-server/README.md	developer-tool	.md	745	2026-05-27	227a70a	0	11	developer automation	retain-pending-builder-content-verification
+Tools/hype-mcp-server/bin/hype-mcp.js	developer-tool	.js	25686	2026-06-01	ffd0676	4	6	consumer-facing MCP distribution rebuilt directly from TypeScript source	retain-build-verified
+Tools/hype-mcp-server/bin/index.js	generated-build-intermediate	.js	25686	2026-06-01	ffd0676	0	2	tsc transient output moved into consumer-facing hype-mcp.js	delete-implemented
+Tools/hype-mcp-server/package-lock.json	developer-tool	.json	1508	2026-05-27	c6d018f	0	0	developer automation	retain-pending-builder-content-verification
+Tools/hype-mcp-server/package.json	developer-tool	.json	413	2026-05-27	8ca0d77	0	0	developer automation	retain-pending-builder-content-verification
+Tools/hype-mcp-server/src/index.ts	developer-tool	.ts	24492	2026-06-01	ffd0676	0	0	developer automation	retain-pending-builder-content-verification
+Tools/hype-mcp-server/tsconfig.json	developer-tool	.json	257	2026-05-27	c6d018f	0	0	developer automation	retain-pending-builder-content-verification
+Vendor/AudioKit/HYPE_VENDOR_NOTE.md	vendored-dependency	.md	1867	2026-07-05	a6c4098	2	2	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/LICENSE	vendored-dependency	[none]	1085	2026-06-10	61f355c	0	4	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Package.swift	vendored-dependency	.swift	806	2026-06-10	61f355c	1	17	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/README.md	vendored-dependency	.md	2723	2026-06-10	61f355c	0	11	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Audio Files/AVAudioFile+Utilities.swift	vendored-dependency	.swift	6475	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Audio Files/AVAudioPCMBuffer+Processing.swift	vendored-dependency	.swift	9353	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Audio Files/AVAudioPCMBuffer+Utilities.swift	vendored-dependency	.swift	7885	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Audio Files/Format Converter/FormatConverter+Compressed.swift	vendored-dependency	.swift	11927	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Audio Files/Format Converter/FormatConverter+PCM.swift	vendored-dependency	.swift	10167	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Audio Files/Format Converter/FormatConverter+Utilities.swift	vendored-dependency	.swift	3440	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Audio Files/Format Converter/FormatConverter.swift	vendored-dependency	.swift	8558	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Audio Files/WaveformDataRequest.swift	vendored-dependency	.swift	6092	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Audio Unit/AudioComponentDescription+Helpers.swift	vendored-dependency	.swift	2279	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Audio Unit/AudioUnit+Helpers.swift	vendored-dependency	.swift	4970	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/AudioKit.h	vendored-dependency	.h	310	2026-06-10	61f355c	0	1	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Engine/AVAudioEngine+Extensions.swift	vendored-dependency	.swift	6357	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Engine/AudioEngine+connectionTreeDescription.swift	vendored-dependency	.swift	448	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Engine/AudioEngine.swift	vendored-dependency	.swift	13983	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Error Handling/CheckError.swift	vendored-dependency	.swift	10324	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Error Handling/CommonError.swift	vendored-dependency	.swift	950	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Hardware/AVAudioEngine+Devices.swift	vendored-dependency	.swift	1550	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Hardware/Device.swift	vendored-dependency	.swift	2809	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Hardware/DeviceUtils.swift	vendored-dependency	.swift	5477	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Settings/Settings+iOSVariants.swift	vendored-dependency	.swift	7470	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Settings/Settings+macOS.swift	vendored-dependency	.swift	1307	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Settings/Settings.swift	vendored-dependency	.swift	3831	2026-06-10	61f355c	0	1	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Table/Table+AdditiveSynthesis.swift	vendored-dependency	.swift	14703	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Table/Table.swift	vendored-dependency	.swift	10081	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Utilities/AVAudioPCMBuffer+audition.swift	vendored-dependency	.swift	647	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Utilities/AVAudioTimeShim.swift	vendored-dependency	.swift	5767	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Utilities/AudioKitHelpers.swift	vendored-dependency	.swift	16631	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Utilities/Log.swift	vendored-dependency	.swift	1948	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Utilities/MemoryAddress.swift	vendored-dependency	.swift	518	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Internals/Utilities/ThreadLockedAccessor.swift	vendored-dependency	.swift	2367	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/BluetoothMIDIButton.swift	vendored-dependency	.swift	2957	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Enums/MIDIControl.swift	vendored-dependency	.swift	11635	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Enums/MIDICustomMetaEvent.swift	vendored-dependency	.swift	4946	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Enums/MIDIMessage.swift	vendored-dependency	.swift	432	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Enums/MIDIStatus.swift	vendored-dependency	.swift	4557	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Enums/MIDISystemCommand.swift	vendored-dependency	.swift	3419	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Listeners/MIDIBeatObserver.swift	vendored-dependency	.swift	3149	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Listeners/MIDIClockListener.swift	vendored-dependency	.swift	7430	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Listeners/MIDIMonoPolyListener.swift	vendored-dependency	.swift	6505	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Listeners/MIDIObserverMaster.swift	vendored-dependency	.swift	1581	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Listeners/MIDIOmniListener.swift	vendored-dependency	.swift	6270	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Listeners/MIDISystemRealTimeListener.swift	vendored-dependency	.swift	8568	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Listeners/MIDISystemRealTimeObserver.swift	vendored-dependency	.swift	1421	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Listeners/MIDITempoListener.swift	vendored-dependency	.swift	13868	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Listeners/MIDITempoObserver.swift	vendored-dependency	.swift	1542	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDI+Extensions.swift	vendored-dependency	.swift	2982	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDI+Receiving.swift	vendored-dependency	.swift	22658	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDI+Sending.swift	vendored-dependency	.swift	18940	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDI+VirtualPorts.swift	vendored-dependency	.swift	9724	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDI.swift	vendored-dependency	.swift	3327	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDICallbackInstrument.swift	vendored-dependency	.swift	5821	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDIEndpointInfo.swift	vendored-dependency	.swift	4113	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDIEvent.swift	vendored-dependency	.swift	13737	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDIFile/MIDIFile.swift	vendored-dependency	.swift	2973	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDIFile/MIDIFileChunk.swift	vendored-dependency	.swift	2650	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDIFile/MIDIFileChunkEvent.swift	vendored-dependency	.swift	3324	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDIFile/MIDIFileHeaderChunk.swift	vendored-dependency	.swift	2030	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDIFile/MIDIFileTempoTrack.swift	vendored-dependency	.swift	1482	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDIFile/MIDIFileTrack.swift	vendored-dependency	.swift	1328	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDIFile/MIDIFileTrackChunk.swift	vendored-dependency	.swift	5010	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDIFile/MIDIFileTrackMap.swift	vendored-dependency	.swift	7579	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDIInstrument.swift	vendored-dependency	.swift	10713	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDIListener.swift	vendored-dependency	.swift	5461	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDINoteData.swift	vendored-dependency	.swift	1463	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDIPlayer.swift	vendored-dependency	.swift	4458	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDISampler.swift	vendored-dependency	.swift	5028	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/MIDITransformer.swift	vendored-dependency	.swift	1110	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Packets/MIDIPacket+Extensions.swift	vendored-dependency	.swift	570	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Packets/MIDIPacket+SequenceType.swift	vendored-dependency	.swift	6122	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Packets/MIDIPacketList+SequenceType.swift	vendored-dependency	.swift	830	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Utilities/BPM+StatisticalTools.swift	vendored-dependency	.swift	8199	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Utilities/MIDIHelper.swift	vendored-dependency	.swift	1548	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Utilities/MIDISysexMessage.swift	vendored-dependency	.swift	900	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Utilities/MIDITimeout.swift	vendored-dependency	.swift	2941	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/MIDI/Utilities/MIDIVariableLengthQuantity.swift	vendored-dependency	.swift	1806	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/AVAudioUnitEffect+Apple.swift	vendored-dependency	.swift	308	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Delay.swift	vendored-dependency	.swift	3366	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Distortion/Decimator.swift	vendored-dependency	.swift	3529	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Distortion/Distortion.swift	vendored-dependency	.swift	11177	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Distortion/RingModulator.swift	vendored-dependency	.swift	3837	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Dynamics/Compressor.swift	vendored-dependency	.swift	4877	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Dynamics/DynamicsProcessor.swift	vendored-dependency	.swift	6311	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Dynamics/Expander.swift	vendored-dependency	.swift	5048	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Dynamics/PeakLimiter.swift	vendored-dependency	.swift	3095	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Filters/BandPassFilter.swift	vendored-dependency	.swift	2571	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Filters/HighPassFilter.swift	vendored-dependency	.swift	2561	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Filters/HighShelfFilter.swift	vendored-dependency	.swift	2516	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Filters/LowPassFilter.swift	vendored-dependency	.swift	2559	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Filters/LowShelfFilter.swift	vendored-dependency	.swift	2487	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Filters/ParametricEQ.swift	vendored-dependency	.swift	2915	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Effects/Reverb.swift	vendored-dependency	.swift	1756	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Generators/PlaygroundNoiseGenerator.swift	vendored-dependency	.swift	1521	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Generators/PlaygroundOscillator.swift	vendored-dependency	.swift	2335	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Mixing/Mixer.swift	vendored-dependency	.swift	5054	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/NamedNode.swift	vendored-dependency	.swift	304	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Node+connectionTreeDescription.swift	vendored-dependency	.swift	1011	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Node.swift	vendored-dependency	.swift	6173	2026-06-10	61f355c	0	1	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/NodeParameter.swift	vendored-dependency	.swift	8792	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Playback/Apple Sampler/AppleSampler+getAUPresetXML.swift	vendored-dependency	.swift	24789	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Playback/Apple Sampler/AppleSampler.swift	vendored-dependency	.swift	10891	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Playback/Apple Sampler/PresetBuilder.swift	vendored-dependency	.swift	70702	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Playback/AudioPlayer/AudioPlayer+Buffering.swift	vendored-dependency	.swift	5102	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Playback/AudioPlayer/AudioPlayer+Legacy.swift	vendored-dependency	.swift	1738	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Playback/AudioPlayer/AudioPlayer+Playback.swift	vendored-dependency	.swift	3649	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Playback/AudioPlayer/AudioPlayer+Scheduling.swift	vendored-dependency	.swift	3578	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Playback/AudioPlayer/AudioPlayer.swift	vendored-dependency	.swift	10829	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Playback/MultiSegmentAudioPlayer/MultiSegmentAudioPlayer.swift	vendored-dependency	.swift	5374	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Playback/TimePitch.swift	vendored-dependency	.swift	2213	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Nodes/Playback/VariSpeed.swift	vendored-dependency	.swift	1530	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Sequencing/Apple Sequencer/AppleSequencer.swift	vendored-dependency	.swift	31419	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Sequencing/Apple Sequencer/MIDIMetaEvent+allocate.swift	vendored-dependency	.swift	1149	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Sequencing/Apple Sequencer/MusicTrack+Events.swift	vendored-dependency	.swift	5676	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Sequencing/Apple Sequencer/MusicTrack+Load.swift	vendored-dependency	.swift	3757	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Sequencing/Apple Sequencer/MusicTrack.swift	vendored-dependency	.swift	28595	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Sequencing/Apple Sequencer/TimeSignature.swift	vendored-dependency	.swift	1548	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Sequencing/Duration.swift	vendored-dependency	.swift	4953	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Taps/AmplitudeTap.swift	vendored-dependency	.swift	3332	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Taps/BaseTap.swift	vendored-dependency	.swift	3948	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Taps/FFTTap.swift	vendored-dependency	.swift	7065	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Taps/MultiChannelInputNodeTap+WriteableFile.swift	vendored-dependency	.swift	5686	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Taps/MultiChannelInputNodeTap.swift	vendored-dependency	.swift	16877	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Taps/NodeRecorder.swift	vendored-dependency	.swift	7916	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKit/Taps/RawDataTap.swift	vendored-dependency	.swift	1637	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKitEX/AudioKitAU.swift	vendored-dependency	.swift	6847	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKitEX/Automation/AutomationCurve.swift	vendored-dependency	.swift	4688	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKitEX/Automation/NodeParameter+Automation.swift	vendored-dependency	.swift	3324	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKitEX/Automation/ParameterAutomation.swift	vendored-dependency	.swift	1290	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKitEX/Node+AudioKitAU.swift	vendored-dependency	.swift	2275	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKitEX/Node+Triggerable.swift	vendored-dependency	.swift	1522	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKitEX/Nodes/CallbackInstrument.swift	vendored-dependency	.swift	896	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKitEX/Nodes/Fader.swift	vendored-dependency	.swift	3666	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKitEX/Nodes/StereoFieldLimiter.swift	vendored-dependency	.swift	1252	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKitEX/Sequencing/Sequence.swift	vendored-dependency	.swift	5259	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKitEX/Sequencing/Sequencer.swift	vendored-dependency	.swift	8635	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/AudioKitEX/Sequencing/SequencerTrack.swift	vendored-dependency	.swift	4339	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/Internals/AUParameterTreeExt.mm	vendored-dependency	.mm	2737	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/Internals/AtomicDataPtr.cpp	vendored-dependency	.cpp	129	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/Internals/AtomicDataPtr.h	vendored-dependency	.h	2153	2026-06-10	61f355c	0	2	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/Internals/AudioToolboxLinker.m	vendored-dependency	.m	226	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/Internals/DSPBase.mm	vendored-dependency	.mm	10886	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/Internals/DebugDSP.c	vendored-dependency	.c	1101	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/Internals/ExceptionCatcher.m	vendored-dependency	.m	428	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/Internals/RingBuffer.h	vendored-dependency	.h	2696	2026-06-10	61f355c	0	2	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/Nodes/CallbackInstrumentDSP.mm	vendored-dependency	.mm	2204	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/Nodes/FaderDSP.mm	vendored-dependency	.mm	2965	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/Nodes/StereoFieldLimiterDSP.mm	vendored-dependency	.mm	1293	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/Sequencing/ParameterAutomation.mm	vendored-dependency	.mm	3050	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/Sequencing/SequencerEngine.mm	vendored-dependency	.mm	9268	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/include/AUParameterTreeExt.h	vendored-dependency	.h	1241	2026-06-10	61f355c	0	2	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/include/BufferedAudioBus.h	vendored-dependency	.h	4566	2026-06-10	61f355c	0	1	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/include/CAudioKit.h	vendored-dependency	.h	923	2026-06-10	61f355c	0	0	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/include/DSPBase.h	vendored-dependency	.h	6474	2026-06-10	61f355c	0	5	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/include/DebugDSP.h	vendored-dependency	.h	658	2026-06-10	61f355c	0	2	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/include/ExceptionCatcher.h	vendored-dependency	.h	443	2026-06-10	61f355c	0	2	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/include/Interop.h	vendored-dependency	.h	385	2026-06-10	61f355c	0	3	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/include/ParameterAutomation.h	vendored-dependency	.h	1139	2026-06-10	61f355c	0	2	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/include/ParameterRamper.h	vendored-dependency	.h	3427	2026-06-10	61f355c	0	4	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+Vendor/AudioKit/Sources/CAudioKitEX/include/SequencerEngine.h	vendored-dependency	.h	2087	2026-06-10	61f355c	0	2	Package.swift local dependency/provenance	retain-pending-builder-content-verification
+architecture.md	root-doc	.md	219754	2026-07-12	4faa8ff	18	18	documentation graph or explicit historical record	retain-pending-builder-content-verification
+decisions.md	root-doc	.md	17642	2026-07-12	4faa8ff	13	13	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/AppleFrameworksRoadmap.md	durable-or-historical-doc	.md	8581	2026-05-22	a09c960	2	3	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/ClassicHyperCardStackManifest.md	durable-or-historical-doc	.md	10275	2026-05-23	8c82d05	2	3	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/CodeReviewAndGapsPlan.md	durable-or-historical-doc	.md	21935	2026-06-05	8c2d9c8	0	0	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/HypeDebugBridgeAndMCP.md	durable-or-historical-doc	.md	4968	2026-06-10	843eb5e	1	1	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/HypeFeatureGapImplementationPlan.md	durable-or-historical-doc	.md	9839	2026-05-27	0f7e7b5	1	1	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/HypeTalkBenchmarkBaseline.md	durable-or-historical-doc	.md	18779	2026-06-14	56418cc	2	2	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/HyperCardExternalMapping.md	durable-or-historical-doc	.md	20858	2026-06-20	9ca8b3f	0	2	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/HyperCardImportAndXCMDCompatibility.md	durable-or-historical-doc	.md	12047	2026-06-01	d2bc8cf	3	4	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/HyperCardImportPathImplementationPlan.md	durable-or-historical-doc	.md	9512	2026-05-27	15c76c4	0	0	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/HyperTalkCompatibilityAudit.md	durable-or-historical-doc	.md	8040	2026-06-20	469ce5b	3	3	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/LegacyCardScriptLifecycleTestPlan.md	durable-or-historical-doc	.md	9932	2026-06-20	469ce5b	0	1	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/MeshyAIIntegrationPlan.md	durable-or-historical-doc	.md	37798	2026-05-27	0f7e7b5	1	1	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/Model-Paired-Development-Playbook.md	durable-or-historical-doc	.md	48725	2026-07-12	f04d23e	2	2	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/SQLiteStackStorageDesign.md	durable-or-historical-doc	.md	8933	2026-06-20	9ca8b3f	5	5	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/SelfHostedMacOSRunner.md	durable-or-historical-doc	.md	2628	2026-06-14	f6943e1	0	0	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/StackImportResourceMapping.md	durable-or-historical-doc	.md	12193	2026-05-31	0790c04	0	0	documentation graph or explicit historical record	retain-pending-builder-content-verification
+docs/StubsAndCompletionPlan.md	durable-or-historical-doc	.md	24373	2026-06-10	843eb5e	0	0	documentation graph or explicit historical record	retain-pending-builder-content-verification
+ht	project-asset-or-tool	[none]	524	2026-05-22	2a88cde	640	640	root asset/entrypoint	retain-pending-builder-content-verification
+hype_spritekit_prd_draft2.md	root-doc	.md	58561	2026-06-05	8c2d9c8	0	0	documentation graph or explicit historical record	retain-pending-builder-content-verification
+install.sh	project-asset-or-tool	.sh	9591	2026-06-30	dff7aad	3	3	root asset/entrypoint	retain-pending-builder-content-verification
+opencode.json	repository-config	.json	477	2026-05-27	469eb1f	1	1	tool configuration	retain-pending-builder-content-verification
+openspec/AGENTS.md	openspec-control	.md	173	2026-07-12	b006e2b	0	14	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-12-fix-launch-window-size/.openspec.yaml	openspec-archive	.yaml	32	2026-07-12	4faa8ff	0	0	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-12-fix-launch-window-size/design.md	openspec-archive	.md	14309	2026-07-12	4faa8ff	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-12-fix-launch-window-size/proposal.md	openspec-archive	.md	3617	2026-07-12	4faa8ff	0	5	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-12-fix-launch-window-size/specs/window-restoration/spec.md	openspec-archive	.md	3598	2026-07-12	4faa8ff	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-12-fix-launch-window-size/tasks.md	openspec-archive	.md	4193	2026-07-12	4faa8ff	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-13-refresh-github-readme/.openspec.yaml	openspec-archive	.yaml	32	2026-07-13	1319d49	0	0	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-13-refresh-github-readme/design.md	openspec-archive	.md	21962	2026-07-13	1319d49	0	5	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-13-refresh-github-readme/proposal.md	openspec-archive	.md	2361	2026-07-13	1319d49	0	5	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-13-refresh-github-readme/specs/github-readme/spec.md	openspec-archive	.md	3642	2026-07-13	1319d49	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-13-refresh-github-readme/tasks.md	openspec-archive	.md	3281	2026-07-13	1319d49	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/project.md	openspec-control	.md	76	2026-07-12	b006e2b	0	0	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/schemas/mpd/schema.yaml	openspec-schema	.yaml	2511	2026-07-12	b006e2b	0	0	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/schemas/mpd/templates/design.md	openspec-schema	.md	573	2026-07-12	b006e2b	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/schemas/mpd/templates/documentation.md	openspec-schema	.md	593	2026-07-12	fe55f68	0	1	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/schemas/mpd/templates/proposal.md	openspec-schema	.md	437	2026-07-12	b006e2b	0	5	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/schemas/mpd/templates/spec.md	openspec-schema	.md	229	2026-07-12	b006e2b	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/schemas/mpd/templates/tasks.md	openspec-schema	.md	94	2026-07-12	b006e2b	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/specs/github-readme/spec.md	openspec-durable-spec	.md	3660	2026-07-13	1319d49	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/specs/window-restoration/spec.md	openspec-durable-spec	.md	3625	2026-07-12	4faa8ff	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
+script/build_and_run.sh	build-test-deploy-tool	.sh	11401	2026-06-30	dff7aad	8	8	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
+scripts/ai-training/.gitignore	ai-training-record-or-tool	[none]	295	2026-04-21	0c81cf2	0	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/AB_APPLE_MLX_RECOMMENDATION.md	ai-training-record-or-tool	.md	9340	2026-05-03	6855aff	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/AB_RESULTS.md	ai-training-record-or-tool	.md	7322	2026-05-01	66505ee	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/Makefile	ai-training-record-or-tool	[none]	5139	2026-04-25	849ff7f	1	4	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/PATH_TO_100_RESULTS.md	ai-training-record-or-tool	.md	11109	2026-05-05	7afe00a	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/README.md	ai-training-record-or-tool	.md	12311	2026-04-21	dcfbb3a	1	10	dated reproducibility record and training guide; now preserves non-operative v3/v4 measurements	retain-fact-preservation-verified
+scripts/ai-training/RESUME_V4.md	obsolete-machine-state-guide	.md	8239	2026-06-05	8c2d9c8	0	0	four unique measurements preserved in retained README before removing superseded destructive machine-specific handoff	delete-implemented-after-fact-preservation
+scripts/ai-training/TOURNAMENT_127_RESULTS.md	ai-training-record-or-tool	.md	9665	2026-05-05	c32ae3b	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/TOURNAMENT_RESULTS.md	ai-training-record-or-tool	.md	7418	2026-05-01	eddac68	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/TOURNAMENT_RESULTS_GRANITE.md	ai-training-record-or-tool	.md	7638	2026-05-05	58d6a06	0	2	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/config.yaml	ai-training-record-or-tool	.yaml	4974	2026-04-25	849ff7f	1	15	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/01_basic_handlers.yaml	ai-training-record-or-tool	.yaml	1973	2026-04-21	0c81cf2	0	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/02_sprite_scenes.yaml	ai-training-record-or-tool	.yaml	3232	2026-04-21	0c81cf2	0	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/03_events_and_cursor.yaml	ai-training-record-or-tool	.yaml	2929	2026-04-21	0c81cf2	0	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/04_animated_gif.yaml	ai-training-record-or-tool	.yaml	1494	2026-04-21	0c81cf2	0	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/05_bug_to_fix.yaml	ai-training-record-or-tool	.yaml	5643	2026-04-21	0c81cf2	0	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/06_tool_use.yaml	ai-training-record-or-tool	.yaml	2583	2026-04-21	0c81cf2	0	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/07_fields_and_text.yaml	ai-training-record-or-tool	.yaml	2884	2026-04-21	0c81cf2	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/08_navigation_and_state.yaml	ai-training-record-or-tool	.yaml	2665	2026-04-21	0c81cf2	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/09_shapes_and_buttons.yaml	ai-training-record-or-tool	.yaml	3027	2026-04-21	0c81cf2	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/10_control_flow.yaml	ai-training-record-or-tool	.yaml	4008	2026-04-21	0c81cf2	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/11_physics_advanced.yaml	ai-training-record-or-tool	.yaml	3646	2026-04-21	0c81cf2	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/12_sounds_timers.yaml	ai-training-record-or-tool	.yaml	3402	2026-04-21	0c81cf2	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/13_animate_command.yaml	ai-training-record-or-tool	.yaml	2679	2026-04-21	0c81cf2	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/14_scene_nodes.yaml	ai-training-record-or-tool	.yaml	2979	2026-04-21	0c81cf2	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/15_ai_tool_catalog.yaml	ai-training-record-or-tool	.yaml	4471	2026-04-21	0c81cf2	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/16_physics_combined.yaml	ai-training-record-or-tool	.yaml	10725	2026-04-21	dcfbb3a	0	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/17_game_patterns.yaml	ai-training-record-or-tool	.yaml	10240	2026-04-21	dcfbb3a	0	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/18_negative_examples.yaml	ai-training-record-or-tool	.yaml	10177	2026-04-21	dcfbb3a	0	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/19_read_tools.yaml	ai-training-record-or-tool	.yaml	8804	2026-04-25	849ff7f	1	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/20_node_type_create.yaml	ai-training-record-or-tool	.yaml	10644	2026-04-25	849ff7f	1	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/21_node_set_properties.yaml	ai-training-record-or-tool	.yaml	9235	2026-04-25	849ff7f	1	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/22_card_bg_stack_scripts.yaml	ai-training-record-or-tool	.yaml	7622	2026-04-25	849ff7f	1	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/23_tool_call_chains.yaml	ai-training-record-or-tool	.yaml	12828	2026-04-25	849ff7f	1	2	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/24_stack_card_bg_properties.yaml	ai-training-record-or-tool	.yaml	4521	2026-04-25	849ff7f	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/25_script_validation_chains.yaml	ai-training-record-or-tool	.yaml	2636	2026-04-25	849ff7f	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/27_realistic_multi_step.yaml	ai-training-record-or-tool	.yaml	14351	2026-04-25	849ff7f	1	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/28_v6_tool_repair.yaml	ai-training-record-or-tool	.yaml	10378	2026-04-25	849ff7f	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/29_qwen_script_tool_repair.yaml	ai-training-record-or-tool	.yaml	12279	2026-04-25	849ff7f	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/corpus/seed/30_qwen_v5_route_correction.yaml	ai-training-record-or-tool	.yaml	5509	2026-04-25	849ff7f	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/eval/comprehensive_prompts.jsonl	ai-training-record-or-tool	.jsonl	38015	2026-05-05	c32ae3b	4	9	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/eval/object_script_prompts.jsonl	ai-training-record-or-tool	.jsonl	6979	2026-05-01	66505ee	1	2	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/eval/prompts.jsonl	ai-training-record-or-tool	.jsonl	7789	2026-04-25	849ff7f	2	16	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/mlx_lora_config.yaml	ai-training-record-or-tool	.yaml	1344	2026-04-25	849ff7f	1	3	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/_extract_guide.py	ai-training-record-or-tool	.py	1299	2026-04-21	0c81cf2	0	2	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/_extract_tools.py	ai-training-record-or-tool	.py	5301	2026-04-25	849ff7f	1	3	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/augment_corpus.py	ai-training-record-or-tool	.py	10543	2026-04-21	0c81cf2	0	2	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/eval.py	ai-training-record-or-tool	.py	21179	2026-05-01	66505ee	1	10	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/eval_apple.swift	ai-training-record-or-tool	.swift	5471	2026-05-03	6855aff	2	2	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/eval_mlx.py	ai-training-record-or-tool	.py	7307	2026-05-03	6855aff	1	2	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/export_model.sh	ai-training-record-or-tool	.sh	5052	2026-05-01	3f9fedf	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/finalize_v3.sh	ai-training-record-or-tool	.sh	1799	2026-04-25	849ff7f	1	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/fuse.sh	ai-training-record-or-tool	.sh	3010	2026-04-25	849ff7f	0	6	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/gen_corpus.py	ai-training-record-or-tool	.py	37200	2026-04-25	849ff7f	1	6	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/package.sh	ai-training-record-or-tool	.sh	7906	2026-04-25	849ff7f	1	9	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/run_ab.py	ai-training-record-or-tool	.py	13087	2026-05-03	6855aff	1	1	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/set_default.sh	ai-training-record-or-tool	.sh	1217	2026-04-21	0c81cf2	0	4	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/status.sh	ai-training-record-or-tool	.sh	1976	2026-04-21	0c81cf2	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/tournament.py	ai-training-record-or-tool	.py	7650	2026-05-01	eddac68	0	4	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/tournament_multiturn.py	ai-training-record-or-tool	.py	15097	2026-05-05	c32ae3b	0	2	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/ai-training/src/train.sh	ai-training-record-or-tool	.sh	5678	2026-04-25	849ff7f	1	7	dated reproducibility record or training command	retain-pending-builder-content-verification
+scripts/install-git-hooks.sh	build-test-deploy-tool	.sh	465	2026-06-13	21889a1	3	4	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
+scripts/mpd-deploy.sh	build-test-deploy-tool	.sh	895	2026-07-12	c355ec3	2	2	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
+scripts/mpd-test.sh	build-test-deploy-tool	.sh	1181	2026-07-12	144f44f	5	5	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
+scripts/provision_self_hosted_runner_macos.sh	build-test-deploy-tool	.sh	4148	2026-06-14	f6943e1	1	1	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
+scripts/test.sh	build-test-deploy-tool	.sh	1657	2026-06-10	843eb5e	10	15	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
+scripts/test_runtime_simulators.sh	build-test-deploy-tool	.sh	887	2026-05-31	86649db	1	1	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
+scripts/verify-model-paired-protocol.sh	build-test-deploy-tool	.sh	3373	2026-07-12	b006e2b	0	0	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
+scripts/visual_qa.sh	build-test-deploy-tool	.sh	4759	2026-06-03	f96e8ac	1	1	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
+scripts/watch-kernel-probe.sh	build-test-deploy-tool	.sh	5203	2026-06-11	dbc6018	2	2	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
+spritekit.highland	project-asset-or-tool	.highland	4895	2026-04-14	aa5d485	0	0	root asset/entrypoint	retain-pending-builder-content-verification

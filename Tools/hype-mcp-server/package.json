@@ -8,8 +8,8 @@
   },
   "scripts": {
     "start": "node ./bin/hype-mcp.js",
-    "build": "tsc && cp ./bin/index.js ./bin/hype-mcp.js && chmod +x ./bin/hype-mcp.js",
-    "check": "tsc --noEmit"
+    "build": "tsc && mv ./bin/index.js ./bin/hype-mcp.js && chmod +x ./bin/hype-mcp.js",
+    "check": "sh -c 'tmp=$(mktemp -d) || exit 1; trap \"rm -rf \\\"$tmp\\\"\" EXIT HUP INT TERM; tsc --noEmit && tsc --outDir \"$tmp\" && cmp -s \"$tmp/index.js\" ./bin/hype-mcp.js && test ! -e ./bin/index.js && test -x ./bin/hype-mcp.js'"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
