@@ -1,1025 +1,296 @@
 # Hype
 
-**HyperCard, reimagined for modern macOS.**
-
-Hype is a native macOS authoring tool in the spirit of Apple's HyperCard
-(1987–2004). It preserves the original mental model — **stacks** of
-**cards** built on shared **backgrounds**, populated with **parts**
-(buttons, fields, shapes, images, videos, charts, sprite areas, …) and
-driven by a HyperTalk-style scripting language called **HypeTalk** —
-and re-grounds it on a contemporary Apple-platforms stack: Swift 6,
-SwiftUI, SpriteKit, Core Graphics, AppKit, WKWebView, AVKit, Apple
-Charts, and a provider-neutral **AI authoring loop** that supports
-local **Ollama** models (the default — no network egress), optional
-hosted **OpenAI** models (Responses API, image generation, speech I/O),
-and OpenAI-compatible local/model-proxy endpoints such as llama-swap
-through one unified tool-calling contract.
-
-This repository contains the full source for the desktop application,
-the core library, the HypeTalk language toolchain, HyperCard stack
-import/conversion support, runtime export tooling, the local MCP bridge,
-and the AI fine-tuning / evaluation pipeline.
-
----
-
-## Why bring HyperCard back?
-
-HyperCard's core insight — that a *stack of cards*, hand-edited in
-place, with scripts attached to live objects, is one of the most
-approachable programming models ever shipped — is timeless. What's
-changed is the surface area. A modern revival should feel native on
-Apple Silicon, edit cleanly under source control, expose every
-visual control the platform offers, and let an LLM ride along as a
-co-author without the user ever leaving the canvas.
-
-That's what Hype is. It is **not** a classic Mac emulator and it never
-executes native 68K/PPC HyperCard externals, but it now includes a safe
-HyperCard stack importer. Original stacks can be selected from disk,
-structurally converted into normal self-contained `.hype` packages, and
-opened as Hype documents. Compatibility for supported XCMDs/XFCNs is
-implemented in Swift through explicit emulators rather than by loading
-legacy code. Hype remains a fresh codebase that adopts the HyperTalk-style
-authoring philosophy, extends it to a much larger control surface, and
-treats SpriteKit as a first-class peer of the classic flat-card model —
-so a card can host both a static button-and-field layout *and* a live
-physics scene with a tile map and particle emitters in the same document,
-with one unified scripting model.
-
----
+Hype is a macOS-native visual authoring environment inspired by HyperCard. It
+combines stacks, cards, backgrounds, and scriptable parts with a modern SwiftUI
+and SpriteKit canvas, a HyperTalk-style language called HypeTalk, SQLite-backed
+documents, and local-first AI-assisted authoring. Hype preserves HyperCard's
+approachable authoring model; it is not a classic HyperCard runtime emulator.
 
 ## Highlights
 
-- **One document, infinite control types.** Cards host buttons,
-  fields, shapes, images, video players (AVKit), web pages
-  (WKWebView), charts (Apple Charts plus Hype-native spider/radar charts),
-  maps (MapKit), PDFs (PDFKit),
-  calendars (EventKit-aware), color wells, steppers, sliders,
-  segmented controls, gauges, progress views, dividers, audio
-  recorders (AVFoundation), stack-contained music controls (AudioKit),
-  Apple Music reference/browser controls (MusicKit, opt-in),
-  3D scene viewers (SceneKit — USDZ native, GLB/FBX via ModelIO, STL
-  via built-in converter), and full SpriteKit
-  sprite areas — all editable in the same property inspector with the
-  same multi-selection bulk editor.
-- **Xcode-like layout authoring.** Drag tools from the Objects palette
-  onto a card or background and Hype shows a translucent placement
-  ghost instead of creating a live part immediately. Drops, moves, and
-  resizes snap to an 8-point authoring grid; Shift temporarily disables
-  snapping for 1-point precision; Arrow keys move by 8 points and
-  Shift+Arrow by 1 point. Option-drag enables Smart Spacing guides for
-  8 / 12 / 20 point gaps, while explicit responsive constraints remain
-  a separate Control+Option authoring gesture.
-- **Meshy.ai 3D model generation.** Generate 3D models from text
-  prompts, reference images, or multi-image captures directly inside
-  Hype. Models land in the Asset Repository as self-contained `model3D`
-  assets (GLB bytes embedded in the `.hype` file). From there: auto-rig
-  with a Mixamo-compatible skeleton, pick an animation from a bundled
-  ~3,000-entry catalog, remesh to a target polygon count, retexture with
-  a text prompt, or open in AR Quick Look. HypeTalk integrates via
-  `ask meshy "<prompt>"` (statement or expression), `remesh asset`,
-  `retexture asset`, and `set the model of scene3d "X" to "<asset>"`.
-  Feature requires a Meshy API key (Keychain) and is per-stack opt-in.
-- **HypeTalk: a real, modern HyperTalk descendant.** A native lexer +
-  recursive-descent parser + tree-walking interpreter, with operators
-  (`is in`, `is within`, `is a number`, `there is a button "X"`),
-  control flow (`repeat`, `if/then/else`, `exit`, `pass`), chunks
-  (`word N of`, `item N of`), 30+ built-in functions, async forms
-  (`await ollama(…)`, `request "…" with message …`, `listen for tcp`),
-  and 50+ message types (`mouseUp`, `openCard`, `frameUpdate`,
-  `beginContact`, `valueChanged`, `recordingStarted`, …).
-- **HyperCard stack import.** File → Import HyperCard Stack... accepts
-  original stack files, reads data/resource forks when available, parses
-  classic block/resource structures with hard safety limits, maps supported
-  stacks/backgrounds/cards/buttons/fields/text/scripts into `HypeDocument`,
-  preserves unsupported legacy metadata, imports convertible media resources,
-  and writes the result as a normal SQLite-backed `.hype` package. XCMD/XFCN
-  compatibility is handled through an explicit Swift registry; unknown
-  externals degrade safely instead of executing native classic-Mac code.
-- **SpriteKit as the interaction substrate.** Card-level cinematic
-  transitions go through `SKView.presentScene(_:transition:)`. A
-  `spriteArea` part hosts a live `SKScene` with a real scene graph —
-  sprites, physics bodies, joints, particle emitters, tile maps,
-  cameras — and HypeTalk handlers route to scene nodes through the
-  same message-passing chain as classic parts.
-- **Composable game authoring via GameRecipe.** A declarative `GameRecipe`
-  value model describes games as entities (with user-chosen names and 11
-  semantic roles: player/enemy/collectible/hazard/projectile/goal/wall/hud/
-  decoration/spawner/background), composable behaviors (23 `BehaviorKind`
-  cases: movement, physics, chase, patrol, spawner, collectible, score, win/lose,
-  bounce, wrap, constrain, draggable, rotator, oscillate, health, damage, and
-  more), event-sheet rules, and game state. A deterministic `RecipeCompiler`
-  lowers the recipe into `SceneSpec` nodes and one validated HypeTalk handler per
-  scene event (self-validated via Lexer+Parser with a safe fallback; recipe-supplied
-  strings sanitized before script interpolation). 9 genre presets ship as data
-  recipes (top_down_adventure, side_scroller_platformer, space_shooter,
-  twin_stick_shooter, breakout, pong_sports_arena, endless_runner, physics_puzzle,
-  racing_lane). Both manual authoring (via the Property Inspector Game Recipe
-  section and Build Game button) and AI authoring use the same compiler core,
-  so the two paths converge on one model. HypeTalk reads of node position,
-  velocity, and rotation in browse mode now return live SKNode values via
-  `LiveSceneStateSync` (a transient main-actor snapshot, never persisted) so
-  generated game logic that reads physics state actually works.
-- **AI authoring with tool-calling — local or hosted.** Hype drives the
-  document via 181 structured tools (167 core + 10 game-recipe + 4 gated
-  web-asset) (`create_button`, `set_card_script`,
-  `add_sprite_to_scene`, `apply_scene_diff`, `generate_image`,
-  `generate_3d_model_from_text`, …) routed
-  through a single `HypeAIClient` contract. Hosted OpenAI uses
-  `/v1/responses` with streaming and reasoning summaries where the
-  selected model supports them; OpenAI-compatible local/proxy providers
-  use chat-completions streaming for broad compatibility. Every model
-  output goes through a validating tool surface with a parser-level script gate,
-  retry loop, reference-resolution pass, and a transaction layer that
-  previews each turn against a draft document so you can apply / cancel /
-  roll back before any mutation touches the live stack. A 127-prompt
-  benchmark suite is included; `granite4.1:30b` currently leads the
-  local-models leaderboard at 98.4% raw / 99.999% effective accuracy
-  after the retry gate.
-- **Local MCP automation.** A running Hype app exposes a loopback Model
-  Context Protocol endpoint plus a stdio bridge executable so external
-  agents and harnesses can inspect open stacks, preferences, selected
-  objects, scripts, and resources, then preview/apply tool transactions
-  through the same validated authoring surface used by the in-app AI panel.
-- **A real theme system.** Stacks, backgrounds, and cards each carry
-  an optional theme name; the cascade resolver picks the effective
-  theme per card. Seven built-in themes ship — System (follows
-  macOS), Classic HyperCard (B&W), Modern Light, Modern Dark, Sunset,
-  Neon, and **Liquid Glass** (Apple's macOS Tahoe / iOS 26 design
-  language: translucent surfaces with vibrancy, hairline strokes,
-  generous corner radii). Every renderer consults the active theme;
-  the SwiftUI inspector chrome picks up `.regularMaterial` /
-  `.thickMaterial` / `.thinMaterial` automatically when the theme
-  opts into glass material rendering.
-- **Document-based, SQLite-backed, value-typed.** `.hype` files are
-  self-contained packages containing `manifest.json` and `stack.sqlite`.
-  The runtime still works with a single `HypeDocument` aggregate of
-  value types, while storage tables index layout, scripts, content,
-  assets, SpriteKit scenes, AI context, and full-text search.
-- **Tested.** The current suite has 3,000+ Swift Testing tests; the latest
-  local full run passed approximately 3,254 tests across HypeCoreTests/HypeTests/HypeCLITests. Coverage spans
-  parser, interpreter, tool-call routing, scene serialization,
-  rendering geometry (per-pixel sampling), theme cascade, async
-  runtime, AI evaluation, and Meshy 3D generation pipeline.
-
----
-
-## What's on a card?
-
-Every part is a single `HypeCore.Part` value type with a
-`PartType` discriminator. The renderer dispatches on the type;
-property panels, multi-selection editing, and scripting all work
-uniformly across them.
-
-**Native Apple controls:**
-`button` (12 styles incl. switch/checkbox/radio/popup/link),
-`field` (7 styles incl. search/secure/scrolling),
-`shape` (rectangle, roundRect, oval, line, freeform path),
-`image`, `video` (AVKit), `webpage` (WKWebView),
-`chart` (Apple Charts plus Hype-native spider/radar charts; spider charts use
-layered series colors, per-point min/value/max vector ranges, polygonal
-radar-style grid rings and radial tick labels, configurable decimal precision,
-and optional runtime point dragging with `chartChange` script events).
-
-**Form controls:**
-`stepper`, `slider`, `segmented`, `toggle`, `colorWell`,
-`progressView`, `gauge`, `divider`.
-
-**Apple-framework controls:**
-`calendar` (EventKit-aware), `pdf` (PDFKit, multi-page nav),
-`map` (MapKit, geocoding via async `mapLocation`),
-`audioRecorder` (AVFoundation, m4a/caf, live duration tick),
-`musicPlayer`, `pianoKeyboard`, `stepSequencer`, `musicMixer`
-(AudioKit-backed music patterns stored inside the stack),
-`appleMusicBrowser`
-(MusicKit search/select/play/stop/seek for catalog/library song, album, singer,
-and playlist references; item IDs and metadata store in the stack, licensed
-audio remains external),
-`scene3D` (SceneKit — USDZ/USD/SCN/DAE/OBJ natively; GLB/PLY/ABC via
-MDLAsset on macOS 13+; FBX via MDLAsset on macOS 13+; STL via built-in
-converter; asset binding via `Part.scene3DAssetRef` + Asset Repository).
-
-**SpriteKit:**
-`spriteArea` — a live `SKScene` host. Inside it: sprite, label,
-shape, group, camera, emitter, audio, video, tilemap nodes; physics
-bodies; joints; constraints; physics fields. All HypeTalk-addressable.
-
----
-
-## HyperCard stack import
-
-Hype can import original HyperCard stacks through a safe structural converter
-rather than a classic-Mac runtime emulator.
-
-- The app exposes the importer at **File → Import HyperCard Stack...** and uses
-  an untyped file picker because restored classic stacks often have no modern
-  file extension.
-- `Sources/HypeCore/HyperCardImport/` normalizes data/resource forks, parses
-  HyperCard blocks such as `STAK`, `BKGD`, `CARD`, `LIST`, `PAGE`, `BMAP`, and
-  `TAIL`, and reads classic resource maps without executing resource code.
-- Supported stack/background/card/button/field structure, part text, scripts,
-  and convertible image/audio/video/text resources are mapped into a normal
-  `HypeDocument` with `LegacyStackImportMetadata` and an import report.
-- Legacy scripts must parse as HypeTalk before they are enabled. Certain
-  StackImport-era movie-click scripts can be reduced to route-only
-  compatibility handlers when that preserves explicit cross-stack navigation;
-  otherwise unsupported script text is kept as commented reference material.
-- XCMD/XFCN compatibility is provided by `HyperCardExternalRegistry`. Supported
-  externals are reimplemented in Swift against Hype's model APIs; unknown
-  externals set a diagnostic result and continue without crashing the stack.
-- Converted stacks are saved as self-contained SQLite-backed `.hype` packages.
-  Supported content travels with the document; no import result depends on the
-  original source path.
-
-Import security rules are deliberately strict: treat every byte as hostile,
-enforce block/resource size limits before allocation, preserve native resources
-as data only, never load classic native code, and prefer explicit emulators over
-generic native bridges. Current compatibility status and gaps are documented in
-[`docs/HyperCardImportAndXCMDCompatibility.md`](docs/HyperCardImportAndXCMDCompatibility.md),
-with the per-external map in
-[`docs/HyperCardExternalMapping.md`](docs/HyperCardExternalMapping.md).
-
----
-
-## HypeTalk
-
-HypeTalk is an English-like, case-insensitive scripting language
-modeled on HyperTalk and extended for SpriteKit, async networking,
-and AI calls.
-
-Reference-backed HyperTalk compatibility work is tracked in
-[`docs/HyperTalkCompatibilityAudit.md`](docs/HyperTalkCompatibilityAudit.md).
-The current compatibility suite covers classic command/function forms from
-Apple's *HyperCard Script Language Guide* while also pinning Hype extensions
-such as SpriteKit, Meshy, AudioKit/MusicKit, speech, themes, and charts.
-
-```hypetalk
-on mouseUp
-  set the visible of image "logo" to not the visible of image "logo"
-end mouseUp
-
-on openCard
-  global score
-  put 0 into score
-  put "Welcome — score: 0" into field "status"
-end openCard
-
-on beginContact otherName
-  global score
-  if otherName is "goal" then
-    add 10 to score
-    set the text of label "score" to "Score: " & score
-  end if
-end beginContact
-
--- 3D model generation (requires Meshy API key + meshyEnabled)
-on mouseUp
-  -- statement form (synchronous, result in `it`)
-  ask meshy "a rusted iron barrel" with style "realistic"
-  set the model of scene3d "Viewer" to it
-
-  -- expression form
-  put ask meshy "crystal sword" with model "meshy-6" into x
-  set the model of scene3d "Weapon" to x
-
-  -- async callback form
-  ask meshy "ancient stone pillar" with message "modelReady"
-end mouseUp
-
-on modelReady assetName
-  set the model of scene3d "Prop" to assetName
-end modelReady
-
--- Remesh and retexture existing assets
-on btnRemesh
-  remesh asset "barrel" to 2000
-end btnRemesh
-
-on btnRetexture
-  retexture asset "barrel" with prompt "mossy stone, weathered"
-end btnRetexture
-```
-
-**Implementation surface (in `Sources/HypeCore/Script/`):**
-
-- `Lexer.swift` — tokenizer; supports curly quotes, line continuation
-  (`\` before newline), `--` comments.
-- `Parser.swift` — recursive-descent parser producing the AST in
-  `AST.swift`.
-- `Interpreter.swift` — tree-walking interpreter with full operator
-  precedence, chunk expressions (`word N of`, `item N of`,
-  `line N of`, `char N of`, plus ranges and ordinals) for both reading
-  and writing (`put "x" into word 2 of field "f"` — `into`/`before`/
-  `after` destinations with HC-style padding), control flow, globals
-  (`global X` per-handler declaration), and a comprehensive built-in
-  catalog.
-- `MessageDispatcher.swift` — routing layer from canvas events
-  (mouseUp, keyDown, frameUpdate, beginContact, valueChanged,
-  searchSubmitted, locationResolved, modelLoadFailed, …) to handler
-  bodies, with the classic part → card → background → stack → app
-  dispatch chain.
-- `HypeTalkGuide.swift` — the language reference fed to AI models on
-  every turn (~80 KB / ~20 K tokens).
-
-A separate, much longer reference lives at
-[`HyperTalk_Reference.md`](HyperTalk_Reference.md).
-
----
-
-## SpriteKit substrate
-
-The single most consequential architectural decision is treating
-SpriteKit as a peer to the classic flat-card model.
-
-- **Card-level transitions.** Navigating between cards uses
-  `SKView.presentScene(_:transition:)` so HyperCard-era visual
-  effects (`dissolve`, `wipe left`, `iris open`, `barn door open`,
-  `zoom in`, etc.) animate as real scene transitions, not crossfades
-  hacked on top of a static layer.
-- **Sprite areas.** A `spriteArea` part is a SwiftUI/AppKit-hosted
-  `SKView` showing an `SKScene`. The scene's contents are described
-  by a `SceneSpec` value type (`Sources/HypeCore/Models/SceneSpec.swift`)
-  stored through the stack package's SQLite layer as part of the
-  owning `SpriteAreaSpec`. Live nodes are reconstructed from the spec
-  at scene-load time via
-  `SceneBridge.swift`, and a `NodeRegistry` maintains a bidirectional
-  UUID ↔ `SKNode` map so HypeTalk can address nodes by name.
-- **Physics.** Every node can carry a `PhysicsBodySpec`
-  (rectangle/circle/edgeChain/edgeLoop/alphaMask) with friction,
-  restitution, density, mass, gravity flags. Joints (pin, spring,
-  fixed, sliding, limit) and physics fields (electricMagnetic,
-  drag, vortex, radial, linear, noise, turbulence, spring) are
-  first-class citizens.
-- **Particles.** Emitters are configured in the property inspector
-  with a live preview. Specs round-trip through `EmitterNodeSpec`.
-- **Tile maps.** `tileSet` repository assets, with classification UI
-  to set columns/rows/tile size. `set tile` / `fill tilemap` / `the
-  tile at` HypeTalk verbs operate on live `SKTileMapNode`s.
-
-**Game authoring pipeline.** A `GameRecipe` (stored as the optional additive
-`SpriteAreaSpec.recipe` field — decoded via `decodeIfPresent`, no document-version
-bump, fully backward-compatible) describes a game declaratively. `RecipeCompiler`
-lowers it into `SceneSpec` nodes plus a single validated HypeTalk handler per
-scene event. Single-handler-per-event composition means recipes from different
-sources never produce conflicting handler definitions. Every generated script is
-self-validated through the real Lexer + Parser; an invalid emit falls back to a
-safe minimal handler with a diagnostic. Recipe-supplied strings (entity names,
-status messages) are sanitized before interpolation to prevent HypeTalk injection.
-Entity and spawner counts are capped at compile time. `GenrePresetLibrary` provides
-9 genre presets as pure data recipes — customizable starting points that replace
-rigid procedural templates. The `PropertyInspector` Game Recipe section and its
-Build Game button use the same `RecipeCompiler` as the 10 AI recipe tools
-(`start_game_recipe`, `add_entity`, `attach_behavior`, `detach_behavior`,
-`add_rule`, `set_game_state`, `bind_art_role`, `set_controls`, `build_game`,
-`describe_game`), keeping manual and AI authoring on one model.
-`create_sprite_game_template` is preserved for backward compatibility.
-
-A practical hands-on tour is in
-[`SpriteKit-Tutorial.md`](SpriteKit-Tutorial.md).
-
-**Asset Repository and 3D assets.** The `AssetRepository` is not limited to
-2D assets. `model3D` assets (GLB, USDZ, FBX byte blobs) are first-class
-repository residents — indigo cube icon in the grid, embedded in the `.hype`
-file alongside sprites. Inspector actions for model3D assets: Generate 3D,
-Rig & Animate, Animate, Remesh, Retexture, Open in AR. Bind a model3D asset
-to a `scene3D` part via the Property Inspector "From Repository…" dropdown or
-HypeTalk's `set the model of scene3d "X" to "<asset-name>"` smart resolver.
-
----
-
-## AI authoring
-
-Hype's AI Chat panel supports local Ollama (default, no network egress),
-hosted OpenAI, and OpenAI-compatible local/proxy providers. All share
-the same tool-calling contract through a single
-[`HypeAIClient`](Sources/HypeCore/AI/HypeAIClient.swift)
-abstraction. The provider is a preference: pick whichever you
-trust for the task at hand.
-
-| Provider | Where requests go | When to pick it |
-|---|---|---|
-| **Ollama** (default) | `localhost:11434` — local model on your machine | Stays offline; document state, prompts, and tool calls never leave the box; best with `granite4.1:30b` or similarly capable local models |
-| **OpenAI** (opt-in) | OpenAI Responses API (`/v1/responses` with streaming), Images (`/v1/images/generations`), Audio (`/v1/audio/speech` + transcriptions) | When you want frontier-model quality, image generation, reasoning summaries, or higher-quality speech I/O. Set the OpenAI API key in Hype Preferences. |
-| **OpenAI-compatible / llama-swap** | Local or network proxy exposing `/v1/chat/completions` and `/v1/models` | When you want local model swapping or hosted-compatible third-party models without routing through hosted OpenAI. Configure the base URL, model, and optional bearer token in Preferences. |
-
-Switching providers is a one-line change in Preferences → AI;
-the system prompt (`HypeTalkGuide.llmContext`) and the tool
-schema list are identical, so a prompt that works on one
-provider almost always works on the other. An
-`AIProviderParityHarness` test suite verifies that the two
-clients exchange the same scenarios with the same tool-call
-results.
-
-Cloud AI is **opt-in twice**: once for the global provider, and
-once per-stack via `Stack.aiContextCloudSharingAllowed`, which
-gates whether the `AIContextLibrary` (rules, files, examples
-attached to the stack) is included in cloud requests. Local
-Ollama can use context unconditionally; OpenAI cannot until both
-flags are set.
-
-Deployed-runtime AI is a separate path from macOS authoring AI. Runtime-mode
-`ask ai` scripts on iPhone and iPad are routed through the stack's
-`RuntimeAISettings` and prefer Apple Foundation Models on devices where Apple
-Intelligence and the on-device model are available. tvOS currently degrades to
-an unavailable runtime AI provider. Deployed non-macOS runtime shells do not
-carry OpenAI keys, Ollama hosts, or local model endpoints by default.
-
-### Tool-calling architecture
-
-The model never types HypeTalk into your document directly. Every
-change goes through a structured tool-call interface with **177
-core tools** (167 base tools + 10 game-recipe tools; plus 4 web-asset tools gated behind `Stack.webAssetsAllowed`) (`Sources/HypeCore/AI/HypeTools.swift`,
-`HypeToolExecutor.swift`, `HypeCore/AI/Executors/GameRecipeExecutorBranches.swift`):
-
-```
-create_card / create_button / create_field / create_image / create_video / create_chart
-add_sprite_to_scene / add_label_to_scene / add_emitter_to_scene / …
-set_part_property / set_card_property / set_background_script / set_stack_script / set_scene_script
-get_card_parts / get_part_property / list_scene_nodes / …
-get_hig_layout_guide / apply_hig_layout / validate_hig_layout / pin_part_to_safe_area / …
-list_hypetalk_skills / plan_hypetalk_script / review_hypetalk_script / …
-check_script / list_all_properties / capture_card_image / …
-generate_3d_model_from_text / generate_3d_model_from_image / generate_3d_model_from_images
-list_3d_models / remesh_3d_model / retexture_3d_model
-start_game_recipe / add_entity / attach_behavior / detach_behavior / add_rule
-set_game_state / bind_art_role / set_controls / build_game / describe_game
-```
-
-The six Meshy tools are available in both the main canvas AI Chat and the Sprite
-Repository AI Chat. Gate enforcement (meshyEnabled + API key) happens at executor
-level regardless of which surface issues the call.
-
-Every script-storage tool routes the draft through:
-
-1. **HypeTalk skill tools** — compact, source-attributed guides for message
-   hierarchy, handler placement, reusable custom handlers, layout scripting,
-   SpriteKit scene scripting, debugging, and script review. These are called on
-   demand so large HyperTalk references are not injected into every prompt.
-2. **`check_script`** — parser-level validation. The model is told
-   (via `HypeTalkGuide.swift`) to call this first; it returns
-   `OK:` / `FAIL: <reason>` with the offending line number.
-3. **`HypeTalkScriptValidator`** — secondary host gate that catches
-   forbidden patterns (JS-flavored tokens like `function (`,
-   `addEventListener`, `=>`, etc.) and runs reference-resolution.
-4. **`ScriptDraftCoordinator`** — retry loop. On host-side refusal,
-   the storage tool returns a `__HYPE_INTERNAL_DRAFT_REFUSED_v1:`
-   sentinel; the chat panel iterates with the model up to 5 times.
-5. **`ScriptAutoFixer`** — surgical pre-flight repairs (bare `end` →
-   `end <handlerName>`, `elseif` → `else if`) so trivially mechanical
-   mistakes don't burn a retry.
-
-For layout work, the assistant should not freehand dozens of coordinate
-updates. It can call `get_hig_layout_guide` for profile-specific Apple
-HIG-informed metrics, `apply_hig_layout` for deterministic arrangements,
-`pin_part_to_safe_area` / `add_part_layout_constraint` for durable responsive
-relationships, and `validate_hig_layout` to check every selected target
-profile for safe-area, hit-size, text-size, spacing, and availability issues.
-
-### MCP automation
-
-Hype.app exposes a local debug server, not MCP directly. MCP protocol handling
-lives in the repo-local TypeScript stdio server, which discovers running Hype
-debug sockets and translates MCP requests into debug JSON-RPC:
-
-- Debug transport: per-process Unix-domain socket under the Hype debug discovery directory
-- MCP server: `node Tools/hype-mcp-server/bin/hype-mcp.js`
-
-Use `hype://app/preferences` or `hype_get_preferences` to see redacted `isSet`
-status for provider secrets. Provider secret values are never returned by any
-MCP resource or tool.
-
-For Codex, configure the Node server as a stdio MCP server:
-
-```toml
-[mcp_servers.hype]
-command = "node"
-args = ["/path/to/hype/Tools/hype-mcp-server/bin/hype-mcp.js"]
-startup_timeout_sec = 120
-```
-
-The checked-in `.envrc` sets `HYPE_DEBUG_SOCKET_DIR` to the app-support debug
-socket directory shared by `/Applications/Hype.app`. Run `direnv allow` once in
-the repo, or set that environment variable manually in clients that do not load
-direnv. Without an explicit environment variable, the server scans the
-app-support directory and any repo-local debug sockets left by development runs.
-The MCP server can start detached and will attach automatically when exactly one
-live Hype debug session is discoverable.
-
-The MCP tool catalog contains every in-app authoring tool plus control tools:
-`hype_get_app_state`, `hype_get_preferences`, `hype_set_preference`,
-`hype_set_secret`, `hype_delete_secret`, `hype_run_existing_tool`,
-`hype_preview_transaction`, `hype_apply_transaction`,
-`hype_rollback_transaction`, and `hype_create_test_stack`. Multi-step edits
-should use preview/apply so an external agent sees the delta before the live
-stack mutates.
-
-### Recommended models
-
-The 127-prompt benchmark suite in
-[`scripts/ai-training/eval/comprehensive_prompts.jsonl`](scripts/ai-training/eval/comprehensive_prompts.jsonl)
-covers introspection, object CRUD, script attachment, network,
-animation, audio/music, dialog, chunks, control flow, and framework
-controls. Latest results
-([`scripts/ai-training/TOURNAMENT_127_RESULTS.md`](scripts/ai-training/TOURNAMENT_127_RESULTS.md)):
-
-| Rank | Model | Pass rate (raw) | Effective @ N=5 retries |
-|---|---|---|---|
-| 1 | `granite4.1:30b` | **98.4% (125/127)** | **99.99999987%** |
-| 2 | `qwen3.6:35b`    | 88.2% (112/127)     | 99.99948%        |
-| 3 | `granite4.1:8b`  | 54.3% (69/127)      | 97.91%           |
-
-Set the active model in Hype's preferences panel (or via
-`defaults write com.hype.app ollamaModel "granite4.1:30b"`).
-
-### Transactional AI edits (preview / apply / rollback)
-
-Every AI tool turn — across the main AI Chat panel, the Script
-Editor AI assistant, and the Asset Repository AI assistant —
-runs through
-[`AIEditTransaction` / `AIEditTransactionRunner`](Sources/HypeCore/AI/AIEditTransaction.swift):
-
-1. The model emits tool calls.
-2. The runner executes them against a **draft copy** of the
-   document, not the live one.
-3. The resulting deltas (changed parts, cards, backgrounds,
-   asset repository entries, paint layers, scripts) are captured
-   as an `AIEditDocumentDelta` plus a rollback snapshot of every
-   touched object's prior state.
-4. The user gets a preview summary and chooses **Apply** or
-   **Cancel**. Apply commits the draft and registers a single
-   undo step; cancel leaves the document bit-for-bit unchanged.
-5. The most-recently applied transaction can be **rolled back** —
-   not just undone via the responder chain, but explicitly
-   reverted at the model layer using the recorded snapshot.
-
-This is what lets you say "create a customer entry form on this
-card" or "make my game ball bounce" without trusting the model
-not to corrupt unrelated state — the failure mode of a bad turn
-is a discarded draft, not a half-mutated stack.
-
-### AI Context Library
-
-Each stack carries an `AIContextLibrary` of files, images, text
-notes, and folder snapshots that the AI can discover through tools
-instead of large prompt inserts. Items are tagged by role —
-**rules**, **asset**, **styleGuide**, **example**,
-**projectMemory**, **reference** — so a long-running project can
-teach the model its own conventions without re-pasting them. Current
-imports are embedded snapshots stored inside the `.hype` file; this
-keeps stacks self-contained and portable.
-
-Context read/import tools are gated by both the provider preference
-and the per-stack `aiContextCloudSharingAllowed` flag. Local providers
-can use attached context directly. Cloud providers only receive
-stack-attached file text snippets, image metadata, and context tool
-schemas after the stack is opted in, and Hype warns if attached text
-looks like it may contain credentials or tokens. The write-only
-`write_ai_context_note` tool remains available so models can store
-durable project memory without reading withheld context.
-
-### Image generation
-
-[`OpenAIImageGenerationClient`](Sources/HypeCore/AI/OpenAIImageGenerationClient.swift)
-adds a `generate_image` tool whose result lands directly in a
-new image part or `AssetRepository` asset (via the standard
-transaction path, so it's previewable and rollback-able). The
-returned bytes are PNG; provenance is recorded on the asset so
-the inspector shows which model + prompt produced it.
-
-### Speech I/O
-
-Hype's HypeTalk grammar gained two speech surfaces:
-
-```
--- Speak text aloud (uses macOS AVSpeechSynthesizer locally or
--- the OpenAI `/v1/audio/speech` endpoint when the OpenAI
--- provider is active and `speechProvider == "openai"`):
-say "Welcome to my stack"
-
--- Toggle the speech listener; while active, transcribed phrases
--- arrive at the `on listen` handler chain:
-set activateListener to true
-
-on listen spokenText
-  put spokenText into field "lastSpeech"
-  pass listen
-end listen
-```
-
-The `SpeechOutputProvider` and `SpeechListenerProvider`
-abstractions decouple HypeTalk from the underlying engine, so the
-same script runs against the system speech APIs or an OpenAI
-voice without script-level changes.
-
-### Fine-tuning pipeline
-
-`scripts/ai-training/` contains a complete LoRA fine-tuning pipeline
-targeting Qwen3 8B (configurable for other base models): corpus
-generation from seed YAMLs, MLX-based training, fusion, Ollama
-packaging, eval grading, and an A/B harness. Run `make all` from
-that directory.
-
----
-
-## Themes
-
-Stack > background > card cascade with seven built-in themes:
-
-| Name | Mood | Use case |
-|---|---|---|
-| System | Follows macOS appearance | Default for new stacks |
-| Classic HyperCard | Black & white, sharp corners, Geneva-ish | Tribute / minimalism |
-| Modern Light | Calm grays + indigo accent | Productivity |
-| Modern Dark | Charcoal + teal accent | Long sessions, dark mode |
-| Sunset | Warm peach + orange accent | Reading / journaling |
-| Neon | Magenta on near-black with cyan secondaries | Games / arcade |
-| **Liquid Glass** | Translucent surfaces, vibrancy, system blue | Apple's Tahoe / iOS 26 look |
-
-Liquid Glass opts into a `usesGlassMaterial = true` flag that tells
-every renderer to switch to a translucent glass treatment (low-alpha
-fill + top-edge specular highlight + soft drop shadow) and tells
-SwiftUI panels to back themselves with `.regularMaterial`. Every
-button style honors `theme.accent`; text is automatically
-contrast-aware against the chosen accent (light text on dark
-accents, dark text on light accents).
-
-User-authored themes are first-class — duplicate any built-in via
-the Theme Designer (Window menu → Theme Designer) and edit. User
-themes live on `HypeDocument.themes` and travel with the file.
-
----
-
-## Layout authoring
-
-Hype's card/background canvas uses an authoring-time layout system rather
-than implicit constraints:
-
-- Dragging a creation tool from the Objects palette shows an elevated ghost
-  at the proposed drop location; the real `Part` is created only on drop.
-- Newly dropped parts use HIG-oriented default sizes when the drag is tiny,
-  or an explicit user-drawn rect when the drag is large enough to define one.
-- Normal drops, moves, and resizes snap to the 8-point grid. Holding Shift
-  disables grid snapping for pixel-level placement and resizing.
-- Arrow-key nudging mirrors the mouse model: Arrow = 8 points,
-  Shift+Arrow = 1 point.
-- Option-drag enables Smart Spacing against neighboring objects and shows
-  8 / 12 / 20 point spacing guides.
-- Snapping updates absolute part geometry only. It does **not** create
-  persisted `LayoutConstraint` rows; explicit responsive constraints are
-  created through the separate Control+Option drag gesture.
-
-## Target platforms and runtime deployment
-
-New stacks ask which deployment targets they should support. macOS is selected
-by default; iPhone, iPad, and tvOS are distinct targets because their form
-factors, safe areas, and input models differ.
-
-- The Objects panel filters creation controls to the strict intersection of
-  the selected targets, so a stack cannot accidentally depend on a control that
-  one of its runtime targets cannot provide.
-- View → Emulate Target Device constrains the canvas to a target profile. The
-  catalog includes generic profiles plus current-shipping iPhone/iPad form
-  factors: iPhone 17 Pro / Pro Max, iPhone Air, iPhone 17, iPhone 17e, iPhone
-  16 / 16 Plus, iPad Pro 11/13-inch (M5), iPad Air 11/13-inch (M4), iPad
-  (A16), and iPad mini (A17 Pro). Edits made while emulating are normal
-  document edits and save immediately.
-- Target Platforms… lets authors choose fixed, scale-to-fit, or stretch-to-fill
-  layout projection for target profiles. AI can inspect this with
-  `preview_layout_profile`.
-- Deployment planning produces runtime-only macOS, iPhone, iPad, and tvOS plans.
-  `TargetRuntimePackageBuilder` can generate self-contained runtime package
-  artifacts containing an embedded SQLite `.hype` stack plus runtime shell
-  manifest/source metadata. iPhone, iPad, and tvOS exports now include a generated
-  `HypeRuntimeApp.xcodeproj`, a local `HypeSource` package with the HypeCore
-  runtime source, and `xcodebuild`/`devicectl` scripts for simulator builds,
-  signed device builds, device installation, signed archives, local IPA export,
-  and TestFlight/App Store Connect upload. Signing credentials, bundle-ID
-  overrides, device IDs, and App Store Connect API-key auth are supplied through
-  environment variables; generated packages never store those secrets. The
-  generated shell applies target profiles through `LayoutResolver` and renders
-  supported parts through `TargetRuntimePartView`, so packages use the same
-  fixed, scale-to-fit, or stretch-to-fill projection and HypeTalk message path
-  as authoring previews.
-  Local PDF, video, Scene3D model, and recorder-output file references are
-  copied into the stack asset store in the runtime-document copy before
-  `Stack.hype` is written; remote media references are not fetched implicitly
-  and must be imported or replaced before deployment. Webpage controls remain
-  live URL references by design.
-  Deployed apps do not include edit mode, authoring panels, AI/debug panels, or
-  script-editor UI. Export validates the actual parts in the stack for each
-  target and fails early with unsupported part names and reasons instead of
-  producing a broken runtime package.
-- The HypeTalk interpreter is tuned for a small mobile/watch footprint. Per-statement
-  document publishing is gated to statements with a visible effect (pure-compute
-  loops no longer pay a 60 Hz frame tax), HypeCore builds `-Osize` in release
-  (interpreter `__text` ~1.56 MB → ~824 KB), and the interpreter kernel is
-  watchOS-buildable — `scripts/watch-kernel-probe.sh` compiles 192 of 214 HypeCore
-  files for the watchOS-simulator triple, excluding only device-only leaf files
-  (audio engines, 3D loaders, the classic `.stak` C importer, and the AppKit/SwiftUI
-  view layer). A shipping watch *app* still needs the kernel/view multi-module split;
-  the probe proves the kernel is ready. See `docs/HypeTalkBenchmarkBaseline.md`.
-- Each generated Apple runtime package includes `DeploymentDiagnostics.json` and
-  `PrivacyInfo.xcprivacy`. Diagnostics summarize the target profile, bundle ID,
-  part counts, embedded asset byte size, entitlements, supported/unsupported
-  part types, and generated build/distribution scripts for auditability.
-- View -> Test Stack in Simulator builds the selected iPhone, iPad, or tvOS
-  runtime package, lists installed Apple Simulator devices with `xcrun simctl`,
-  builds for the chosen simulator with `xcrun xcodebuild`, boots/opens
-  Simulator, installs the generated app, and launches the stack without the user
-  opening Xcode first.
-- `scripts/test_runtime_simulators.sh` runs the quick live simulator smoke
-  test. Set `HYPE_FULL_IOS_SIMULATOR_MATRIX=1` to also launch the generated
-  runtime app across every installed current-shipping iPhone/iPad simulator.
-- Target control availability is intentionally strict. iPhone/iPad expose the
-  full shipped SwiftUI runtime adapter set; tvOS exposes only the focus-safe
-  runtime set. Sprite areas, audio recorders, and legacy music queues remain
-  macOS-authoring controls until standalone target adapters exist.
-- **tvOS support warning:** tvOS runtime support is intentionally early and
-  narrow. Hype can plan/package a tvOS runtime shell and validates unsupported
-  controls fail closed, but the shipped tvOS adapter set is limited to
-  focus-safe display/playback controls. Text entry, web/PDF/map/calendar/form
-  controls, Apple Music browsing, SpriteKit sprite areas, audio recording, and
-  runtime AI need further tvOS-specific design and implementation before tvOS
-  should be presented as production-ready.
-- Non-macOS runtime AI is target-aware: iPhone and iPad plans default runtime
-  script AI to Apple Foundation Models, tvOS marks runtime AI unavailable until
-  Apple provides a supported on-device model there, and macOS keeps the
-  authoring-provider path.
-
----
-
-## Build & install
+- **Visual stack authoring:** compose cards from buttons, fields, media,
+  drawing, charts, maps, web content, 3D scenes, and SpriteKit-backed parts.
+- **HypeTalk:** automate parts and cards with message passing, handlers,
+  expressions, asynchronous runtime operations, and a headless CLI.
+- **Interactive scenes and games:** create persistent SpriteKit scene graphs or
+  compile declarative `GameRecipe` values into scenes and validated HypeTalk.
+- **Portable documents:** save stacks as SQLite-backed `.hype` packages with
+  embedded assets, search data, and diagnostics.
+- **Safe HyperCard import:** recover stack structure, scripts, paint layers, and
+  resources without executing native XCMD or XFCN binaries.
+- **AI-assisted editing:** use a local Ollama model by default, or explicitly
+  configure another local or hosted provider. Proposed document mutations use
+  preview/apply transaction boundaries.
+- **Target-aware export:** generate runtime projects for supported Apple and web
+  targets, with capability checks that reflect each target's available parts
+  and runtime services.
+
+## Quick start
 
 ### Requirements
 
-- macOS 15 or later (the app targets macOS 15+ via `Package.swift`).
-- Xcode 16 / Swift 6.0 toolchain (`swift --version` should report
-  6.0+).
-- *(optional, for AI features)* Ollama running locally on
-  `localhost:11434`. Pull the recommended models with:
-  ```bash
-  ollama pull granite4.1:30b   # ~17 GB — recommended default
-  ollama pull qwen3.6:35b      # ~23 GB — strong alternative
-  ollama pull granite4.1:8b    # ~5 GB — small + fast (ship after fine-tune)
-  ```
-- *(optional, for 3D model generation)* A Meshy.ai API key. Enter it
-  in Preferences → AI → Meshy API Key; it is stored in Keychain.
-  Additionally enable 3D generation per-stack via the Stack Inspector
-  (`Stack.meshyEnabled`). GLB→USDZ conversion and AR Quick Look
-  require macOS 13+ (the app minimum is macOS 15, so this is always
-  satisfied in practice).
-- **AudioKit is vendored in-repo** (`Vendor/AudioKit/`) — no remote
-  fetch required. The vendored copy is AudioKit 5.2.3 with a
-  platform-floor patch for macOS 13+; rationale is in
-  `Vendor/AudioKit/HYPE_VENDOR_NOTE.md`.
+- macOS 15 or later for the Hype authoring app
+- Swift 6 and the Apple developer tools required by `Package.swift`
+- Git
 
-### Build the app
+The package also declares iOS 17, tvOS 16, and watchOS 10 so consumers can
+build supported `HypeCore` subsets and generated runtimes. That declaration
+does not make the macOS authoring application available on those platforms.
+
+### Build and run
 
 ```bash
 git clone https://github.com/mweingartner/hype.git
 cd hype
-swift build -c release
-```
-
-### Install to /Applications
-
-```bash
-bash install.sh
-```
-
-The installer copies the release binary, icons, and `Info.plist`
-into `/Applications/Hype.app` and re-signs ad-hoc. After the first
-install, double-click any `.hype` file in Finder to open it.
-
-### Run from a development build
-
-```bash
+swift build
 swift run Hype
 ```
 
-### Run the test suite
+To build a signed local app bundle, install it at `/Applications/Hype.app`, and
+launch it, use the repository-supported deployment script:
 
 ```bash
-scripts/test.sh                    # full Swift Testing suite
-scripts/test.sh --filter HypeTalk  # subset by Suite or Test name
-scripts/test.sh --no-parallel      # serial runner — fallback for debugging
+script/build_and_run.sh --deploy
+open -n /Applications/Hype.app
 ```
 
----
+The script stops a running Hype process, builds the package, assembles
+`dist/Hype.app`, signs it with a local development identity, and replaces the
+installed app. It may create and import a local development signing identity
+into the login keychain on first use.
+
+### Test
+
+```bash
+scripts/test.sh
+```
+
+Forward SwiftPM arguments for focused or serial runs:
+
+```bash
+scripts/test.sh --filter PlayCommandTests
+scripts/test.sh --no-parallel
+```
+
+Install the tracked hooks once per checkout:
+
+```bash
+scripts/install-git-hooks.sh
+```
+
+The local pre-push hook runs the repository's build and test gate for updates
+to `main`. This is the enforced project gate; the repository does not rely on a
+GitHub-hosted build/test workflow for the pinned local toolchain.
+
+### Optional AI and network services
+
+Hype's baseline authoring, documents, HypeTalk, and tests do not require a
+hosted AI account. AI providers are selected in the app's settings:
+
+- **Ollama** is the local-first authoring default and talks to a locally
+  configured Ollama service.
+- **llama-swap and other OpenAI-compatible endpoints** are optional and use
+  their configured endpoint; optional credentials are stored in Keychain.
+- **OpenAI** text, image, transcription, and speech features are hosted and
+  send request content to OpenAI only after the user configures the provider
+  and its Keychain credential.
+- **Meshy.ai** generation, rigging, remeshing, and retexturing are hosted,
+  potentially billable operations. They require both a Keychain API key and
+  explicit enablement on the current stack.
+
+Review the provider and network guardrails in
+[`decisions.md`](decisions.md) before enabling external services.
+
+## How Hype works
+
+### Stacks, cards, backgrounds, and parts
+
+A `HypeDocument` is a value-typed document graph. Its stack owns cards and
+shared backgrounds; cards and backgrounds own parts. Parts provide the familiar
+authoring surface—controls, text, media, paint, and richer framework-backed
+views—while UUID-based identity keeps references stable across editing and
+persistence.
+
+The macOS app hosts documents with SwiftUI `DocumentGroup`. Only stack document
+windows persist launch geometry, keyed by the stack's canonical file path;
+auxiliary windows do not persist launch geometry. Hype reopens at most the last
+stack recorded by its app-local launch state.
+
+### HypeTalk
+
+HypeTalk is a hand-written lexer, parser, and interpreter with HyperCard-style
+message dispatch from part to card to background to stack to application. In
+browse mode, `StackRuntime` owns asynchronous continuations, AI work, network
+requests, listeners, and callbacks so explicitly suspending commands do not
+block the UI or reorder handlers accidentally.
+
+Run a script without the app through the `hypetalk` executable:
+
+```bash
+swift run hypetalk --help
+```
+
+Language compatibility and known gaps are documented in
+[`docs/HyperTalkCompatibilityAudit.md`](docs/HyperTalkCompatibilityAudit.md).
+
+### SpriteKit and GameRecipe
+
+Cards use SpriteKit as an interaction and rendering substrate. Sprite areas can
+host persistent scenes with sprites, physics, particles, tile maps, cameras,
+and behavior-driven nodes. `GameRecipe` provides a higher-level declarative
+model for entities, roles, rules, state, controls, and art roles; its compiler
+produces a deterministic scene specification and validated HypeTalk.
+
+### Documents and persistence
+
+`.hype` documents are SQLite-backed packages. The storage layer persists the
+document graph, scripts, assets, and search indexes and applies explicit schema
+and migration rules. Provider credentials are not stored in stack documents.
+See [`docs/SQLiteStackStorageDesign.md`](docs/SQLiteStackStorageDesign.md) for
+the schema and migration contract.
+
+### HyperCard import
+
+Hype imports classic stack structure and supported resources through a bounded
+conversion path. XCMD and XFCN resources can be inventoried and mapped to
+reviewed Swift emulations, but native external code is never executed. Import
+coverage and unsupported behavior are tracked in
+[`docs/HyperCardImportAndXCMDCompatibility.md`](docs/HyperCardImportAndXCMDCompatibility.md)
+and [`docs/ClassicHyperCardStackManifest.md`](docs/ClassicHyperCardStackManifest.md).
+
+### Runtime export
+
+The deployment subsystem emits target-specific runtime projects rather than
+shipping the macOS editor itself. Availability varies by platform: generated
+runtimes include only supported controls, frameworks, script features, and AI
+policies. Non-macOS runtime AI defaults do not embed authoring-provider API keys
+or local endpoints; supported Apple targets may use Apple's on-device
+Foundation Models through the runtime provider layer.
+
+## AI-assisted authoring
+
+The AI chat surface supplies the selected model with a bounded tool catalog and
+stack-scoped context. Tool calls are decoded into typed operations and applied
+through the same document mutation coordinator used by the app. Mutating flows
+support preview, apply, and rollback instead of granting a model arbitrary
+filesystem or process access.
+
+The AI Context Library can attach stack-scoped notes and approved files to a
+session. Image generation, speech services, and 3D generation remain separate
+optional provider operations with their own consent, credential, and egress
+boundaries. Training and recorded model-evaluation artifacts live under
+[`scripts/ai-training/`](scripts/ai-training/README.md); they are dated
+experiments, not evergreen claims about current provider quality or reliability.
+
+## Privacy, security, and trust boundaries
+
+- Stack content stays local unless the user invokes or enables a feature whose
+  configured provider requires network egress.
+- Hosted provider keys are stored in macOS Keychain, not `.hype` documents.
+- Stack networking is controlled by a persisted manifest and runtime policy;
+  opening a document does not grant arbitrary outbound or listener access.
+- HyperCard import treats legacy input as untrusted and never executes classic
+  native external binaries.
+- AI document edits use typed tools and transaction boundaries, but users should
+  still inspect previews before applying consequential mutations.
+- The debug bridge and MCP server are privileged developer automation surfaces.
+  The app uses a permission-restricted local Unix socket rather than a TCP
+  listener, and mutation calls remain subject to the app's mutation preference.
+  Do not expose the socket or MCP process to untrusted clients.
+- Exported runtimes have target-specific feature limits. Confirm the target
+  capability report rather than assuming every macOS authoring feature exports.
+
+Hype is development software. Keep backups of important stack documents and
+review generated scripts, imported content, and network-enabled behavior before
+using them with sensitive data.
+
+## Developer and automation surfaces
+
+SwiftPM exposes four products:
+
+| Product | Purpose |
+|---|---|
+| `Hype` | macOS visual authoring application |
+| `HypeCore` | document model, HypeTalk, persistence, rendering, AI, and runtime library |
+| `hypetalk` | headless HypeTalk command-line runner |
+| `HypePacmanTestbedBuilder` | generator for the Pac-Man regression stack |
+
+Hype's local automation path deliberately separates protocol concerns:
+
+```text
+MCP client
+  -> Tools/hype-mcp-server/bin/hype-mcp.js (stdio)
+  -> Hype debug bridge (permission-restricted local Unix socket)
+  -> active Hype.app document
+```
+
+The bridge must be enabled in Hype's preferences. The MCP process can discover
+local Hype sessions and requires explicit attachment when more than one is
+available. Setup, discovery, permissions, and mutation controls are documented
+in [`docs/HypeDebugBridgeAndMCP.md`](docs/HypeDebugBridgeAndMCP.md).
 
 ## Project layout
 
-```
-Hype/
-├── Package.swift                 # SwiftPM, macOS 15+, Swift 6
-├── install.sh                    # Build release → install to /Applications
-├── architecture.md               # In-depth architecture overview
-├── decisions.md                  # Product behavior and guardrails
-├── AGENTS.md                     # Agent workflow, safety, test, deploy, git rules
-├── HyperTalk_Reference.md        # Long-form HypeTalk language reference
-├── HypeTalk-LLM-Context.md       # Actively maintained AI-facing HypeTalk guidance; in-app copy is HypeTalkGuide.swift
-├── SpriteKit-Tutorial.md         # Hands-on SpriteKit walkthrough
-├── docs/
-│   ├── HyperCardImportAndXCMDCompatibility.md # Stack import + XCMD/XFCN behavior
-│   ├── HyperCardExternalMapping.md            # Per-external compatibility table
-│   ├── ClassicHyperCardStackManifest.md       # Portable package layout for imports
-│   ├── SQLiteStackStorageDesign.md            # SQLite package schema + migrations
-│   ├── HypeDebugBridgeAndMCP.md               # MCP/debug bridge notes
-│   └── AppleFrameworksRoadmap.md              # Apple-framework integration roadmap
-├── Sources/
-│   ├── Hype/                     # Executable target — UI / AppKit / SpriteKit
-│   │   ├── HypeApp.swift         # @main, DocumentGroup, menu commands
-│   │   ├── Resources/
-│   │   ├── SpriteKit/            # SKScene/SKNode bridge layer
-│   │   └── Views/                # SwiftUI / NSViewRepresentable
-│   │       ├── MainContentView.swift
-│   │       ├── CardCanvasView.swift
-│   │       ├── PropertyInspector.swift
-│   │       ├── ScriptEditor.swift
-│   │       ├── AIChatPanel.swift
-│   │       ├── AssetRepositoryView.swift
-│   │       ├── Themes/                  # Theme designer
-│   │       └── …
-│   └── HypeCore/                 # Library target — model, scripting, AI, rendering
-│       ├── Models/               # HypeDocument, Part, Stack, Card, SceneSpec, GameRecipe, Behavior, PartGrouping, CardPaintLayer, AIContextLibrary, …
-│       ├── Script/               # Lexer, Parser, AST, Interpreter, MessageDispatcher (`say`, `on listen`, `send to`)
-│       ├── Rendering/            # Per-control CG renderers + GlassRenderer + FieldTextLayout
-│       ├── SpriteKit/            # Scene bridge + native-card Button/Field/Shape/Image/Paint nodes
-│       ├── AI/                   # HypeAIClient, RuntimeAIProvider, tools, validator, transactions, context, image + speech clients
-│       │   └── Recipe/           # RecipeCompiler, BehaviorCompiler, RolePhysics, GenrePresetLibrary (9 presets)
-│       ├── Theme/                # HypeTheme, BuiltInThemes, ColorContrast
-│       ├── Runtime/              # Browse-mode StackRuntime actor, speech listener provider
-│       ├── HyperCardImport/      # Safe legacy HyperCard stack parser/converter
-│       ├── Animation/            # `animate the X of Y over N` engine
-│       ├── Audio/                # Sound playback, AudioKit music, MusicKit references, NAOD note parser
-│       ├── Layout/               # Snap-to-grid, alignment, distribution
-│       ├── Tools/                # Mouse-action layer (paint, draw, select, group)
-│       ├── Sync/                 # SyncService — operation/change-set engine + checkpoints
-│       ├── Export/               # Diagnostic JSON export + single-file HTML export
-│       ├── Logging/              # HypeLogger
-│       ├── Navigation/           # Card history, go-back stack
-│       └── Controls/             # Visual-effect catalog, PaintLayer, etc.
-├── Vendor/
-│   └── AudioKit/                 # Vendored AudioKit 5.2.3, platform-floor patch — see HYPE_VENDOR_NOTE.md
-├── Tests/
-│   ├── HypeCoreTests/            # HypeCore unit tests (Swift Testing) — full suite ~84s
-│   └── HypeTests/                # SpriteKit / canvas / menu / Script Editor AI integration smokes
-└── scripts/
-    ├── test.sh                   # Canonical `swift test` invocation
-    ├── visual_qa.sh              # Build/deploy/open/screenshot visual QA harness
-    └── ai-training/              # LoRA fine-tuning + eval pipeline
-        ├── Makefile
-        ├── config.yaml
-        ├── corpus/
-        ├── eval/
-        │   └── comprehensive_prompts.jsonl
-        └── src/
+```text
+Sources/
+  Hype/                         macOS app, AppKit/SwiftUI hosts, SpriteKit bridge
+  HypeCore/                     models, storage, HypeTalk, AI, runtime and export
+  HypeCLI/                      hypetalk command-line executable
+  HypePacmanTestbedBuilder/     regression-stack generator
+  CStackImport/                 classic stack-import system-library shim
+Tests/
+  HypeCoreTests/                core, storage, language and subsystem tests
+  HypeTests/                    application-layer tests
+  HypeCLITests/                 command-line tests
+Tools/hype-mcp-server/          local stdio MCP bridge
+docs/                           focused design, compatibility and operations docs
+scripts/                        tests, gates, probes and AI-training tooling
+script/build_and_run.sh         local app bundling and deployment
+architecture.md                 implementation architecture and known gaps
+decisions.md                    durable product and safety decisions
 ```
 
----
+## Status and limitations
 
-## Design principles
+Hype is an actively developed authoring system. The repository contains working
+implementations for the surfaces described above, but compatibility is not
+universal:
 
-1. **Domain language wins.** Code uses HyperCard / HyperTalk
-   vocabulary verbatim — `Stack`, `Background`, `Card`, `Part`,
-   `Handler`, `Message`, `Chunk`. Implicit rules become named objects
-   (`PartAnimator`, `MessageDispatcher`, `ScriptDraftRefusal`).
-2. **Value types for the runtime model.** Every authored entity is
-   represented in Swift as a `Codable Sendable` value type. The `.hype`
-   package is SQLite-backed, but UI, runtime, undo, and AI tools still
-   mutate a `HypeDocument` value graph through explicit document
-   mutation boundaries.
-3. **AppKit where SwiftUI is brittle, SwiftUI everywhere else.**
-   Heavy interactive surfaces (`CardCanvasView`,
-   `HypeFieldEditorCell`, `SpriteAreaHostView`) are
-   `NSViewRepresentable` for direct event control. Inspector panels,
-   menus, dialogs are SwiftUI.
-4. **AI as a co-author, not a generator.** The model edits your
-   document through validated tool calls inside a retry loop, with
-   parser-level + reference-level + forbidden-pattern checks before
-   any mutation lands. The chat panel always shows what the model is
-   about to do.
-5. **Tests are the spec.** Renderer geometry, parser corner cases,
-   theme cascade, scene-spec round-trip, AI dispatch — all covered
-   by the test suite. Red CI is the canonical "we broke something"
-   signal.
+- HypeTalk intentionally differs from classic HyperTalk where documented.
+- Imported stacks may require script or layout remediation.
+- Classic native externals require reviewed Swift emulation; they never run
+  directly.
+- Framework-backed parts and runtime services vary across export targets.
+- Hosted AI and asset services depend on the selected provider, network access,
+  account limits, and billing.
+- The privileged debug/MCP surface is intended for trusted local development.
 
-The full design rationale, including the SpriteKit substrate
-decision, the StackRuntime actor model, async dispatch semantics,
-and security posture (script gates, AI tool refusal sentinels,
-forbidden patterns), is in [`architecture.md`](architecture.md).
-Agentic coding harnesses should follow [`AGENTS.md`](AGENTS.md) for
-verification workflow, safety checks, test commands, and git hygiene.
+For implementation-level status and subsystem gaps, consult
+[`architecture.md`](architecture.md). Benchmark results should be read from
+their dated checked-in reports with the evaluation setup and observed versus
+modeled metrics kept distinct.
 
----
+## Documentation
 
-## Status
-
-Hype is **active research / personal-tool** development at version
-2.0. The model surface is stable enough that older `.hype` files
-load forward-compatibly, but APIs and tool catalogs are still
-evolving. Production use is not warranted; daily authoring use is
-the author's primary workflow.
-
-Recent milestones:
-
-- **HyperCard stack import and XCMD/XFCN compatibility.** Safe block/resource
-  parsing, import reports, converted media assets, route-only script
-  compatibility for supported cross-stack navigation cases, and Swift-based
-  emulators for supported externals.
-- **SQLite-backed self-contained documents.** `.hype` packages now contain
-  `manifest.json` plus `stack.sqlite` with indexed layout, scripts, content,
-  assets, SpriteKit scenes, AI context, and full-text search projections.
-- **Target runtime export.** New stacks select target platforms, the object
-  palette filters to supported controls, target emulation uses device profiles,
-  and runtime package export can generate runtime-only app artifacts for macOS,
-  iPhone, iPad, and tvOS planning/testing flows.
-- **MCP/debug automation and visual QA.** The local debug bridge plus
-  `Tools/hype-mcp-server` lets external agents inspect/mutate Hype through
-  validated tools; `scripts/visual_qa.sh` captures the build/deploy/open/test
-  workflow and screenshot evidence under ignored `.hype/visual-qa/`.
-- Apple's Liquid Glass theme + theme-aware rendering across every
-  button style.
-- Multi-selection (canvas + sprite scenes) with Cmd/Shift-click
-  and a uniform-edit inspector covering position, size, transform,
-  appearance, and text formatting (alignment, font, color).
-- AI eval suite expanded to 127 prompts across 10 categories;
-  `granite4.1:30b` reaches 98.4% raw / 99.999% effective.
-- **7-phase code-review remediation (CodeReviewAndGapsPlan).**
-  Doc staleness fixed across all plan documents; AR Quick Look
-  test suite (9 tests, DI refactor with `Scene3DAssetConverting`
-  protocol); AI tool error-branch tests (+39); coordinator UI
-  lifecycle tests (+44); HypeToolExecutor at 6,593 lines plus four
-  sibling `Sources/HypeCore/AI/Executors/` branch files (1,541 lines
-  combined); test isolation hardening (`KeychainProviding` +
-  `FileSystemProviding` protocols + `InMemoryKeychain` +
-  `InMemoryFileSystem` + `MockURLSession`); parallel-keychain
-  flake eliminated. Net delta: +166 tests / +16 suites.
-- **Meshy.ai 3D model generation (Phases 1–5).** Text-to-3D,
-  image-to-3D, multi-image-to-3D, auto-rigging, animation picker,
-  remesh, retexture, AR Quick Look, 6 AI tools, HypeTalk `ask meshy`
-  grammar (statement + expression), `set the model of scene3d` smart
-  resolver, and full security pipeline (hostname allowlist, NoRedirect
-  delegate, 50 MB caps, MIME sniff, strict image-path validation,
-  Keychain off-main-thread reads).
-- **2026-06-10 game-authoring system.** Declarative `GameRecipe` value model
-  (entities with 11 roles, 23 composable `BehaviorKind` behaviors, event-sheet
-  rules, `GameState`, `ControlBindings`, `ArtRoleBindings`). Deterministic
-  `RecipeCompiler` (single-handler-per-event composition, self-validated scripts,
-  string sanitization, count caps). 9 genre presets as data recipes
-  (`GenrePresetLibrary`). 10 composable AI recipe tools (`start_game_recipe`
-  through `describe_game`). `SpriteAreaSpec.recipe` additive optional field (no
-  document-version bump). Manual and AI authoring share one compiler. Live-state
-  read-back fix: `LiveSceneStateSync` folds live SKNode position/velocity/rotation
-  into a transient main-actor snapshot for browse-mode HypeTalk dispatch.
-- **2026-06-10 code-review remediation.** (1) AudioKit 5.2.3
-  vendored with macOS 13 platform-floor patch under `Vendor/AudioKit/`.
-  (2) Interpreter crash-proofing: `clampedInt` at ~35 integer-overflow
-  sites, `numtochar` surrogate guard, `PartAnimator` lock +
-  main-scheduled timer, `RenderGeometry` rounded-rect clamps across CG
-  renderers and SpriteKit part nodes. (3) Document-mutating menu
-  commands scoped to focused document via `MenuCommandScoping`
-  (FocusedValue stack id in userInfo; key-window fallback). (4) AI
-  tools `set_card_property` / `set_background_property` script branches
-  now gate through `refusalForInvalidDraft`; duplicate tool definitions
-  removed. (5) HypeTalk chunk-destination `put` implemented
-  (`into`/`before`/`after` × char/word/item/line, ranges, ordinals,
-  HC-style padding); unknown put-target raises a routed `ScriptError`;
-  `it`-hygiene: custom-command `return` surfaces via `the result`,
-  `say`/`type`/`choose` no longer set `it`. (6) `StackRuntime`
-  listeners enforce `bindScope` at the socket; `AppKitNetworkPermission
-  Prompter` wired at all production runtime construction sites.
-  (7) `DocumentMutationCoordinator`: coalesced gestures skip per-frame
-  equivalence/recovery/autosave (one of each at gesture end); recovery
-  snapshots write async latest-wins with synchronous drain on flush.
-  (8) `install.sh`/`build_and_run.sh` copy SwiftPM resource bundles.
-  Net: ~3,254 tests (HypeCoreTests/HypeTests/HypeCLITests).
-
----
+- [`architecture.md`](architecture.md) — system architecture and subsystem map
+- [`decisions.md`](decisions.md) — durable product and engineering guardrails
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution and verification workflow
+- [`AGENTS.md`](AGENTS.md) — model-paired development and repository gates
+- [`docs/SQLiteStackStorageDesign.md`](docs/SQLiteStackStorageDesign.md) — document storage
+- [`docs/HyperTalkCompatibilityAudit.md`](docs/HyperTalkCompatibilityAudit.md) — language compatibility
+- [`docs/HyperCardImportAndXCMDCompatibility.md`](docs/HyperCardImportAndXCMDCompatibility.md) — import and external-command policy
+- [`docs/HypeDebugBridgeAndMCP.md`](docs/HypeDebugBridgeAndMCP.md) — local automation boundary
+- [`docs/AppleFrameworksRoadmap.md`](docs/AppleFrameworksRoadmap.md) — framework-part status and roadmap
 
 ## Contributing
 
-Issues and pull requests are welcome. See `AGENTS.md` for the repo workflow,
-`decisions.md` for product guardrails, and `architecture.md` before opening a
-substantive PR — many design choices have load-bearing rationale documented
-there.
-
-For PRs:
-
-- Run `scripts/test.sh` and confirm green.
-- Match the existing commit-message style (`area: imperative
-  sentence` plus a short prose body explaining *why*).
-- Keep new public APIs `Sendable` where possible.
-- For visual changes, add a per-pixel rendering test (see
-  `Tests/HypeCoreTests/ControlCleanupTests.swift` for the pattern).
-
----
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md), [`architecture.md`](architecture.md),
+[`decisions.md`](decisions.md), and [`AGENTS.md`](AGENTS.md) before changing
+behavior. Use the repository's model-paired development gates for non-trivial
+work, add focused coverage with the implementation, run the full required test
+gate, and stage only intentional files.
 
 ## License
 
-Hype is licensed under the MIT License. See [`LICENSE`](LICENSE).
-
-The HyperCard name and design language are property of Apple Inc.
-Hype is an independent revival project that uses no Apple HyperCard
-code or assets; it draws inspiration from the public HyperCard
-manuals and the broader HyperTalk culture (Decker, LiveCode, etc.)
-and is implemented from scratch.
+Hype is available under the [MIT License](LICENSE). Copyright © 2026 Michael
+Weingartner.

@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated build, app, local-signing, visual-QA, and AI-training outputs"
+paths = [
+  '''^\.build(?:/|$)''',
+  '''^dist(?:/|$)''',
+  '''^\.hype-codesign(?:/|$)''',
+  '''^\.hype/visual-qa(?:/|$)''',
+  '''^scripts/ai-training/out(?:/|$)''',
+]

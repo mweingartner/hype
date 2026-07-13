@@ -1,0 +1,58 @@
+{
+  "change": "refresh-github-readme",
+  "schema": "mpd",
+  "ui": false,
+  "kind": "chore",
+  "phase": "done",
+  "gates": {
+    "architecture": {
+      "verdict": "pass",
+      "by": "Architect",
+      "evidence": "openspec/changes/refresh-github-readme/{proposal.md,specs/github-readme/spec.md,design.md,tasks.md}",
+      "at": "2026-07-13"
+    },
+    "security-plan": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "openspec/changes/refresh-github-readme/design.md#security-plan-review",
+      "at": "2026-07-13"
+    },
+    "build": {
+      "verdict": "pass",
+      "by": "Builder",
+      "evidence": "README.md and tasks.md; documentation checks PASS (22 links, 16 fences, git diff --check); initial canonical run stalled at StackRuntime async test with log and sample recorded in prior FAIL; focused recovery swift test --no-parallel --filter StackRuntimeAsyncTests PASS 20/20 in 0.610s; exact canonical gate rerun requested after transient/inter-suite diagnosis",
+      "checks": {
+        "tests_passed": 6344,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-07-13"
+    },
+    "security-code": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Final independent Security(code) PASS: .gitleaks.toml:1-12 extends defaults with only five anchored generated-output paths, including exact .hype-codesign; no rule/regex/filename/commit/stopword bypass. .gitleaksignore:1-2 contains exactly the reviewed generic-api-key fingerprints matching synthetic Meshy fixtures at Generate3DSheetLifecycleTests.swift:418 and RigAndAnimateCoordinatorLifecycleTests.swift:373. Diagnostic default-rules scan: ~91.36 MB in 14.9s, zero leaks; relative-root two-sided fixture previously proved generated path skipped while Sources finding detected. README/OpenSpec all 17 Conditions verified.",
+      "checks": {
+        "secrets_clean": true,
+        "scanner": "builtin+gitleaks"
+      },
+      "at": "2026-07-13"
+    },
+    "test": {
+      "verdict": "pass",
+      "by": "Tester",
+      "evidence": "openspec/changes/refresh-github-readme/design.md#tester-evidence",
+      "checks": {
+        "tests_passed": 6344,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-07-13"
+    },
+    "deploy": {
+      "verdict": "pass",
+      "by": "main-session",
+      "evidence": "/Users/mweingar/dev/hype-v2/openspec/changes/archive/2026-07-13-refresh-github-readme",
+      "at": "2026-07-13"
+    }
+  },
+  "conditions": []
+}
