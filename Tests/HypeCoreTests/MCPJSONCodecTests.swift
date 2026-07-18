@@ -81,7 +81,7 @@ struct MCPJSONCodecTests {
             // (a) via JSONSerialization (NSNumber-backed) …
             let arr = try #require(try JSONSerialization.jsonObject(with: Data("[\(c.json)]".utf8)) as? [Any])
             let viaJSON = HypeMCPJSONValue(any: arr[0])
-            // … (b) via a directly-boxed native Swift value (the transactionSummary path).
+            // … (b) via a directly-boxed native Swift value (the debugPartSummary path).
             let viaNative = HypeMCPJSONValue(any: c.native)
             #expect(viaJSON == viaNative, "typing diverged for \(c.json)")
             if c.wantBool {
@@ -142,7 +142,7 @@ struct MCPJSONCodecTests {
 
     /// Generates a bounded-depth value both as a native `Any` tree (arrays/
     /// dictionaries of `Bool`/`Int`/`Double`, boxed directly the way
-    /// `debugPartSummary`/`transactionSummary` do) and as the textually
+    /// `debugPartSummary` does) and as the textually
     /// equivalent JSON, so the two `init(any:)` construction paths can be
     /// diffed against each other with no third oracle needed. Deliberately
     /// weights leaves toward exactly `0`/`1` — the bug's exact trigger value
@@ -211,7 +211,7 @@ struct MCPJSONCodecTests {
 
     /// Metamorphic relation: a nested tree of bools/numbers built two ways —
     /// (a) native Swift values boxed directly as `Any` (the
-    /// `debugPartSummary`/`transactionSummary` call-site shape), and (b) the
+    /// `debugPartSummary` call-site shape), and (b) the
     /// textually-equivalent JSON parsed via `JSONSerialization` (the
     /// `codableJSONValue` call-site shape) — MUST type identically through
     /// `init(any:)`, at every depth, not just at the top level. Also asserts
