@@ -14,6 +14,13 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
     private let executor: HypeToolExecutor
     private let defaults: UserDefaults
 
+    /// Sentinel written in place of secure field-body text on every MCP
+    /// transport read, and recognized on `hype_replace_part` as "leave the
+    /// stored value alone." Matches the curated masking one-liners
+    /// (`HypeToolExecutor.get_part_property`, `formatAllProperties`,
+    /// HypeTalk `the text of field …`) exactly.
+    private static let secureFieldMask = "(masked)"
+
     public init(
         document: HypeDocument,
         currentCardId: UUID? = nil,
@@ -65,7 +72,7 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
             HypeMCPResource(uri: "hype://app/preferences", name: "Preferences", description: "MCP-exposed Hype preferences and redacted secret status."),
             HypeMCPResource(uri: "hype://stacks", name: "Open Stacks", description: "Open stack summaries."),
             HypeMCPResource(uri: "hype://stack/\(stackId)/summary", name: "Active Stack Summary", description: "Stack, card, background, part, repository, and context summary."),
-            HypeMCPResource(uri: "hype://stack/\(stackId)/document", name: "Full Active Stack Document", description: "Full HypeDocument JSON, including scripts and all persisted attributes."),
+            HypeMCPResource(uri: "hype://stack/\(stackId)/document", name: "Full Active Stack Document", description: "Full HypeDocument JSON, including scripts and all persisted attributes. Secure field textContent, htmlContent, and searchText are masked."),
             HypeMCPResource(uri: "hype://stack/\(stackId)/cards", name: "Cards", description: "Cards in the active stack."),
             HypeMCPResource(uri: "hype://stack/\(stackId)/backgrounds", name: "Backgrounds", description: "Backgrounds in the active stack."),
             HypeMCPResource(uri: "hype://stack/\(stackId)/parts", name: "Parts", description: "Parts visible to the active stack."),
@@ -106,7 +113,7 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
                let idText = uri.split(separator: "/").dropLast().last,
                let id = UUID(uuidString: String(idText)),
                let part = document.parts.first(where: { $0.id == id }) {
-                return .object(["objectType": .string("part"), "object": codableJSONValue(part)])
+                return .object(["objectType": .string("part"), "object": codableJSONValue(maskedForTransport(part))])
             }
             if uri.contains("/card/"), let idText = uri.split(separator: "/").last, let id = UUID(uuidString: String(idText)),
                let card = document.cards.first(where: { $0.id == id }) {
@@ -486,7 +493,7 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
     private func fullDocumentResource() -> HypeMCPJSONValue {
         .object([
             "objectType": .string("document"),
-            "document": codableJSONValue(document),
+            "document": codableJSONValue(maskedForTransport(document)),
             "state": appState()
         ])
     }
@@ -512,7 +519,7 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
             return .object(["objectType": .string("background"), "object": codableJSONValue(background)])
         case "part", "button", "field", "object":
             guard let part = resolvePart(identifier) else { return error("No part matched '\(identifier)'.") }
-            return .object(["objectType": .string("part"), "object": codableJSONValue(part)])
+            return .object(["objectType": .string("part"), "object": codableJSONValue(maskedForTransport(part))])
         default:
             return error("Unsupported object_type '\(type)'. Use stack, card, background, or part.")
         }
@@ -567,7 +574,7 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
         case "part", "button", "field", "object":
             guard let index = resolvePartIndex(identifier) else { return error("No part matched '\(identifier)'.") }
             document.parts[index].script = script
-            return .object(["result": .string("Updated part script."), "object": codableJSONValue(document.parts[index])])
+            return .object(["result": .string("Updated part script."), "object": codableJSONValue(maskedForTransport(document.parts[index]))])
         default:
             return error("Unsupported object_type '\(type)'. Use stack, card, background, or part.")
         }
@@ -594,12 +601,49 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
             return error(validationError)
         }
 
-        document.parts[index] = replacement
-        return .object([
-            "result": .string("Replaced part \(replacement.name.isEmpty ? replacement.id.uuidString : replacement.name)."),
-            "object": codableJSONValue(replacement),
+        let existing = document.parts[index]
+        var stored = replacement
+        var preservedSecureText = false
+        // Round-trip guard (design.md Decision 2): preserve ONLY when the
+        // replacement KEEPS the part a field. If the same replace converts
+        // the part away from `.field` (e.g. to a button) while a sentinel is
+        // present, the sentinel writes through as the literal "(masked)" —
+        // fail-closed. The real secret is never restored onto a non-field
+        // part, because restoring it there would render it on screen and
+        // leak it on every future read (maskedForTransport's `.field &&
+        // .secure` predicate would no longer match). The three sentinel
+        // checks are independent: a client may edit any subset of the
+        // masked field-body properties in one replace, and each is
+        // preserved on its own sentinel, never coupled to the others.
+        if existing.partType == .field, existing.fieldStyle == .secure, replacement.partType == .field {
+            if replacement.textContent == Self.secureFieldMask {
+                stored.textContent = existing.textContent
+                preservedSecureText = true
+            }
+            if replacement.htmlContent == Self.secureFieldMask {
+                stored.htmlContent = existing.htmlContent
+                preservedSecureText = true
+            }
+            if replacement.searchText == Self.secureFieldMask {
+                stored.searchText = existing.searchText
+                preservedSecureText = true
+            }
+        }
+        document.parts[index] = stored
+
+        var resultText = "Replaced part \(stored.name.isEmpty ? stored.id.uuidString : stored.name)."
+        if preservedSecureText {
+            resultText += " Preserved stored secure-field text (\"(masked)\" sentinel detected)."
+        }
+        var response: [String: HypeMCPJSONValue] = [
+            "result": .string(resultText),
+            "object": codableJSONValue(maskedForTransport(stored)),
             "state": appState()
-        ])
+        ]
+        if preservedSecureText {
+            response["preservedSecureText"] = .bool(true)
+        }
+        return .object(response)
     }
 
     private func scriptValidationError(_ script: String) -> String? {
@@ -682,6 +726,35 @@ public final class HypeMCPDocumentBackend: HypeMCPBackend {
             return .null
         }
         return HypeMCPJSONValue(any: any)
+    }
+
+    /// Copy of `part` safe for MCP transport: every field-body text
+    /// property replaced by the sentinel when the part is a secure field.
+    /// Predicate mirrors `HypeToolExecutor.swift` `get_part_property`
+    /// text/textcontent exactly (`part.partType == .field && part.fieldStyle
+    /// == .secure`).
+    ///
+    /// Masked set (design.md Decision 1, the field-body-text rule):
+    /// `textContent`, `htmlContent`, and `searchText` — every `Part` String
+    /// property that is settable with no `fieldStyle` guard and can plausibly
+    /// hold the field's bound value. Masking is unconditional, including when
+    /// a masked property is already empty, matching the curated one-liners.
+    /// No other `Part` property is altered.
+    private func maskedForTransport(_ part: Part) -> Part {
+        guard part.partType == .field, part.fieldStyle == .secure else { return part }
+        var masked = part
+        masked.textContent = Self.secureFieldMask
+        masked.htmlContent = Self.secureFieldMask
+        masked.searchText = Self.secureFieldMask
+        return masked
+    }
+
+    /// Copy of `document` with every part masked for transport via
+    /// `maskedForTransport(_:Part)`. Never mutates `self.document`.
+    private func maskedForTransport(_ document: HypeDocument) -> HypeDocument {
+        var masked = document
+        masked.parts = document.parts.map(maskedForTransport)
+        return masked
     }
 
     private func transactionSummary(_ transaction: AIEditTransaction) -> HypeMCPJSONValue {

@@ -1,0 +1,615 @@
+{
+  "change": "mask-mcp-object-tools",
+  "schema": "mpd",
+  "ui": false,
+  "kind": "feature",
+  "phase": "done",
+  "gates": {
+    "architecture": {
+      "verdict": "pass",
+      "by": "Architect",
+      "evidence": "openspec/changes/mask-mcp-object-tools/design.md",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784352660,
+      "completed_at_epoch_secs": 1784353277,
+      "receipt": {
+        "id": "8fb317af8f0cd683d1e05ced95ed2b95f17e9546660da9bdd6e9bd41c7e522c4",
+        "schema": 1,
+        "phase": "architecture",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+            "governance": "3eaf1d35c423f8f7871282c72ea53b78f834204f2f84b2dd2d5f1d665cb3d9d6",
+            "design-artifacts": "8b9d1c1a9bb363417f0e3079a8de76c8626d241a796469f186e2cad6edc1dcaa"
+          }
+        }
+      }
+    },
+    "security-plan": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Security (plan) 4th review PASS: partType fail-closed guard verified; enumeration/Mirror-test durably closed. No conditions.",
+      "at": "2026-07-18",
+      "attempt": 4,
+      "started_at_epoch_secs": 1784353277,
+      "completed_at_epoch_secs": 1784356258,
+      "receipt": {
+        "id": "4c62af661e15ce4f801cb99841645c16fce5afc140a70ab115ffa408d3a955a2",
+        "schema": 1,
+        "phase": "security-plan",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+            "source": "e21880860836e919201c1c31d769e1ec6d0be08e3d3ea1a652f4570885bbd1b6",
+            "governance": "3e355f36953467b9058200cd319e1d1dbb349ac934ac6ed919fb50bb7c63f136",
+            "design-artifacts": "d4d1c63215eb203e841e6f99e1eedb523a453f5bfd0fbb26e21bd4ccee9b5835",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "build": {
+      "verdict": "pass",
+      "by": "Builder",
+      "evidence": "Build green: MCPMaskingTests 16/16 + full gate 3124+34 pass; 5/14 codableJSONValue sites wrapped (Cond 4); S1/S2 Mirror-based (neuter-verify: 37 issues when masking disabled); SecurityRegression/ScriptStorageGate/HypeMCP green + untouched. NSNumber 0/1 bridging defect flagged as separate follow-up.",
+      "checks": {
+        "tests_passed": 6376,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784356258,
+      "completed_at_epoch_secs": 1784357577,
+      "receipt": {
+        "id": "f9477d275290acf11c77cae3a47ce4a64c9bcc371aca8e489ba8e39f395a948f",
+        "schema": 1,
+        "phase": "build",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+            "source": "882597db264f27cc5be4a6e7b8a9c49803a7a58c21c47d67cfb2055a9967d123",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "882597db264f27cc5be4a6e7b8a9c49803a7a58c21c47d67cfb2055a9967d123"
+          }
+        }
+      }
+    },
+    "security-code": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Security (code) full-depth PASS: maskedForTransport verified (3 props, copy-only, no 6th site — confirmed via live HypeDebugServer delegation); fail-closed field->button guard traced; S1/S2 Mirror logic verified; curated masking untouched; descriptions verbatim; no secrets/logging. NSNumber bug re-confirmed orthogonal (tracked). Advisory: S1 is-String misses future String? (no current String? on Part).",
+      "checks": {
+        "secrets_clean": true,
+        "scanner": "builtin+gitleaks"
+      },
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784357706,
+      "completed_at_epoch_secs": 1784358143,
+      "receipt": {
+        "id": "90bbf3ffb2c4639004324708239242291930e76fcb6b5032b776649fdcb4f7d6",
+        "schema": 1,
+        "phase": "security-code",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+            "source": "882597db264f27cc5be4a6e7b8a9c49803a7a58c21c47d67cfb2055a9967d123",
+            "governance": "3f3fc786c9dbc462efdf4fc288caf58a9868cfd43c10d978096dfb78154f4d62",
+            "design-artifacts": "01fb4b6a5172b51e1e3de85d4073a1da490086acbf87d7bb4e2d8c047a7d818a",
+            "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+            "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "test": {
+      "verdict": "pass",
+      "by": "Tester",
+      "evidence": "Test PASS: MCPMaskingTests 20/20, full suite 3128 HypeCore + 34 HypeCLI green; S1 optional-String gap hardened + proven; multi-part metamorphic sweep (30 parts, all FieldStyles); round-trip 7c/7d added; mutation testing confirms teeth (masking drop → 17 fails; S1 revert → probe fails).",
+      "checks": {
+        "tests_passed": 6384,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784358144,
+      "completed_at_epoch_secs": 1784359055,
+      "receipt": {
+        "id": "19362707705634a945412000e6052d8b3492984af78c05a30a1e8150385d2a61",
+        "schema": 1,
+        "phase": "test",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+            "source": "89985e4b634af0a8010b1312aa918810facf5f435646072500d3ea5ff837bb0f",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "89985e4b634af0a8010b1312aa918810facf5f435646072500d3ea5ff837bb0f",
+            "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+          }
+        }
+      }
+    },
+    "documentation": {
+      "verdict": "pass",
+      "by": "Documenter",
+      "evidence": "openspec/changes/mask-mcp-object-tools/documentation.md",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784359186,
+      "completed_at_epoch_secs": 1784359368,
+      "receipt": {
+        "id": "5e6e49ca5525a1d4bb94f401ad183c3cf1b5d5724858341234a97d7939859a9c",
+        "schema": 1,
+        "phase": "documentation",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+            "shipped-behavior": "89985e4b634af0a8010b1312aa918810facf5f435646072500d3ea5ff837bb0f",
+            "documentation": "75ee9c6703f756a54a9e0d6961645acf2f303823e6eec1bc6f3605aabb4068b0"
+          }
+        }
+      }
+    },
+    "deploy": {
+      "verdict": "pass",
+      "by": "main-session",
+      "evidence": "scripts/mpd-deploy.sh install of /Applications/Hype.app (main + mask fix); all gates PASS, no open conditions",
+      "checks": {
+        "command": "scripts/mpd-deploy.sh"
+      },
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784359368,
+      "completed_at_epoch_secs": 1784359444,
+      "receipt": {
+        "id": "d5b2ad17da3797b39be90e442d44fa285f3a6a06b469c3f36567b76f0ff364e6",
+        "schema": 1,
+        "phase": "deploy",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+            "source": "89985e4b634af0a8010b1312aa918810facf5f435646072500d3ea5ff837bb0f",
+            "produced-artifact": "89985e4b634af0a8010b1312aa918810facf5f435646072500d3ea5ff837bb0f",
+            "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+          }
+        }
+      }
+    },
+    "doc-validation": {
+      "verdict": "pass",
+      "by": "Architect & Designer",
+      "evidence": "Architect Doc Validation PASS: all masking/round-trip/scope claims verified against shipped code; no overclaim; structural tests confirmed present.",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784359447,
+      "completed_at_epoch_secs": 1784359630,
+      "receipt": {
+        "id": "6f4595881cb11e65cd425a3f9c8e3ec1ec494d30473589904f308ddc2982f1d9",
+        "schema": 1,
+        "phase": "doc-validation",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+            "shipped-behavior": "89985e4b634af0a8010b1312aa918810facf5f435646072500d3ea5ff837bb0f",
+            "documentation": "75ee9c6703f756a54a9e0d6961645acf2f303823e6eec1bc6f3605aabb4068b0",
+            "persona-tuning": "e48b22dd7aa27e02a9a0ad38c98bc07383c61deeb896eb2872208db4f07324b8"
+          }
+        }
+      }
+    }
+  },
+  "conditions": [],
+  "history": [
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "openspec/changes/mask-mcp-object-tools/design.md",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784352660,
+        "completed_at_epoch_secs": 1784353277,
+        "receipt": {
+          "id": "8fb317af8f0cd683d1e05ced95ed2b95f17e9546660da9bdd6e9bd41c7e522c4",
+          "schema": 1,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+              "governance": "3eaf1d35c423f8f7871282c72ea53b78f834204f2f84b2dd2d5f1d665cb3d9d6",
+              "design-artifacts": "8b9d1c1a9bb363417f0e3079a8de76c8626d241a796469f186e2cad6edc1dcaa"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "fail",
+        "by": "Security",
+        "evidence": "Security (plan) FAIL: Finding 1 (htmlContent omitted from transform). Findings 2-3 dispositioned to control-property-consistency masking law (value alias already in S1; htmlcontent getter being added).",
+        "at": "2026-07-18",
+        "failure_class": "product",
+        "exploitability": {
+          "attacker": "attacker: any local MCP client on the HypeDebugServer socket",
+          "capability": "capability: set_part_property htmlcontent '<secret>' on a secure field (no style restriction), then hype_get_object/hype_get_stack_document",
+          "boundary": "boundary: the MCP object-read boundary this change exists to close",
+          "harm": "harm: secure-field secret returned in plaintext via the htmlContent sibling of the masked textContent",
+          "fix": "fix: extend maskedForTransport + replacePart sentinel guard + Conditions 1/3 + spec + test matrix to cover htmlContent symmetrically"
+        },
+        "attempt": 1,
+        "started_at_epoch_secs": 1784353277,
+        "completed_at_epoch_secs": 1784353902,
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "fail",
+        "by": "Security",
+        "evidence": "Security re-review FAIL#2: searchText 3rd unmasked field-body getter (HypeToolExecutor:3988, Interpreter:5805); leak-sweep structurally blind. Returns to Architect for exhaustive field-rule + structural test.",
+        "at": "2026-07-18",
+        "failure_class": "product",
+        "exploitability": {
+          "attacker": "attacker: local MCP client on the debug socket",
+          "capability": "capability: set fieldStyle=secure then set_part_property searchtext '<secret>' (setter has no style guard)",
+          "boundary": "boundary: MCP object-read transport (5 sites)",
+          "harm": "harm: secure secret returned plaintext via searchText, a 3rd field-body-text property maskedForTransport omits",
+          "fix": "fix: mask searchText symmetrically Decision 1 + independent sentinel Decision 2 + Mirror-based structural leak-sweep over all Part String fields"
+        },
+        "attempt": 2,
+        "started_at_epoch_secs": 1784353277,
+        "completed_at_epoch_secs": 1784354537,
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "fail",
+        "by": "Security",
+        "evidence": "Security 3rd review: enumeration+Mirror PASSED; NEW High — Decision 2 ignores replacement partType. Guard scoping fix.",
+        "at": "2026-07-18",
+        "failure_class": "product",
+        "exploitability": {
+          "attacker": "attacker: local MCP client / naive AI agent",
+          "capability": "capability: hype_get_object secure field then hype_replace_part flipping partType field->button, sentinel text left as-is",
+          "boundary": "boundary: MCP replace + future reads",
+          "harm": "harm: preserve-guard restores real plaintext onto a button which renders it + leaks on all future reads (predicate no longer matches); no curated partType-change path so not the accepted fieldStyle declassification",
+          "fix": "fix: scope preserve to replacement.partType==.field, else write-through literal sentinel (fail-closed)"
+        },
+        "attempt": 3,
+        "started_at_epoch_secs": 1784353277,
+        "completed_at_epoch_secs": 1784355930,
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Security (plan) 4th review PASS: partType fail-closed guard verified; enumeration/Mirror-test durably closed. No conditions.",
+        "at": "2026-07-18",
+        "attempt": 4,
+        "started_at_epoch_secs": 1784353277,
+        "completed_at_epoch_secs": 1784356258,
+        "receipt": {
+          "id": "4c62af661e15ce4f801cb99841645c16fce5afc140a70ab115ffa408d3a955a2",
+          "schema": 1,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+              "source": "e21880860836e919201c1c31d769e1ec6d0be08e3d3ea1a652f4570885bbd1b6",
+              "governance": "3e355f36953467b9058200cd319e1d1dbb349ac934ac6ed919fb50bb7c63f136",
+              "design-artifacts": "d4d1c63215eb203e841e6f99e1eedb523a453f5bfd0fbb26e21bd4ccee9b5835",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        }
+      }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "Build green: MCPMaskingTests 16/16 + full gate 3124+34 pass; 5/14 codableJSONValue sites wrapped (Cond 4); S1/S2 Mirror-based (neuter-verify: 37 issues when masking disabled); SecurityRegression/ScriptStorageGate/HypeMCP green + untouched. NSNumber 0/1 bridging defect flagged as separate follow-up.",
+        "checks": {
+          "tests_passed": 6376,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784356258,
+        "completed_at_epoch_secs": 1784357577,
+        "receipt": {
+          "id": "f9477d275290acf11c77cae3a47ce4a64c9bcc371aca8e489ba8e39f395a948f",
+          "schema": 1,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+              "source": "882597db264f27cc5be4a6e7b8a9c49803a7a58c21c47d67cfb2055a9967d123",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "882597db264f27cc5be4a6e7b8a9c49803a7a58c21c47d67cfb2055a9967d123"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Security (code) full-depth PASS: maskedForTransport verified (3 props, copy-only, no 6th site — confirmed via live HypeDebugServer delegation); fail-closed field->button guard traced; S1/S2 Mirror logic verified; curated masking untouched; descriptions verbatim; no secrets/logging. NSNumber bug re-confirmed orthogonal (tracked). Advisory: S1 is-String misses future String? (no current String? on Part).",
+        "checks": {
+          "secrets_clean": true,
+          "scanner": "builtin+gitleaks"
+        },
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784357706,
+        "completed_at_epoch_secs": 1784358143,
+        "receipt": {
+          "id": "90bbf3ffb2c4639004324708239242291930e76fcb6b5032b776649fdcb4f7d6",
+          "schema": 1,
+          "phase": "security-code",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+              "source": "882597db264f27cc5be4a6e7b8a9c49803a7a58c21c47d67cfb2055a9967d123",
+              "governance": "3f3fc786c9dbc462efdf4fc288caf58a9868cfd43c10d978096dfb78154f4d62",
+              "design-artifacts": "01fb4b6a5172b51e1e3de85d4073a1da490086acbf87d7bb4e2d8c047a7d818a",
+              "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+              "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        }
+      }
+    },
+    {
+      "phase": "test",
+      "record": {
+        "verdict": "pass",
+        "by": "Tester",
+        "evidence": "Test PASS: MCPMaskingTests 20/20, full suite 3128 HypeCore + 34 HypeCLI green; S1 optional-String gap hardened + proven; multi-part metamorphic sweep (30 parts, all FieldStyles); round-trip 7c/7d added; mutation testing confirms teeth (masking drop → 17 fails; S1 revert → probe fails).",
+        "checks": {
+          "tests_passed": 6384,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784358144,
+        "completed_at_epoch_secs": 1784359055,
+        "receipt": {
+          "id": "19362707705634a945412000e6052d8b3492984af78c05a30a1e8150385d2a61",
+          "schema": 1,
+          "phase": "test",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+              "source": "89985e4b634af0a8010b1312aa918810facf5f435646072500d3ea5ff837bb0f",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "89985e4b634af0a8010b1312aa918810facf5f435646072500d3ea5ff837bb0f",
+              "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "documentation",
+      "record": {
+        "verdict": "pass",
+        "by": "Documenter",
+        "evidence": "openspec/changes/mask-mcp-object-tools/documentation.md",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784359186,
+        "completed_at_epoch_secs": 1784359368,
+        "receipt": {
+          "id": "5e6e49ca5525a1d4bb94f401ad183c3cf1b5d5724858341234a97d7939859a9c",
+          "schema": 1,
+          "phase": "documentation",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+              "shipped-behavior": "89985e4b634af0a8010b1312aa918810facf5f435646072500d3ea5ff837bb0f",
+              "documentation": "75ee9c6703f756a54a9e0d6961645acf2f303823e6eec1bc6f3605aabb4068b0"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "deploy",
+      "record": {
+        "verdict": "pass",
+        "by": "main-session",
+        "evidence": "scripts/mpd-deploy.sh install of /Applications/Hype.app (main + mask fix); all gates PASS, no open conditions",
+        "checks": {
+          "command": "scripts/mpd-deploy.sh"
+        },
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784359368,
+        "completed_at_epoch_secs": 1784359444,
+        "receipt": {
+          "id": "d5b2ad17da3797b39be90e442d44fa285f3a6a06b469c3f36567b76f0ff364e6",
+          "schema": 1,
+          "phase": "deploy",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+              "source": "89985e4b634af0a8010b1312aa918810facf5f435646072500d3ea5ff837bb0f",
+              "produced-artifact": "89985e4b634af0a8010b1312aa918810facf5f435646072500d3ea5ff837bb0f",
+              "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "doc-validation",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect & Designer",
+        "evidence": "Architect Doc Validation PASS: all masking/round-trip/scope claims verified against shipped code; no overclaim; structural tests confirmed present.",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784359447,
+        "completed_at_epoch_secs": 1784359630,
+        "receipt": {
+          "id": "6f4595881cb11e65cd425a3f9c8e3ec1ec494d30473589904f308ddc2982f1d9",
+          "schema": 1,
+          "phase": "doc-validation",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "3d4057fd443dec23de5c310a9d65a65377034ed8c0db34ab16f8cf71475d9efd",
+              "shipped-behavior": "89985e4b634af0a8010b1312aa918810facf5f435646072500d3ea5ff837bb0f",
+              "documentation": "75ee9c6703f756a54a9e0d6961645acf2f303823e6eec1bc6f3605aabb4068b0",
+              "persona-tuning": "e48b22dd7aa27e02a9a0ad38c98bc07383c61deeb896eb2872208db4f07324b8"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "governance": {
+    "risk": "medium",
+    "threat_profile": "local-trusted-user",
+    "reconciliations": [
+      {
+        "kind": "risk",
+        "reason": "Two Security (plan) FAILs proved this is a credential-adjacent secure-field-masking surface (textContent/htmlContent/searchText leak vectors), not low-risk; upgrade merits the extra review attempts the rigor-escalation rule already implies.",
+        "phase": "security-plan",
+        "authorized_attempt": 2,
+        "at_epoch_secs": 1784354527,
+        "prior": "low",
+        "new": "medium",
+        "consumed": true
+      },
+      {
+        "kind": "continue",
+        "reason": "Third Security (plan) review confirmed the enumeration-gap class is durably closed (Mirror test sound) but found a distinct, legitimate new High finding (partType-change in replace defeats the preserve-guard). Continuing iteration is warranted — each attempt has surfaced a real, different credential-adjacent defect; this is convergence, not thrash.",
+        "phase": "security-plan",
+        "authorized_attempt": 3,
+        "at_epoch_secs": 1784355930,
+        "consumed": true
+      },
+      {
+        "kind": "continue",
+        "reason": "4th Security (plan) review PASSED with no conditions; partType fail-closed guard verified against source. Recording the pass after 3 iterative FAILs converged.",
+        "phase": "security-plan",
+        "authorized_attempt": 4,
+        "at_epoch_secs": 1784356258,
+        "consumed": true
+      }
+    ]
+  },
+  "strict": false,
+  "waivers": [],
+  "phase_started_at_epoch_secs": 1784359630
+}

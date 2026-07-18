@@ -92,12 +92,12 @@ public enum HypeMCPToolBridge {
             ),
             tool(
                 "hype_get_stack_document",
-                "Return the full active HypeDocument as JSON, including stack/card/background/part scripts and attributes. Local privileged MCP/debug boundary only.",
+                "Return the full active HypeDocument as JSON, including stack/card/background/part scripts and attributes. Secure (password) field textContent, htmlContent, and searchText are returned as \"(masked)\". Local privileged MCP/debug boundary only.",
                 [:]
             ),
             tool(
                 "hype_get_object",
-                "Return a full stack, card, background, or part object by UUID or case-insensitive name.",
+                "Return a full stack, card, background, or part object by UUID or case-insensitive name. Secure (password) field textContent, htmlContent, and searchText are returned as \"(masked)\".",
                 [
                     "object_type": ("string", "Object type: stack, card, background, or part.", true),
                     "id_or_name": ("string", "UUID or case-insensitive name. Omit only for stack.", false)
@@ -169,7 +169,7 @@ public enum HypeMCPToolBridge {
             ),
             tool(
                 "hype_replace_part",
-                "Replace one existing Part from full JSON previously read from hype_get_object or hype://stack/{id}/part/{partId}/full. Useful for complete attribute mutation.",
+                "Replace one existing Part from full JSON previously read from hype_get_object or hype://stack/{id}/part/{partId}/full. If the stored part is a secure field AND the replacement keeps it a field, any of textContent, htmlContent, or searchText carrying \"(masked)\" preserves that stored property independently — the secret is not overwritten with the sentinel. If the replacement converts the part to another type (e.g. a button), the \"(masked)\" sentinel is stored literally, NOT the real secret; supply real text explicitly to convert a secure field's content. Beyond id, card/background reference, and script checks, values are stored as decoded without field-level validation — prefer set_part_property for single-property edits.",
                 [
                     "part_json": ("string", "Full JSON object for the replacement Part. The id must already exist.", true),
                     "validate_script": ("string", "Optional true/false. Defaults to true.", false)
