@@ -111,6 +111,13 @@ authoring surface—controls, text, media, paint, and richer framework-backed
 views—while UUID-based identity keeps references stable across editing and
 persistence.
 
+Part properties share one vocabulary across every surface. A single
+`PartPropertyRegistry` defines each property's canonical name, aliases,
+applicable part types, and mutability, so the same names read and write through
+the Properties Inspector, HypeTalk (`the <property> of <part>`), and the AI
+tools—and conformance tests keep the surfaces from drifting apart. A control
+behaves consistently however it is reached.
+
 The macOS app hosts documents with SwiftUI `DocumentGroup`. Only stack document
 windows persist launch geometry, keyed by the stack's canonical file path;
 auxiliary windows do not persist launch geometry. Hype reopens at most the last
@@ -197,6 +204,10 @@ experiments, not evergreen claims about current provider quality or reliability.
   The app uses a permission-restricted local Unix socket rather than a TCP
   listener, and mutation calls remain subject to the app's mutation preference.
   Do not expose the socket or MCP process to untrusted clients.
+- Obscured-text field contents (the Secure field style) are masked as
+  `(masked)` when read back through the AI property tools, the HypeTalk property
+  getters, and the MCP object and document tools, so an obscured field's value
+  does not leak into tool output or model transcripts.
 - Exported runtimes have target-specific feature limits. Confirm the target
   capability report rather than assuming every macOS authoring feature exports.
 
