@@ -1,6 +1,6 @@
 # MCP Masking
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Secure-field text never crosses an MCP object or document read path
 

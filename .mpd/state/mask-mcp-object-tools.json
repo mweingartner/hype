@@ -611,5 +611,32 @@
   },
   "strict": false,
   "waivers": [],
-  "phase_started_at_epoch_secs": 1784359630
+  "phase_started_at_epoch_secs": 1784359630,
+  "archive_closure": {
+    "base_commit": "28e7dccf097565aba0108900c8d0a70ee9709300",
+    "archive_path": "openspec/changes/archive/2026-07-18-mask-mcp-object-tools",
+    "transaction_id": "abcaec45b5fde6e97d3fe69b355a9f91e701a3b53a64a62cec6caa2cbb1f20a6",
+    "allowed_paths": [
+      ".mpd/state/mask-mcp-object-tools.json",
+      "Sources/HypeCore/MCP/HypeMCPDocumentBackend.swift",
+      "Sources/HypeCore/MCP/HypeMCPToolBridge.swift",
+      "Tests/HypeCoreTests/MCPMaskingTests.swift",
+      "docs/mask-mcp-object-tools.md",
+      "openspec/changes/archive/2026-07-18-mask-mcp-object-tools",
+      "openspec/changes/mask-mcp-object-tools",
+      "openspec/specs/mcp-masking/spec.md"
+    ],
+    "system_paths": [
+      ".mpd/state/mask-mcp-object-tools.json",
+      "Sources/HypeCore/MCP/HypeMCPDocumentBackend.swift",
+      "Sources/HypeCore/MCP/HypeMCPToolBridge.swift",
+      "Tests/HypeCoreTests/MCPMaskingTests.swift",
+      "docs/mask-mcp-object-tools.md",
+      "openspec/changes/archive/2026-07-18-mask-mcp-object-tools",
+      "openspec/changes/mask-mcp-object-tools",
+      "openspec/specs/mcp-masking/spec.md"
+    ],
+    "post_archive_digest": "f66e401f3058a376deec7c2afd6908c23d4b6bffe4f5d95d5365e2b707fc0c47",
+    "archived_at": 1784359926
+  }
 }
