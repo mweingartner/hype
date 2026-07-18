@@ -64,55 +64,6 @@ struct MCPMaskingTests {
         return (document, cardId)
     }
 
-    /// Nudges every currently-known `Part` `Int`/`Double` property that
-    /// defaults to exactly `0` or `1` away from that value.
-    ///
-    /// This is a test-only workaround for a pre-existing, unrelated
-    /// Foundation bridging defect discovered while writing this suite (out
-    /// of scope for this change — see the file whitelist in design.md's
-    /// Conditions for Builder; `HypeMCPTypes.swift` is not touched by this
-    /// change): `HypeMCPJSONValue.init(any:)` (used by `codableJSONValue`)
-    /// checks `case let value as Bool` before `Int`/`Double`, and
-    /// `JSONSerialization`-produced `NSNumber(0)` / `NSNumber(1)` satisfy an
-    /// `as? Bool` cast, so ANY `Part` numeric property valued exactly `0`
-    /// or `1` — which most numeric properties are, by default — round-trips
-    /// through the real MCP object-read response as a JSON boolean instead
-    /// of a JSON number. A strict `JSONDecoder().decode(Part.self, from:)`
-    /// of that real response then throws a type mismatch. This affects
-    /// every MCP object read regardless of `fieldStyle` and is unrelated to
-    /// secure-field masking; it should be flagged to Security/Test as a
-    /// separate, pre-existing defect. It is worked around here, confined to
-    /// this test file, only so the masking + round-trip-guard behavior
-    /// this suite targets can be observed via a genuine GET-then-decode
-    /// round trip.
-    private func avoidingKnownZeroOrOneNumericBridgingDefaults(_ part: Part) -> Part {
-        var patched = part
-        patched.rotation = 12
-        patched.family = 2
-        patched.strokeWidth = 2
-        patched.videoCurrentTime = 5
-        patched.videoDuration = 5
-        patched.videoPlayRate = 2
-        patched.videoVolume = 0.5
-        patched.pdfCurrentPage = 2
-        patched.controlValue = 5
-        patched.controlMin = 5
-        patched.controlStep = 2
-        patched.audioDuration = 5
-        patched.musicVolume = 0.5
-        patched.musicPosition = 5
-        patched.musicDuration = 5
-        patched.progressValue = 0.5
-        patched.progressTotal = 5
-        patched.progressDecimals = 2
-        patched.gaugeValue = 5
-        patched.gaugeMin = 5
-        patched.gaugeMax = 10
-        patched.gaugeDecimals = 2
-        patched.dividerThickness = 2
-        return patched
-    }
-
     // MARK: - 1: hype_get_object masks all three secure properties
 
     @Test("1: hype_get_object masks textContent, htmlContent, and searchText on a secure field")
@@ -271,7 +222,7 @@ struct MCPMaskingTests {
     @Test("7: GET then edit geometry then hype_replace_part preserves all three stored secrets")
     func replacePartRoundTripPreservesAllThreeSecrets() async throws {
         var (document, cardId) = try makeDocumentAndCardId()
-        let original = avoidingKnownZeroOrOneNumericBridgingDefaults(makeSecureFieldPart(cardId: cardId))
+        let original = makeSecureFieldPart(cardId: cardId)
         document.addPart(original)
         let backend = HypeMCPDocumentBackend(document: document, currentCardId: cardId)
 
@@ -548,7 +499,7 @@ struct MCPMaskingTests {
     @Test("no-op round-trip: replace with the unedited masked JSON preserves the original part exactly")
     func noOpRoundTripPreservesOriginalPartExactly() async throws {
         var (document, cardId) = try makeDocumentAndCardId()
-        let original = avoidingKnownZeroOrOneNumericBridgingDefaults(makeSecureFieldPart(cardId: cardId))
+        let original = makeSecureFieldPart(cardId: cardId)
         document.addPart(original)
         let backend = HypeMCPDocumentBackend(document: document, currentCardId: cardId)
 

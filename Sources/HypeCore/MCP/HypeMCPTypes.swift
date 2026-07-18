@@ -332,14 +332,21 @@ public extension HypeMCPJSONValue {
             self = value
         case let value as String:
             self = .string(value)
-        case let value as Bool:
-            self = .bool(value)
-        case let value as Int:
-            self = .number(Double(value))
-        case let value as Double:
-            self = .number(value)
-        case let value as Float:
-            self = .number(Double(value))
+        case let value as NSNumber:
+            // JSONSerialization returns NSNumber for BOTH JSON numbers and JSON
+            // booleans, and NSNumber(0)/NSNumber(1) satisfy Swift's `as? Bool`
+            // cast — so a plain `case ... as Bool` here would mis-type a numeric
+            // 0 or 1 (the default for many Part fields: rotation, family,
+            // strokeWidth, gaugeMax, …) as a boolean, breaking a strict
+            // JSONDecoder round-trip of the emitted object. Distinguish a real
+            // JSON boolean by its CFBoolean identity; every other NSNumber is a
+            // number. This also correctly handles native Swift Bool/Int/Double
+            // boxed as `Any` (Bool bridges to the same kCFBoolean singleton).
+            if CFGetTypeID(value) == CFBooleanGetTypeID() {
+                self = .bool(value.boolValue)
+            } else {
+                self = .number(value.doubleValue)
+            }
         case let value as [Any]:
             self = .array(value.map(HypeMCPJSONValue.init(any:)))
         case let value as [String: Any]:
