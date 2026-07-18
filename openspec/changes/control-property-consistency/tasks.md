@@ -14,11 +14,11 @@
 
 ## 2. P2 — AI surface parity (green before P3)
 
-- [ ] 2.1 `set_part_property`: registry gate with AI error strings (same copy + did-you-mean), canonical switch entry, boolean kinds through `boolArgument` (nil → error listing tokens), color kinds through `HexColor`, `size` pair case, video playback family, `popupitems`, field flags, `showsuserlocation`, `invertonclick`, `animated`, `icon`; `location` unified to geometry/map semantics; delete dead chart cases 2417–2442 (keep `chartdata`); chart keys error on non-chart parts.
-- [ ] 2.2 `get_part_property`: extract switch into `static func partPropertyReadValue(_ canonical: String, part: Part) -> String?`; registry gate; `size` returns pair; delete dead chart GET cases 3941–3958 (keep `chartdata`); masking preserved.
-- [ ] 2.3 Rewrite `formatAllProperties` to iterate registry (applicable + aiExposed), values via `partPropertyReadValue`, alias annotations, defaults column from descriptors, explicit legacy section; masking preserved.
-- [ ] 2.4 Update `HypeTools.swift` set/get/list tool descriptions (canonical vocabulary, strict errors, breaking notes).
-- [ ] 2.5 Tests: AI halves of dispatch/round-trip/conformance suites; boolean-parser fuzz over token case/whitespace; `list_all_properties` two-direction diff vs registry; update the four existing list-assertion tests (Phase1ControlsTests, ProgressViewTests, TextStylingTests, HelpTextTests) to the registry output format deliberately. Suite green.
+- [x] 2.1 `set_part_property`: registry gate with AI error strings (same copy + did-you-mean), canonical switch entry, boolean kinds through `boolArgument` (nil → error listing tokens), color kinds through `HexColor`, `size` pair case, video playback family, `popupitems`, field flags, `showsuserlocation`, `invertonclick`, `animated`, `icon`; `location` unified to geometry/map semantics; delete dead chart cases 2417–2442 (keep `chartdata`); chart keys error on non-chart parts.
+- [x] 2.2 `get_part_property`: extract switch into `static func partPropertyReadValue(_ canonical: String, part: Part) -> String?`; registry gate; `size` returns pair; delete dead chart GET cases 3941–3958 (keep `chartdata`); masking preserved.
+- [x] 2.3 Rewrite `formatAllProperties` to iterate registry (applicable + aiExposed), values via `partPropertyReadValue`, alias annotations, defaults column from descriptors, explicit legacy section; masking preserved.
+- [x] 2.4 Update `HypeTools.swift` set/get/list tool descriptions (canonical vocabulary, strict errors, breaking notes).
+- [x] 2.5 Tests: AI halves of dispatch/round-trip/conformance suites; boolean-parser fuzz over token case/whitespace; `list_all_properties` two-direction diff vs registry; update the four existing list-assertion tests (Phase1ControlsTests, ProgressViewTests, TextStylingTests, HelpTextTests) to the registry output format deliberately. Suite green.
 
 ## 3. P3 — Inspector labels and rows (app must build; green before P4)
 

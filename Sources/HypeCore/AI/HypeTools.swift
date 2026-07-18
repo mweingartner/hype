@@ -970,19 +970,41 @@ public struct HypeToolDefinitions {
 
         // Part modification
         makeTool(name: "set_part_property", description: """
-            Set a property on a part by name. Available properties: name, left, top, width, height, \
-            text, url, videoURL, fillColor, strokeColor, strokeWidth, cornerRadius, visible, enabled, hilite, \
-            autoHilite, showName, lockText, textFont, textSize, textAlign, textStyle, fontColor, helpText, script, style. \
+            Set a property on a part by name, using the SAME canonical property vocabulary as \
+            HypeTalk's `set the <name> of <kind> "<part>" to <value>` — call list_all_properties \
+            first when unsure of a name; it lists every property this part actually supports, with \
+            its default and any accepted aliases. \
+            BREAKING: an unrecognized property name now returns an error (with a did-you-mean hint \
+            when a close match exists) instead of silently no-op'ing, and a recognized name that \
+            doesn't apply to this part's type (e.g. gaugeValue on a button) also errors — always \
+            check list_all_properties or the return message rather than guessing. Boolean values \
+            accept true/false/yes/no/y/n/1/0/on/off (case-insensitive); anything else errors. Color \
+            values (fillColor, strokeColor, fontColor, colorHex, gaugeTint, progressTint, \
+            dividerColor, background3d, ...) must be "" (clears/auto) or "#RRGGBB"/"#RRGGBBAA"; \
+            anything else errors. \
+            BREAKING: 'size' is now the geometry pair "width,height" (like get_part_property's \
+            'size') — it no longer sets the text point size; use 'textSize' for that. \
+            Available properties: name, left, top, width, height, size, text, url, videoURL, \
+            currentTime, playRate, videoLoop, videoAutoplay, videoVolume, fillColor, strokeColor, \
+            strokeWidth, cornerRadius, visible, enabled, hilite, autoHilite, showName, lockText, \
+            richText, enterKeyEnabled, dontWrap, wideMargins, textFont, textSize, textAlign, \
+            textStyle, fontColor, helpText, script, style, icon, popupItems. \
             textStyle is a comma-separated subset of: plain, bold, italic, underline, strikethrough \
-            (e.g. "bold" or "bold,italic"). fontColor is a hex string ("#FF0000") for the text \
-            foreground; passing an empty string reverts to the auto contrast-aware default. \
-            Image / GIF parts also accept: transparentBackground (boolean — when true, the renderer \
-            chroma-keys the dominant corner-pixel color out so whatever is behind the image shows \
-            through; useful for JPGs and indexed GIFs whose 'background' is a solid color rather \
-            than a real alpha channel). \
+            (e.g. "bold" or "bold,italic"). icon accepts an Asset Repository icon asset UUID, or \
+            ""/"0" to clear. popupItems is a newline-separated list of popup-button items (first \
+            item is selected). \
+            Image / GIF parts also accept: invertOnClick (boolean), animated (boolean — whether an \
+            animated GIF plays automatically), transparentBackground (boolean — when true, the \
+            renderer chroma-keys the dominant corner-pixel color out so whatever is behind the \
+            image shows through; useful for JPGs and indexed GIFs whose 'background' is a solid \
+            color rather than a real alpha channel). \
             Sprite Area parts also accept transparentBackground: when true, the SpriteKit scene \
             composites against the card so an image part placed BENEATH the sprite area shows \
             through (the scene's nodes still render normally on top). \
+            Map parts also accept showsUserLocation (boolean). 'location' on a map accepts EITHER \
+            a coordinate pair "lat,lon" (moves the part, like on every other part type) OR a place \
+            name/address (geocoded into mapCenterLat/mapCenterLon); a non-pair value on any OTHER \
+            part type now errors instead of silently doing nothing. \
             Chart-specific properties: chartdata, charttype, charttitle, x_axis_label, y_axis_label, \
             show_legend, show_grid, interactable, spider_ring_count, spider_grid_color, spider_axis_color, spider_label_color, \
             spider_fill_opacity, spider_point_radius, spider_show_value_labels, spider_decimal_places. \
@@ -1211,13 +1233,23 @@ public struct HypeToolDefinitions {
         // ------------------------------------------------------------------
 
         makeTool(name: "get_part_property", description: """
-            Read the current value of a single property on a named card part. Complements \
-            set_part_property — always call this first when you need to read-then-write (e.g. \
-            bumping a score by 10, toggling visibility). Returns "Part 'X' not found" when the \
-            part doesn't exist. Property names match set_part_property: name, left, top, width, \
-            height, text, url, videoURL, fillColor, strokeColor, strokeWidth, cornerRadius, \
-            visible, enabled, hilite, autoHilite, showName, lockText, textFont, textSize, \
-            textAlign, textStyle, fontColor, helpText, script, style. Chart parts also expose charttype, \
+            Read the current value of a single property on a named card part, using the SAME \
+            canonical property vocabulary as set_part_property and HypeTalk's `the X of <kind> \
+            "name"`. Complements set_part_property — always call this first when you need to \
+            read-then-write (e.g. bumping a score by 10, toggling visibility). Returns "Part 'X' \
+            not found" when the part doesn't exist, or "Unknown property 'X'" when the name isn't \
+            recognized (or isn't yet exposed on this tool — call list_all_properties to see \
+            exactly what's available on this part). A .secure field's text/value/htmlContent/ \
+            searchText always reads back as "(masked)", never the real text. \
+            Property names match set_part_property: name, left, top, width, height, size (the \
+            "width,height" geometry pair — distinct from textSize), text, url, videoURL, \
+            currentTime, playRate, videoLoop, videoAutoplay, videoVolume, fillColor, strokeColor, \
+            strokeWidth, cornerRadius, visible, enabled, hilite, autoHilite, showName, lockText, \
+            richText, enterKeyEnabled, dontWrap, wideMargins, textFont, textSize, textAlign, \
+            textStyle, fontColor, helpText, script, style, icon, popupItems. Image/GIF parts also \
+            expose invertOnClick, animated, transparentBackground. Map parts also expose \
+            showsUserLocation, and 'location' returns the geocoded place name when one is set, \
+            otherwise the geometric center. Chart parts also expose charttype, \
             charttitle, x_axis_label, y_axis_label, show_legend, show_grid, interactable, spider_ring_count, spider_grid_color, spider_axis_color, \
             spider_label_color, spider_fill_opacity, spider_point_radius, spider_show_value_labels, and spider_decimal_places. \
             For Sprite Area parts, property=script returns \
@@ -1229,16 +1261,21 @@ public struct HypeToolDefinitions {
         ]),
 
         makeTool(name: "list_all_properties", description: """
-            Return EVERY property of a named part (with current value AND default), so you \
-            can discover what's settable without guessing the name. Use this before set_part_property \
-            when you don't already know the property name — saves a round-trip on misspellings.
+            Return EVERY property of a named part (with current value AND default, plus any \
+            accepted aliases), so you can discover what's settable without guessing the name. Use \
+            this before set_part_property when you don't already know the property name — saves a \
+            round-trip on misspellings.
 
             The output is a structured text block, one property per line, formatted as \
-            `propertyName = currentValue   (default: defaultValue)`. Common properties \
-            (geometry, state, text, script) come first; type-specific properties (e.g. \
-            mapCenterLat / audioOutputPath / scene3DAntialiasing) follow. The same property \
-            names work as the `property` argument to set_part_property and get_part_property, \
-            and as the property name in HypeTalk's `the X of <kind> "name"` syntax.
+            `name = currentValue   (default: defaultValue)   (aliases: a, b)`. A "## Common" \
+            section (geometry, state, text, script) comes first; a "## Type-specific" section \
+            (e.g. mapCenterLat / audioOutputPath / scene3DAntialiasing) follows; a trailing \
+            "## Legacy / not scriptable" section, when present, names classic HypeTalk properties \
+            this part recognizes but that aren't offered through set_part_property/ \
+            get_part_property (their value is never shown there). The same property names work as \
+            the `property` argument to set_part_property and get_part_property, and as the \
+            property name in HypeTalk's `the X of <kind> "name"` syntax. A .secure field's \
+            textContent/value/htmlContent/searchText always shows "(masked)".
 
             Returns "Part 'X' not found" if the named part doesn't exist on the current card or \
             its background.

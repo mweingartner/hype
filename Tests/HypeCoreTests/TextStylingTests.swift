@@ -380,8 +380,12 @@ struct AIToolTextStylingTests {
         )
         // The dump must explicitly mention fontColor and textStyle
         // — that's how the model discovers the surface.
-        #expect(result.contains("fontColor"))
-        #expect(result.contains("textStyle"))
+        // `list_all_properties` is registry-driven (control-property-
+        // consistency P2, task 2.3) and renders the lowercase
+        // canonical dispatch name — updated deliberately to the
+        // registry output format (task 2.5).
+        #expect(result.contains("fontcolor"))
+        #expect(result.contains("textstyle"))
     }
 }
 

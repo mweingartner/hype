@@ -261,6 +261,84 @@ struct RegistryDrivenMaskingLawTests {
     }
 }
 
+// MARK: - Registry-driven masking law, AI getter (control-property-consistency P2)
+//
+// `RegistryDrivenMaskingLawTests` above pins the law through HypeTalk's
+// `MessageDispatcher`. Condition 1 (as amended for P2) requires the
+// SAME structural guarantee on the AI surface's `get_part_property` —
+// `value`/`htmlContent`/`searchText` bypassed masking there before this
+// change (HypeToolExecutor.swift ~3827/3988, plus htmlContent having no
+// AI getter at all). This suite walks the identical registry-driven
+// alias list through `HypeToolExecutor.execute` instead of a script.
+@Suite("Registry-driven masking law — AI getter, every secureMasked descriptor, every alias", .serialized)
+struct RegistryDrivenMaskingLawAITests {
+    @Test(
+        "every alias of every secureMasked descriptor returns \"(masked)\" on a .secure field, via get_part_property",
+        arguments: PartPropertyRegistry.secureMaskedDescriptors.flatMap { descriptor in
+            ([descriptor.canonical] + descriptor.aliases).map { (descriptor.canonical, $0) }
+        }
+    )
+    func everyAliasIsMaskedViaAIGetter(canonical: String, alias: String) async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        var secureField = Part(partType: .field, cardId: cardId, name: "pwd",
+                               left: 0, top: 0, width: 200, height: 30)
+        secureField.fieldStyle = .secure
+        guard seedSecureMaskedField(canonical: canonical, into: &secureField) else {
+            Issue.record("no test seeder registered for secureMasked descriptor '\(canonical)' — add one to seedSecureMaskedField(canonical:into:)")
+            return
+        }
+        doc.addPart(secureField)
+        let result = await HypeToolExecutor().execute(
+            toolName: "get_part_property",
+            arguments: ["part_name": "pwd", "property": alias],
+            document: &doc, currentCardId: cardId
+        )
+        #expect(result == "(masked)", "alias '\(alias)' of descriptor '\(canonical)' did not mask via get_part_property: got '\(result)'")
+    }
+
+    @Test("a non-secure (rectangle) field still reads plaintext through get_part_property for every secureMasked alias")
+    func nonSecureFieldStaysPlaintextViaAIGetter() async {
+        for descriptor in PartPropertyRegistry.secureMaskedDescriptors {
+            var doc = HypeDocument.newDocument(name: "Test")
+            let cardId = doc.cards[0].id
+            var field = Part(partType: .field, cardId: cardId, name: "notes",
+                             left: 0, top: 0, width: 200, height: 30)
+            field.fieldStyle = .rectangle
+            guard seedSecureMaskedField(canonical: descriptor.canonical, into: &field) else { continue }
+            doc.addPart(field)
+            let result = await HypeToolExecutor().execute(
+                toolName: "get_part_property",
+                arguments: ["part_name": "notes", "property": descriptor.canonical],
+                document: &doc, currentCardId: cardId
+            )
+            #expect(result != "(masked)", "'\(descriptor.canonical)' must not mask a non-secure field via get_part_property")
+        }
+    }
+
+    /// `value` on the AI surface (Security Finding 1's exact bypass —
+    /// HypeToolExecutor.swift's OLD `case "value"` branch read
+    /// `part.textContent` directly, ignoring the mask below it) gets
+    /// its own direct test for the same reason the HypeTalk suite does.
+    @Test("`value` of a .secure field masks via get_part_property (Security Finding 1 — the exact AI bypass this change closes)")
+    func valueMasksViaAIGetter() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        var secureField = Part(partType: .field, cardId: cardId, name: "pwd",
+                               left: 0, top: 0, width: 200, height: 30)
+        secureField.fieldStyle = .secure
+        secureField.textContent = "s3cr3t-value"
+        doc.addPart(secureField)
+        let result = await HypeToolExecutor().execute(
+            toolName: "get_part_property",
+            arguments: ["part_name": "pwd", "property": "value"],
+            document: &doc, currentCardId: cardId
+        )
+        #expect(result == "(masked)")
+        #expect(!result.contains("s3cr3t-value"))
+    }
+}
+
 // MARK: - PartType.unknown forward-compat filtering (Security condition 4)
 
 /// Pins the forward-compat filtering of unknown part types so a

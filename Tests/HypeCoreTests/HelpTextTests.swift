@@ -194,9 +194,15 @@ struct AIToolHelpTextTests {
             arguments: ["part_name": "TestButton"],
             document: &doc, currentCardId: cardId
         )
-        // Should mention helpText so the AI knows the surface
-        // exists, with `(none)` when empty.
-        #expect(result.contains("helpText"))
-        #expect(result.contains("(none)"))
+        // Should mention helptext so the AI knows the surface exists.
+        // `list_all_properties` is registry-driven (control-property-
+        // consistency P2, task 2.3) and renders the lowercase
+        // canonical dispatch name plus its registered aliases —
+        // updated deliberately to the registry output format
+        // (task 2.5); the empty default is now shown via the same
+        // `(default: <defaultDescription>)` column every property
+        // uses, rather than a hand-crafted `(none)` placeholder.
+        #expect(result.contains("helptext ="))
+        #expect(result.contains("aliases: help_text, tooltip, tool_tip, help"))
     }
 }

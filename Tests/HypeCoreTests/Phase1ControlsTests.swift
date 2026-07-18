@@ -458,18 +458,22 @@ struct Phase1ControlsTests {
             arguments: ["part_name": "store"],
             document: &doc, currentCardId: cardId
         )
-        // Map-specific section is present
-        #expect(result.contains("centerLat"))
-        #expect(result.contains("centerLon"))
+        // Map-specific section is present. `list_all_properties` is
+        // registry-driven (control-property-consistency P2, task 2.3)
+        // and renders the lowercase canonical dispatch name, not a
+        // camelCase display name — updated deliberately to the
+        // registry output format (task 2.5).
+        #expect(result.contains("centerlat"))
+        #expect(result.contains("centerlon"))
         #expect(result.contains("span"))
-        #expect(result.contains("mapType"))
-        #expect(result.contains("location"))
+        #expect(result.contains("maptype"))
+        #expect(result.contains("maplocation"))
         #expect(result.contains("annotations"))
         #expect(result.contains("97537"))
         // Common section is present
         #expect(result.contains("visible"))
         #expect(result.contains("script"))
-        #expect(result.contains("textFont"))
+        #expect(result.contains("textfont"))
         // Setter hint is present
         #expect(result.contains("set_part_property"))
         #expect(result.contains("HypeTalk"))

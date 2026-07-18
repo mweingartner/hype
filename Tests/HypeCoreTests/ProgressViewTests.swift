@@ -355,10 +355,16 @@ struct ProgressViewTests {
             arguments: ["part_name": "loader"],
             document: &doc, currentCardId: cardId
         )
-        #expect(result.contains("value"))
-        #expect(result.contains("total"))
-        #expect(result.contains("circular"))
-        #expect(result.contains("indeterminate"))
+        // `list_all_properties` is registry-driven (control-property-
+        // consistency P2, task 2.3) — the row names are the lowercase
+        // canonical dispatch names, with `progresstotal`'s registered
+        // `total` alias annotated alongside it. Updated deliberately
+        // to the registry output format (task 2.5).
+        #expect(result.contains("progressvalue"))
+        #expect(result.contains("progresstotal"))
+        #expect(result.contains("aliases: progress_total, total"))
+        #expect(result.contains("progresscircular"))
+        #expect(result.contains("progressindeterminate"))
         #expect(result.contains("Syncing"))
     }
 }

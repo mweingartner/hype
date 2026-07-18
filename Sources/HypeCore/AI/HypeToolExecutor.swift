@@ -176,12 +176,18 @@ public struct HypeToolExecutor: Sendable {
         return (cardId: currentCardId, backgroundId: nil)
     }
 
+    /// The ONE permissive boolean parser for the AI tool surface
+    /// (control-property-consistency, mock §3.8 A3): accepts
+    /// true/false/yes/no/y/n/1/0/on/off, case-insensitive, whitespace-
+    /// trimmed. Returns `nil` for anything else so callers can
+    /// distinguish "garbage input" from "false" and surface the exact
+    /// AI boolean error copy instead of silently defaulting.
     func boolArgument(_ value: String?) -> Bool? {
         guard let raw = value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
               !raw.isEmpty else { return nil }
         switch raw {
-        case "true", "yes", "1", "on": return true
-        case "false", "no", "0", "off": return false
+        case "true", "yes", "y", "1", "on": return true
+        case "false", "no", "n", "0", "off": return false
         default: return nil
         }
     }
@@ -2055,12 +2061,71 @@ public struct HypeToolExecutor: Sendable {
             let partName = arguments["part_name"] ?? ""
             let property = arguments["property"] ?? ""
             let value = arguments["value"] ?? ""
-            if let index = scopedPartIndex(named: partName, currentCardId: currentCardId, in: document) {
-                if document.parts[index].partType == .chart,
-                   Self.applyChartProperty(property, value: value, part: &document.parts[index]) {
-                    return "Set \(property) of '\(partName)' to '\(value)'"
+            guard let index = scopedPartIndex(named: partName, currentCardId: currentCardId, in: document) else {
+                return "Part '\(partName)' not found"
+            }
+            // Chart-specific properties (title, xAxisLabel, etc.) take
+            // precedence over the generic part-property switch so
+            // `set_part_property(property: "title", ...)` on a chart
+            // writes the chart's ChartConfig. Condition 12: this
+            // interception MUST run before the registry gate so chart
+            // parts never hit the colorWell-scoped `interactive` or
+            // name-scoped `title` descriptors.
+            if document.parts[index].partType == .chart,
+               Self.applyChartProperty(property, value: value, part: &document.parts[index]) {
+                return "Set \(property) of '\(partName)' to '\(value)'"
+            }
+            // Registry gate (control-property-consistency, P2): SET is
+            // strict on the AI surface too — every resolution other
+            // than `.property` and `.noOp` returns a specific,
+            // name-bearing error string (mock §3.7), byte-identical to
+            // HypeTalk's copy (Condition 11) since both surfaces
+            // resolve through the shared `PartPropertyRegistry`.
+            let canonical: String
+            switch PartPropertyRegistry.resolveSet(property.lowercased(), for: document.parts[index]) {
+            case .property(let resolved):
+                canonical = resolved
+            case .noOp:
+                // Declared no-op (the 11 classic field stubs + scroll):
+                // accept silently, matching HypeTalk (Condition 3).
+                return "Set \(property) of '\(partName)' to '\(value)'"
+            case .readOnly:
+                return PartPropertyRegistry.readOnlyMessage(rawName: property, part: document.parts[index])
+            case .notApplicable(_, let appliesTo):
+                return PartPropertyRegistry.notApplicableMessage(rawName: property, part: document.parts[index], appliesTo: appliesTo)
+            case .unknown(let suggestion):
+                return PartPropertyRegistry.unknownPropertyMessage(rawName: property, part: document.parts[index], suggestion: suggestion)
+            }
+
+            /// Thrown by `requiredBool`/`requiredColor` below so the
+            /// `do`/`catch` around the canonical switch can surface
+            /// either failure as this tool's plain-string result, the
+            /// same way every other error path in this case returns.
+            struct AIPropertyValueError: Error { let message: String }
+            // Condition/A3: ONE permissive boolean parser for every
+            // boolean-kind property on the AI surface (accepts
+            // true/false/yes/no/y/n/1/0/on/off, case-insensitive),
+            // replacing the ad hoc `value.lowercased() == "true"` sites
+            // the audit flagged. An unparseable value errors instead of
+            // silently defaulting to false.
+            func requiredBool(_ raw: String) throws -> Bool {
+                guard let parsed = boolArgument(raw) else {
+                    throw AIPropertyValueError(message: "\"\(String(raw.prefix(200)))\" is not a boolean — use true/false, yes/no, on/off, or 1/0.")
                 }
-                switch property.lowercased() {
+                return parsed
+            }
+            // Decision 4: every color-kind property write validates
+            // through the shared hex normalizer instead of silently
+            // storing garbage (or deferring the failure to draw time).
+            func requiredColor(_ raw: String) throws -> String {
+                guard let normalized = HexColor.normalized(raw) else {
+                    throw AIPropertyValueError(message: "\"\(String(raw.prefix(200)))\" is not a color — use \"#RRGGBB\" or \"#RRGGBBAA\" (empty clears).")
+                }
+                return normalized
+            }
+
+            do {
+                switch canonical {
                 case "name": document.parts[index].name = value
                 case "left": document.parts[index].left = Double(value) ?? 0
                 case "top": document.parts[index].top = Double(value) ?? 0
@@ -2075,13 +2140,41 @@ public struct HypeToolExecutor: Sendable {
                     // back to 0 on a malformed value (matches the other
                     // numeric setters above).
                     document.parts[index].rotation = Double(value) ?? 0
-                case "text", "textcontent": document.parts[index].textContent = value
+                case "size":
+                    // H2/A6 parity: `size` is the geometry pair on the
+                    // AI surface too — distinct from `textSize`. A
+                    // non-pair value errors with the mock-verbatim copy
+                    // instead of silently writing the wrong field.
+                    let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) }
+                    guard components.count == 2, let newWidth = components[0], let newHeight = components[1] else {
+                        return "size expects \"width,height\" — use textSize to set the text size."
+                    }
+                    document.parts[index].width = newWidth
+                    document.parts[index].height = newHeight
+                case "textcontent", "text", "contents":
+                    document.parts[index].textContent = value
                 case "url": document.parts[index].url = value
                 case "videourl", "video_url": document.parts[index].videoURL = value
-                case "fillcolor", "fill_color": document.parts[index].fillColor = value
-                case "strokecolor", "stroke_color": document.parts[index].strokeColor = value
-                case "visible": document.parts[index].visible = (value.lowercased() == "true")
-                case "enabled": document.parts[index].enabled = (value.lowercased() == "true")
+                case "currenttime", "current_time":
+                    document.parts[index].videoCurrentTime = max(0, Double(value) ?? 0)
+                case "playrate", "play_rate", "rate":
+                    // SECURITY (review Finding 2), mirrored from the
+                    // HypeTalk setter: reject NaN/Inf and bound to
+                    // AVPlayer's practical rate range so an absurd
+                    // script value can't poison the player's playback
+                    // engine. Negative (reverse) is intentionally allowed.
+                    let requestedRate = Double(value) ?? 1
+                    document.parts[index].videoPlayRate = requestedRate.isFinite ? max(-4.0, min(requestedRate, 4.0)) : 1.0
+                case "videoloop", "video_loop":
+                    document.parts[index].videoLoop = try requiredBool(value)
+                case "videoautoplay", "video_autoplay":
+                    document.parts[index].videoAutoplay = try requiredBool(value)
+                case "videovolume", "video_volume":
+                    document.parts[index].videoVolume = min(1, max(0, Double(value) ?? 1))
+                case "fillcolor", "fill_color": document.parts[index].fillColor = try requiredColor(value)
+                case "strokecolor", "stroke_color": document.parts[index].strokeColor = try requiredColor(value)
+                case "visible": document.parts[index].visible = try requiredBool(value)
+                case "enabled": document.parts[index].enabled = try requiredBool(value)
                 // Calendar-specific properties — settable on calendar parts only.
                 case "selecteddate", "selected_date": document.parts[index].selectedDate = value
                 case "selectedtime", "selected_time": document.parts[index].selectedTime = value
@@ -2094,48 +2187,79 @@ public struct HypeToolExecutor: Sendable {
                 case "pdfurl", "pdf_url": document.parts[index].pdfURL = value
                 case "currentpage", "current_page": document.parts[index].pdfCurrentPage = Int(value) ?? 1
                 case "displaymode", "display_mode": document.parts[index].pdfDisplayMode = value
-                case "autoscales", "auto_scales": document.parts[index].pdfAutoScales = (value.lowercased() == "true")
+                case "autoscales", "auto_scales": document.parts[index].pdfAutoScales = try requiredBool(value)
                 // Map-specific
                 case "centerlat", "center_lat": document.parts[index].mapCenterLat = Double(value) ?? 0
                 case "centerlon", "center_lon": document.parts[index].mapCenterLon = Double(value) ?? 0
                 case "span": document.parts[index].mapSpan = Double(value) ?? 0.05
                 case "maptype", "map_type": document.parts[index].mapType = value
                 case "annotations": document.parts[index].mapAnnotationsJSON = value
-                case "location", "maplocation", "map_location":
+                case "maplocation", "map_location":
                     document.parts[index].mapLocation = String(value.prefix(256))
+                case "loc":
+                    // `location` unified to geometry/map semantics
+                    // (design.md task 2.1): a coordinate pair always
+                    // writes the geometric center (matching HypeTalk);
+                    // a non-pair value on a map part writes the
+                    // geocoded place name (matching HypeTalk's
+                    // `mapLocation` overload); a non-pair value on any
+                    // OTHER part is a tool-surface-specific error —
+                    // HypeTalk silently no-ops here, but a silently
+                    // ignored AI tool call just looks broken to the
+                    // model, so the AI surface reports it instead.
+                    let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) }
+                    let parsedAsCoords = components.count == 2 && components.allSatisfy { $0 != nil }
+                    if parsedAsCoords {
+                        document.parts[index].left = components[0]! - document.parts[index].width / 2
+                        document.parts[index].top = components[1]! - document.parts[index].height / 2
+                    } else if document.parts[index].partType == .map {
+                        document.parts[index].mapLocation = String(value.prefix(256))
+                    } else {
+                        return "\"\(String(value.prefix(200)))\" is not a coordinate pair — use \"x,y\" (only a map part accepts a place name)."
+                    }
+                case "showsuserlocation", "shows_user_location":
+                    document.parts[index].mapShowsUserLocation = try requiredBool(value)
                 // ColorWell-specific
-                case "color", "colorhex", "color_hex": document.parts[index].colorWellHex = value
-                case "interactive": document.parts[index].colorWellInteractive = (value.lowercased() == "true")
+                case "colorwellhex", "colorhex", "color_hex": document.parts[index].colorWellHex = try requiredColor(value)
+                case "interactive": document.parts[index].colorWellInteractive = try requiredBool(value)
                 // Form controls (stepper / slider / toggle / segmented).
+                // The `value` bare word used to also branch on
+                // field/gauge/progressView/segmented inline here —
+                // Security condition 1 fix: that field branch wrote
+                // `textContent` directly, bypassing the secure-field
+                // mask entirely. The registry gate now remaps `value`
+                // on those four types to their own canonical
+                // (`textcontent`/`gaugevalue`/`progressvalue`/
+                // `selectedsegment`), so this case only ever sees
+                // toggle, stepper, slider.
                 case "value":
-                    switch document.parts[index].partType {
-                    case .progressView:
-                        document.parts[index].setProgressValue(Double(value) ?? 0)
-                    case .gauge:
-                        document.parts[index].setGaugeValue(Double(value) ?? 0)
-                    case .toggle:
-                        document.parts[index].controlValue = (value.lowercased() == "true") ? 1 : 0
-                    case .field:
-                        // `set_part_property part_name="X" property="value"` on a
-                        // text field writes the field's text — natural-language
-                        // alias for `text`.
-                        document.parts[index].textContent = value
-                    default:
+                    if document.parts[index].partType == .toggle {
+                        document.parts[index].controlValue = try requiredBool(value) ? 1 : 0
+                    } else {
                         document.parts[index].controlValue = Double(value) ?? 0
                     }
-                case "on": document.parts[index].controlValue = (value.lowercased() == "true") ? 1 : 0
+                case "on": document.parts[index].controlValue = try requiredBool(value) ? 1 : 0
                 case "min", "minvalue", "min_value": document.parts[index].controlMin = Double(value) ?? 0
                 case "max", "maxvalue", "max_value": document.parts[index].controlMax = Double(value) ?? 100
                 case "step", "increment": document.parts[index].controlStep = Double(value) ?? 1
+                case "progressmin":
+                    // Progress views always start at 0 — there's no
+                    // stored "min" field to write. Accepting exactly 0
+                    // is a no-op; anything else is the documented error
+                    // (mock §3.1, Condition 8), byte-identical to
+                    // HypeTalk's copy (Condition 11).
+                    if abs(Double(value) ?? 0) > 1e-9 {
+                        return "progress always starts at 0 — set the max instead."
+                    }
                 case "segments", "segmentitems", "segment_items": document.parts[index].segmentItems = value
                 case "selectedsegment", "selected_segment": document.parts[index].controlValue = Double(value) ?? 0
                 // AudioRecorder
-                case "recording": document.parts[index].audioRecording = (value.lowercased() == "true")
-                case "playing": document.parts[index].audioPlaying = (value.lowercased() == "true")
+                case "recording": document.parts[index].audioRecording = try requiredBool(value)
+                case "playing": document.parts[index].audioPlaying = try requiredBool(value)
                 case "outputpath", "output_path", "filepath", "file_path": document.parts[index].audioOutputPath = value
                 case "format": document.parts[index].audioFormat = value
                 case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded":
-                    document.parts[index].audioEmbedInStack = boolArgument(value) ?? (value.lowercased() == "true")
+                    document.parts[index].audioEmbedInStack = try requiredBool(value)
                 // AudioKit music controls
                 case "musicpattern", "music_pattern", "patternname", "pattern_name":
                     document.parts[index].musicPatternName = value
@@ -2146,16 +2270,16 @@ public struct HypeToolExecutor: Sendable {
                 case "musickeycount", "music_key_count", "keycount", "key_count", "keys", "keyboardkeys", "keyboard_keys":
                     document.parts[index].musicKeyCount = MusicKeyboardKeyCount.normalize(Int((Double(value) ?? Double(MusicKeyboardKeyCount.defaultValue)).rounded()))
                 case "showcontroltype", "show_control_type", "showtype", "show_type":
-                    document.parts[index].musicShowControlType = boolArgument(value) ?? (value.lowercased() == "true")
+                    document.parts[index].musicShowControlType = try requiredBool(value)
                 case "showmusicpattern", "show_music_pattern", "showpattern", "show_pattern":
-                    document.parts[index].musicShowPattern = boolArgument(value) ?? (value.lowercased() == "true")
+                    document.parts[index].musicShowPattern = try requiredBool(value)
                 case "showmusicinstrument", "show_music_instrument", "showinstrument", "show_instrument", "showinstrumentpopup", "show_instrument_popup":
-                    document.parts[index].musicShowInstrument = boolArgument(value) ?? (value.lowercased() == "true")
+                    document.parts[index].musicShowInstrument = try requiredBool(value)
                 case "showmusictempo", "show_music_tempo", "showtempo", "show_tempo":
-                    document.parts[index].musicShowTempo = boolArgument(value) ?? (value.lowercased() == "true")
-                case "musicloop", "music_loop", "loop", "looping":
-                    document.parts[index].musicLoop = boolArgument(value) ?? (value.lowercased() == "true")
-                case "musicvolume", "music_volume", "volume":
+                    document.parts[index].musicShowTempo = try requiredBool(value)
+                case "musicloop", "music_loop":
+                    document.parts[index].musicLoop = try requiredBool(value)
+                case "musicvolume", "music_volume":
                     document.parts[index].musicVolume = min(1, max(0, Double(value) ?? 1))
                 case "musictracks", "music_tracks", "trackdata", "track_data":
                     document.parts[index].musicTrackData = value
@@ -2205,10 +2329,13 @@ public struct HypeToolExecutor: Sendable {
                         to: &document.parts[index],
                         resolvePath: Self.resolveModelPath
                     )
-                case "allowscameracontrol", "allows_camera_control", "cameracontrol": document.parts[index].scene3DAllowsCameraControl = (value.lowercased() == "true")
-                case "autolighting", "auto_lighting", "defaultlighting": document.parts[index].scene3DAutoLighting = (value.lowercased() == "true")
+                case "allowscameracontrol", "allows_camera_control", "cameracontrol":
+                    document.parts[index].scene3DAllowsCameraControl = try requiredBool(value)
+                case "autolighting", "auto_lighting", "defaultlighting":
+                    document.parts[index].scene3DAutoLighting = try requiredBool(value)
                 case "antialiasing", "anti_aliasing": document.parts[index].scene3DAntialiasing = value
-                case "background3d", "background_3d", "scenebackground": document.parts[index].scene3DBackground = value
+                case "background3d", "background_3d", "scenebackground":
+                    document.parts[index].scene3DBackground = try requiredColor(value)
                 case "script":
                     // Wrap bare commands and validate via the host gate
                     // before mutating the document.
@@ -2296,13 +2423,13 @@ public struct HypeToolExecutor: Sendable {
                     let clampedTotal = max(1e-10, Double(value) ?? 1.0)
                     document.parts[index].progressTotal = clampedTotal
                 case "progresscircular", "progress_circular", "circular", "iscircular", "is_circular":
-                    document.parts[index].progressIsCircular = (value.lowercased() == "true")
+                    document.parts[index].progressIsCircular = try requiredBool(value)
                 case "progressindeterminate", "progress_indeterminate", "indeterminate", "isindeterminate", "is_indeterminate":
-                    document.parts[index].progressIsIndeterminate = (value.lowercased() == "true")
+                    document.parts[index].progressIsIndeterminate = try requiredBool(value)
                 case "progresslabel", "progress_label":
                     document.parts[index].progressLabel = String(value.prefix(256))
-                case "progresstint", "progress_tint", "tint":
-                    document.parts[index].progressTint = value
+                case "progresstint", "progress_tint":
+                    document.parts[index].progressTint = try requiredColor(value)
                 case "progressdecimals", "progress_decimals":
                     let n = Int(Double(value) ?? 0)
                     document.parts[index].progressDecimals = max(0, min(10, n))
@@ -2321,7 +2448,7 @@ public struct HypeToolExecutor: Sendable {
                 case "gaugestyle", "gauge_style":
                     document.parts[index].gaugeStyle = value
                 case "gaugetint", "gauge_tint":
-                    document.parts[index].gaugeTint = value
+                    document.parts[index].gaugeTint = try requiredColor(value)
                 case "gaugelabel", "gauge_label":
                     document.parts[index].gaugeLabel = String(value.prefix(256))
                 case "gaugeminlabel", "gauge_min_label":
@@ -2331,17 +2458,10 @@ public struct HypeToolExecutor: Sendable {
                 case "gaugedecimals", "gauge_decimals":
                     let n = Int(Double(value) ?? 0)
                     document.parts[index].gaugeDecimals = max(0, min(10, n))
-                case "decimals":
-                    // Shared alias — dispatch by part type.
-                    let n = Int(Double(value) ?? 0)
-                    let clamped = max(0, min(10, n))
-                    switch document.parts[index].partType {
-                    case .gauge:        document.parts[index].gaugeDecimals = clamped
-                    case .progressView: document.parts[index].progressDecimals = clamped
-                    default: break
-                    }
-                // Menu
-                case "menuitems", "menu_items", "items":
+                // Menu / Popup
+                case "popupitems", "popup_items":
+                    document.parts[index].popupItems = value
+                case "menuitems", "menu_items":
                     // Security condition 3: validate inline scripts.
                     let itemLines = value.split(separator: "\n", omittingEmptySubsequences: true)
                     for line in itemLines {
@@ -2363,33 +2483,77 @@ public struct HypeToolExecutor: Sendable {
                 // SearchField
                 case "searchtext", "search_text":
                     document.parts[index].searchText = String(value.prefix(1024))
-                case "searchprompt", "search_prompt", "prompt":
+                case "searchprompt", "search_prompt":
                     document.parts[index].searchPrompt = String(value.prefix(256))
                 case "searchsendsimmediately", "search_sends_immediately", "immediate":
-                    document.parts[index].searchSendsImmediately = (value.lowercased() == "true")
+                    document.parts[index].searchSendsImmediately = try requiredBool(value)
                 // Divider
                 case "dividerorientation", "divider_orientation", "orientation":
                     document.parts[index].dividerOrientation = (value.lowercased() == "vertical") ? "vertical" : "horizontal"
                 case "dividerthickness", "divider_thickness", "thickness":
                     document.parts[index].dividerThickness = max(0.5, Double(value) ?? 1)
                 case "dividercolor", "divider_color":
-                    document.parts[index].dividerColor = value
-                case "hilite": document.parts[index].hilite = (value.lowercased() == "true")
-                case "autohilite": document.parts[index].autoHilite = (value.lowercased() == "true")
-                case "showname": document.parts[index].showName = (value.lowercased() == "true")
-                case "locktext": document.parts[index].lockText = (value.lowercased() == "true")
+                    document.parts[index].dividerColor = try requiredColor(value)
+                case "hilite": document.parts[index].hilite = try requiredBool(value)
+                case "autohilite": document.parts[index].autoHilite = try requiredBool(value)
+                case "showname": document.parts[index].showName = try requiredBool(value)
+                case "locktext": document.parts[index].lockText = try requiredBool(value)
+                case "richtext", "rich_text":
+                    document.parts[index].richText = try requiredBool(value)
+                case "enterkeyenabled":
+                    document.parts[index].enterKeyEnabled = try requiredBool(value)
+                case "dontwrap":
+                    document.parts[index].dontWrap = try requiredBool(value)
+                case "widemargins":
+                    document.parts[index].wideMargins = try requiredBool(value)
+                case "invertonclick":
+                    document.parts[index].invertOnClick = try requiredBool(value)
+                case "icon":
+                    // H8 parity: accept "" or "0" to clear the bound
+                    // icon (matches HypeTalk's SET exactly; the "0"
+                    // spelling is kept as a nod to classic numbered icons).
+                    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.isEmpty || trimmed == "0" {
+                        document.parts[index].iconId = nil
+                    } else if let uuid = UUID(uuidString: trimmed) {
+                        document.parts[index].iconId = uuid
+                    }
                 case "transparentbackground", "transparent_background", "transparent",
                      "transparentbg", "alpha":
                     // Image / GIF chroma-key flag — see ImageRenderer
                     // and ImageChromaKey for the masking algorithm.
-                    document.parts[index].transparentBackground = (value.lowercased() == "true")
+                    document.parts[index].transparentBackground = try requiredBool(value)
+                case "animated", "animation", "animate":
+                    // `animation` / `animate` are accepted synonyms for
+                    // `animated` (matches the HypeTalk setter). Mirrors
+                    // the HypeTalk setter's GIFAnimator main-thread hop
+                    // (Condition 7): `GIFAnimator.shared` mutates a
+                    // plain Dictionary that the main-thread Timer tick
+                    // also reads/writes, and this executor does not
+                    // guarantee a main-thread caller, so the same race
+                    // applies here.
+                    let newAnimatedValue = try requiredBool(value)
+                    document.parts[index].animated = newAnimatedValue
+                    #if canImport(AppKit)
+                    let partId = document.parts[index].id
+                    let capturedData = document.parts[index].imageData
+                    DispatchQueue.main.async {
+                        if newAnimatedValue {
+                            if let data = capturedData {
+                                GIFAnimator.shared.start(partId: partId, imageData: data)
+                            }
+                        } else {
+                            GIFAnimator.shared.stop(partId: partId)
+                        }
+                    }
+                    #endif
                 case "imagefilter", "image_filter", "filter":
                     // CoreImage filter name applied at render time.
                     document.parts[index].imageFilter = value.lowercased() == "none" ? "" : value.lowercased()
                 case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity":
                     document.parts[index].imageFilterIntensity = max(0, min(1, Double(value) ?? 0.7))
                 case "textfont", "font": document.parts[index].textFont = value
-                case "textsize", "size": document.parts[index].textSize = Double(value) ?? 14
+                case "textsize": document.parts[index].textSize = Double(value) ?? 14
                 case "textalign": document.parts[index].textAlign = TextAlignment(rawValue: value.lowercased()) ?? .left
                 case "textstyle", "text_style":
                     // Normalize through TextStyleFlags so any alias
@@ -2400,12 +2564,7 @@ public struct HypeToolExecutor: Sendable {
                     // `get_part_property` is stable.
                     document.parts[index].textStyle = TextStyleFlags(string: value).rawString
                 case "fontcolor", "font_color", "textcolor", "text_color":
-                    // Foreground (font) color. Empty string is meaningful —
-                    // it means "auto / contrast-aware" (the renderer
-                    // picks a readable color from the part's fill).
-                    // Hex parsing happens at draw time; an invalid hex
-                    // silently falls back to the contrast-aware default.
-                    document.parts[index].fontColor = value
+                    document.parts[index].fontColor = try requiredColor(value)
                 case "helptext", "help_text", "tooltip", "tool_tip", "help":
                     // Hover help bubble — shown on hover in browse
                     // mode via a native NSToolTip. Empty string
@@ -2416,35 +2575,18 @@ public struct HypeToolExecutor: Sendable {
                 case "cornerradius": document.parts[index].cornerRadius = Double(value) ?? 8
                 case "chartdata", "chart_data":
                     document.parts[index].chartData = value
-                case "charttype", "chart_type":
-                    var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
-                    config.chartType = ChartType.fromUserValue(value) ?? .bar
-                    document.parts[index].chartData = config.toJSON()
-                case "charttitle", "chart_title":
-                    var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
-                    config.title = value
-                    document.parts[index].chartData = config.toJSON()
-                case "xaxislabel", "x_axis_label", "xlabel", "x_label":
-                    var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
-                    config.xAxisLabel = value
-                    document.parts[index].chartData = config.toJSON()
-                case "yaxislabel", "y_axis_label", "ylabel", "y_label":
-                    var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
-                    config.yAxisLabel = value
-                    document.parts[index].chartData = config.toJSON()
-                case "showlegend", "show_legend":
-                    var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
-                    config.showLegend = (value.lowercased() == "true")
-                    document.parts[index].chartData = config.toJSON()
-                case "showgrid", "show_grid":
-                    var config = ChartConfig.fromJSON(document.parts[index].chartData) ?? ChartConfig()
-                    config.showGrid = (value.lowercased() == "true")
-                    document.parts[index].chartData = config.toJSON()
                 default: return "Unknown property '\(property)'"
                 }
-                return "Set \(property) of '\(partName)' to '\(value)'"
+            } catch let error as AIPropertyValueError {
+                return error.message
+            } catch {
+                // Unreachable: `requiredBool`/`requiredColor` are the
+                // only throwing calls in this switch and both only
+                // ever throw `AIPropertyValueError`. Kept so the
+                // compiler sees an exhaustive catch.
+                return "Unknown property '\(property)'"
             }
-            return "Part '\(partName)' not found"
+            return "Set \(property) of '\(partName)' to '\(value)'"
 
         case "delete_part":
             let partName = arguments["part_name"] ?? ""
@@ -3768,234 +3910,38 @@ public struct HypeToolExecutor: Sendable {
             if let chartValue = Self.chartPropertyValue(property, part: part) {
                 return chartValue
             }
-            switch property.lowercased() {
-            case "name": return part.name
-            case "left": return String(part.left)
-            case "top": return String(part.top)
-            case "width": return String(part.width)
-            case "height": return String(part.height)
-            case "rotation": return String(part.rotation)
-            case "text", "textcontent":
-                // Security condition 2: mask secure field text.
-                if part.partType == .field && part.fieldStyle == .secure {
-                    return "(masked)"
-                }
-                return part.textContent
-            case "url": return part.url
-            case "videourl", "video_url": return part.videoURL
-            case "fillcolor", "fill_color": return part.fillColor
-            case "strokecolor", "stroke_color": return part.strokeColor
-            case "strokewidth": return String(part.strokeWidth)
-            case "cornerradius": return String(part.cornerRadius)
-            case "visible": return String(part.visible)
-            case "enabled": return String(part.enabled)
-            case "hilite": return String(part.hilite)
-            case "autohilite": return String(part.autoHilite)
-            case "showname": return String(part.showName)
-            case "locktext": return String(part.lockText)
-            case "transparentbackground", "transparent_background", "transparent",
-                 "transparentbg", "alpha":
-                return String(part.transparentBackground)
-            case "imagefilter", "image_filter", "filter":
-                return part.imageFilter
-            case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity":
-                return String(part.imageFilterIntensity)
-            // Calendar-specific properties — readable on any part,
-            // but only meaningful when the part's type is .calendar.
-            case "selecteddate", "selected_date": return part.selectedDate
-            case "selectedtime", "selected_time": return part.selectedTime
-            case "displaymonth", "display_month": return part.displayMonth
-            case "mindate", "min_date": return part.minDate
-            case "maxdate", "max_date": return part.maxDate
-            case "calendarstyle", "calendar_style": return part.calendarStyle
-            // PDF
-            case "pdfurl", "pdf_url": return part.pdfURL
-            case "currentpage", "current_page": return String(part.pdfCurrentPage)
-            case "displaymode", "display_mode": return part.pdfDisplayMode
-            case "autoscales", "auto_scales": return String(part.pdfAutoScales)
-            // Map
-            case "centerlat", "center_lat": return String(part.mapCenterLat)
-            case "centerlon", "center_lon": return String(part.mapCenterLon)
-            case "span": return String(part.mapSpan)
-            case "maptype", "map_type": return part.mapType
-            case "annotations": return part.mapAnnotationsJSON
-            case "location", "maplocation", "map_location": return part.mapLocation
-            // ColorWell
-            case "color", "colorhex", "color_hex": return part.colorWellHex
-            case "interactive": return String(part.colorWellInteractive)
-            // Form controls (and progressView / gauge / field text).
-            case "value":
-                if part.partType == .progressView { return String(part.progressValue) }
-                if part.partType == .gauge { return String(part.gaugeValue) }
-                if part.partType == .toggle { return String(part.controlValue >= 0.5) }
-                if part.partType == .segmented { return String(Int(part.controlValue)) }
-                // Text fields: `value` is an alias for textContent —
-                // matches `the value of field "X"` in HypeTalk.
-                if part.partType == .field { return part.textContent }
-                return String(part.controlValue)
-            case "on": return String(part.controlValue >= 0.5)
-            case "min", "minvalue", "min_value": return String(part.controlMin)
-            case "max", "maxvalue", "max_value": return String(part.controlMax)
-            case "step", "increment": return String(part.controlStep)
-            case "segments", "segmentitems": return part.segmentItems
-            case "selectedsegment", "selected_segment": return String(Int(part.controlValue))
-            // AudioRecorder
-            case "recording": return String(part.audioRecording)
-            case "playing": return String(part.audioPlaying)
-            case "duration": return String(part.partType == .appleMusicBrowser ? part.musicDuration : part.audioDuration)
-            case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
-            case "format": return part.audioFormat
-            case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded": return String(part.audioEmbedInStack)
-            case "audiosize", "audio_size", "audiodatasize", "audio_data_size": return String(part.audioData?.count ?? 0)
-            // AudioKit music controls
-            case "musicpattern", "music_pattern", "patternname", "pattern_name":
-                return part.musicPatternName
-            case "musicinstrument", "music_instrument", "instrument":
-                return part.musicInstrumentName
-            case "musictempo", "music_tempo", "tempo", "bpm":
-                return String(part.musicTempo)
-            case "musickeycount", "music_key_count", "keycount", "key_count", "keys", "keyboardkeys", "keyboard_keys":
-                return String(MusicKeyboardKeyCount.normalize(part.musicKeyCount))
-            case "showcontroltype", "show_control_type", "showtype", "show_type":
-                return String(part.musicShowControlType)
-            case "showmusicpattern", "show_music_pattern", "showpattern", "show_pattern":
-                return String(part.musicShowPattern)
-            case "showmusicinstrument", "show_music_instrument", "showinstrument", "show_instrument", "showinstrumentpopup", "show_instrument_popup":
-                return String(part.musicShowInstrument)
-            case "showmusictempo", "show_music_tempo", "showtempo", "show_tempo":
-                return String(part.musicShowTempo)
-            case "musicloop", "music_loop", "loop", "looping":
-                return String(part.musicLoop)
-            case "musicvolume", "music_volume", "volume":
-                return String(part.musicVolume)
-            case "musictracks", "music_tracks", "trackdata", "track_data":
-                return part.musicTrackData
-            case "musicsource", "music_source":
-                return part.musicSourceKind == MusicSourceKind.hypePattern.rawValue
-                    ? part.musicPatternName
-                    : [part.musicSourceKind, part.musicSourceType, part.musicSourceID].joined(separator: ":")
-            case "musicsourcekind", "music_source_kind", "sourcekind", "source_kind":
-                return part.musicSourceKind
-            case "applemusicid", "apple_music_id", "musicid", "music_id":
-                return part.musicSourceID
-            case "applemusictype", "apple_music_type", "musictype", "music_type":
-                return part.musicSourceType
-            case "applemusictitle", "apple_music_title", "musictitle", "music_title":
-                return part.musicSourceTitle
-            case "applemusicartist", "apple_music_artist", "musicartist", "music_artist":
-                return part.musicSourceArtist
-            case "applemusicalbum", "apple_music_album", "musicalbum", "music_album":
-                return part.musicSourceAlbum
-            case "artwork", "artworkurl", "artwork_url", "musicartwork", "music_artwork":
-                return part.musicArtworkURL
-            case "musicposition", "music_position", "positionseconds", "position_seconds":
-                return String(part.musicPosition)
-            case "musicduration", "music_duration", "durationseconds", "duration_seconds":
-                return String(part.musicDuration)
-            case "musicqueue", "music_queue", "queuedata", "queue_data":
-                return part.musicQueueData
-            case "musicsearchterm", "music_search_term", "searchterm", "search_term":
-                return part.musicSearchTerm
-            case "musicsearchscope", "music_search_scope", "searchscope", "search_scope":
-                return part.musicSearchScope
-            // Scene3D
-            case "object", "model":
-                return Scene3DModelBindingResolver.displayModel(for: part)
-            case "modelasset", "model_asset", "asset", "assetname", "asset_name":
-                return part.scene3DAssetRef?.name ?? ""
-            case "modelurl", "model_url", "sceneurl", "scene_url": return part.scene3DURL
-            case "modelsource", "model_source":
-                return part.scene3DAssetRef == nil ? "path" : "repository"
-            case "allowscameracontrol", "allows_camera_control", "cameracontrol": return String(part.scene3DAllowsCameraControl)
-            case "autolighting", "auto_lighting", "defaultlighting": return String(part.scene3DAutoLighting)
-            case "antialiasing", "anti_aliasing": return part.scene3DAntialiasing
-            case "background3d", "background_3d", "scenebackground": return part.scene3DBackground
-            case "textfont", "font": return part.textFont
-            case "textsize", "size": return String(part.textSize)
-            case "textalign": return part.textAlign.rawValue
-            case "textstyle", "text_style": return part.textStyle
-            case "fontcolor", "font_color", "textcolor", "text_color":
-                return part.fontColor
-            case "helptext", "help_text", "tooltip", "tool_tip", "help":
-                return part.helpText
-            case "script":
-                if part.partType == .spriteArea {
-                    let preview = part.activeSceneSpec?.script ?? ""
-                    if preview.count > 5000 {
-                        return String(preview.prefix(5000)) + "\u{2026}[truncated]"
-                    }
-                    return preview
-                }
-                let preview = part.script
-                if preview.count > 5000 {
-                    return String(preview.prefix(5000)) + "\u{2026}[truncated]"
-                }
-                return preview
-            case "style":
-                switch part.partType {
-                case .button: return part.buttonStyle.rawValue
-                case .field: return part.fieldStyle.rawValue
-                case .shape: return part.shapeType.rawValue
-                default: return "Part type '\(part.partType.rawValue)' does not support style property"
-                }
-            case "charttype", "chart_type":
-                if let cfg = ChartConfig.fromJSON(part.chartData) { return cfg.chartType.rawValue }
-                return ""
-            case "charttitle", "chart_title":
-                if let cfg = ChartConfig.fromJSON(part.chartData) { return cfg.title }
-                return ""
-            case "xaxislabel", "x_axis_label", "xlabel", "x_label":
-                if let cfg = ChartConfig.fromJSON(part.chartData) { return cfg.xAxisLabel }
-                return ""
-            case "yaxislabel", "y_axis_label", "ylabel", "y_label":
-                if let cfg = ChartConfig.fromJSON(part.chartData) { return cfg.yAxisLabel }
-                return ""
-            case "showlegend", "show_legend":
-                if let cfg = ChartConfig.fromJSON(part.chartData) { return String(cfg.showLegend) }
-                return "true"
-            case "showgrid", "show_grid":
-                if let cfg = ChartConfig.fromJSON(part.chartData) { return String(cfg.showGrid) }
-                return "true"
-            case "chartdata", "chart_data":
-                return part.chartData
-            // ProgressView
-            case "progressvalue", "progress_value": return String(part.progressValue)
-            case "progresstotal", "progress_total": return String(part.progressTotal)
-            case "progresscircular", "progress_circular", "circular", "iscircular": return String(part.progressIsCircular)
-            case "progressindeterminate", "progress_indeterminate", "indeterminate": return String(part.progressIsIndeterminate)
-            case "progresslabel", "progress_label": return part.progressLabel
-            case "progresstint", "progress_tint", "tint": return part.progressTint
-            // Gauge
-            case "gaugevalue", "gauge_value": return String(part.gaugeValue)
-            case "gaugemin", "gauge_min": return String(part.gaugeMin)
-            case "gaugemax", "gauge_max": return String(part.gaugeMax)
-            case "gaugestyle", "gauge_style": return part.gaugeStyle
-            case "gaugetint", "gauge_tint": return part.gaugeTint
-            case "gaugelabel", "gauge_label": return part.gaugeLabel
-            case "gaugeminlabel", "gauge_min_label": return part.gaugeMinLabel
-            case "gaugemaxlabel", "gauge_max_label": return part.gaugeMaxLabel
-            case "gaugedecimals", "gauge_decimals": return String(part.gaugeDecimals)
-            case "progressdecimals", "progress_decimals": return String(part.progressDecimals)
-            case "decimals":
-                // Shared alias — dispatch by part type.
-                if part.partType == .gauge { return String(part.gaugeDecimals) }
-                if part.partType == .progressView { return String(part.progressDecimals) }
-                return "0"
-            // Menu
-            case "menuitems", "menu_items", "items": return part.menuItems
-            case "menutitle", "menu_title": return part.menuTitle
-            // SearchField
-            case "searchtext", "search_text": return part.searchText
-            case "searchprompt", "search_prompt", "prompt": return part.searchPrompt
-            case "searchsendsimmediately", "search_sends_immediately", "immediate": return String(part.searchSendsImmediately)
-            // Divider
-            case "dividerorientation", "divider_orientation", "orientation": return part.dividerOrientation
-            case "dividerthickness", "divider_thickness", "thickness": return String(part.dividerThickness)
-            case "dividercolor", "divider_color": return part.dividerColor
-            default:
-                return "Unknown property '\(property)'"
+            // H6/loc-location parity (mirrors the HypeTalk GET exactly):
+            // a map part with a geocoded place name set answers `the
+            // location of map "X"` with the place name. Checked against
+            // the RAW alias spelling ("location", not "loc") before the
+            // registry gate collapses both spellings to the same "loc"
+            // canonical below.
+            if property.lowercased() == "location", part.partType == .map, !part.mapLocation.isEmpty {
+                return part.mapLocation
             }
-
+            // Registry gate (control-property-consistency, P2): GET is
+            // lenient (Decision 3) — it only errors for a declared
+            // bare-word error cell (`.notApplicable`); a fully unknown
+            // name still gets a chance at the switch below (preserving
+            // this tool's existing "Unknown property" convention for
+            // names the AI surface hasn't curated a case for yet).
+            let canonical: String
+            switch PartPropertyRegistry.resolveGet(property.lowercased(), for: part) {
+            case .property(let resolved):
+                canonical = resolved
+            case .noOp:
+                canonical = property.lowercased()
+            case .readOnly(let resolved):
+                canonical = resolved
+            case .notApplicable(_, let appliesTo):
+                return PartPropertyRegistry.notApplicableMessage(rawName: property, part: part, appliesTo: appliesTo)
+            case .unknown:
+                canonical = property.lowercased()
+            }
+            if let result = Self.partPropertyReadValue(canonical, part: part) {
+                return result
+            }
+            return "Unknown property '\(property)'"
         case "list_all_properties":
             // Enumerate every settable / readable property on the
             // named part. The output mirrors the property names the
@@ -6232,232 +6178,109 @@ public struct HypeToolExecutor: Sendable {
     /// — names match what `set_part_property` and HypeTalk's
     /// `the X of <kind> "name"` syntax accept, so the model can copy
     /// them verbatim into a setter call.
+    /// Registry-driven property dump for `list_all_properties` (task
+    /// 2.3, mock A1). Walks `PartPropertyRegistry.descriptors` instead
+    /// of a hand-maintained per-type switch, so this report is
+    /// mechanically COMPLETE against the registry (Condition 15 —
+    /// zero missing, zero phantom): every `aiExposed`, non-legacy
+    /// descriptor applicable to `p.partType` gets a row, and every
+    /// `legacy` descriptor is still named (never silently dropped)
+    /// under the "Legacy / not scriptable" note, without ever
+    /// rendering its value there. Values come from
+    /// `partPropertyReadValue` — the SAME helper `get_part_property`
+    /// uses — so the masking law (Security condition 1) is preserved
+    /// automatically rather than re-implemented here.
     static func formatAllProperties(_ p: Part) -> String {
         var lines: [String] = []
         lines.append("# All properties of [\(p.partType.rawValue)] '\(p.name)'")
-        lines.append("# Format: name = current   (default: default)")
+        lines.append("# Format: name = current   (default: default)   (aliases: a, b)")
         lines.append("")
 
-        func row(_ name: String, _ current: String, _ defaultValue: String) {
-            lines.append("\(name) = \(current)   (default: \(defaultValue))")
+        /// A descriptor "belongs" to `p.partType` for LISTING purposes
+        /// when its SET applicability names a restricted set of types
+        /// (the meaningful notion of "who owns this concept" — GET is
+        /// deliberately left universal at the dispatch level per
+        /// Decision 3, which would otherwise make every long-named
+        /// property from every OTHER type noisily appear here too);
+        /// descriptors with no SET restriction at all (name, left,
+        /// script, …) are truly universal and always belong.
+        func belongs(_ descriptor: PartPropertyRegistry.Descriptor) -> Bool {
+            guard let applicability = descriptor.setApplicability ?? descriptor.getApplicability else {
+                return true
+            }
+            return applicability.types.contains(p.partType)
         }
 
-        // ----- Identity -----
-        lines.append("## Identity")
-        row("name", p.name, "(set on create)")
-        row("id", p.id.uuidString, "(stable UUID)")
-        lines.append("")
-
-        // ----- Geometry -----
-        lines.append("## Geometry")
-        row("left", String(p.left), "0")
-        row("top", String(p.top), "0")
-        row("width", String(p.width), "100")
-        row("height", String(p.height), "30")
-        row("right", String(p.left + p.width), "(left+width)")
-        row("bottom", String(p.top + p.height), "(top+height)")
-        row("loc", "\"\(Int(p.left + p.width / 2)),\(Int(p.top + p.height / 2))\"", "\"x,y\"")
-        row("rotation", String(p.rotation), "0")
-        lines.append("")
-
-        // ----- State -----
-        lines.append("## State")
-        row("visible", String(p.visible), "true")
-        row("enabled", String(p.enabled), "true")
-        row("hilite", String(p.hilite), "false")
-        row("autoHilite", String(p.autoHilite), "false (true for buttons)")
-        lines.append("")
-
-        // ----- Text styling (every part) -----
-        lines.append("## Text & styling")
-        // Secure (password) fields must NEVER expose plaintext to the
-        // AI through the introspection surface — the AI panel logs
-        // its tool I/O and would otherwise echo the password into the
-        // conversation transcript.
-        let textDisplay: String
-        if p.partType == .field && p.fieldStyle == .secure {
-            textDisplay = "(masked)"
-        } else {
-            textDisplay = "\"\(p.textContent.prefix(60))\""
+        func row(_ descriptor: PartPropertyRegistry.Descriptor) {
+            let value = Self.partPropertyReadValue(descriptor.canonical, part: p)
+                ?? "(not yet exposed via set_part_property/get_part_property)"
+            var line = "\(descriptor.canonical) = \(value)   (default: \(descriptor.defaultDescription))"
+            if !descriptor.aliases.isEmpty {
+                line += "   (aliases: \(descriptor.aliases.joined(separator: ", ")))"
+            }
+            lines.append(line)
         }
-        row("textContent", textDisplay, "\"\"")
-        row("textFont", p.textFont.isEmpty ? "(empty)" : p.textFont, "System")
-        row("textSize", String(p.textSize), "14")
-        row("textStyle", p.textStyle.isEmpty ? "plain" : p.textStyle, "plain")
-        row("textAlign", p.textAlign.rawValue, "left")
-        // Foreground (font) color. Empty means "auto / contrast-aware
-        // against fill" — the renderer's fallback. We surface that
-        // explicitly so the model knows it can clear back to auto by
-        // setting "" rather than guessing a hex.
-        row("fontColor", p.fontColor.isEmpty ? "(auto)" : p.fontColor, "(auto)")
-        // Hover help bubble — empty means no bubble. We truncate
-        // long bodies for the introspection dump so the AI sees
-        // the surface without bloating its context.
-        let helpPreview: String = {
-            if p.helpText.isEmpty { return "(none)" }
-            let prefix = p.helpText.prefix(80)
-            return "\"\(prefix)\(p.helpText.count > 80 ? "…" : "")\""
-        }()
-        row("helpText", helpPreview, "(none)")
-        row("fillColor", p.fillColor.isEmpty ? "(empty)" : p.fillColor, "(empty)")
-        row("strokeColor", p.strokeColor.isEmpty ? "(empty)" : p.strokeColor, "(empty)")
-        row("strokeWidth", String(p.strokeWidth), "1")
-        row("cornerRadius", String(p.cornerRadius), "0")
+
+        let exposedDescriptors = PartPropertyRegistry.descriptors.filter { $0.aiExposed && !$0.legacy }
+        let universal = exposedDescriptors.filter { $0.setApplicability == nil && $0.getApplicability == nil }
+        let universalNames = Set(universal.map(\.canonical))
+        let typeSpecific = exposedDescriptors.filter { descriptor in
+            belongs(descriptor) && !universalNames.contains(descriptor.canonical)
+        }
+
+        lines.append("## Common")
+        for descriptor in universal {
+            row(descriptor)
+        }
         lines.append("")
 
-        // ----- Script -----
-        lines.append("## Script")
-        let scriptPreview = p.script.isEmpty ? "(empty)" : "\"\(p.script.prefix(80))\(p.script.count > 80 ? "..." : "")\""
-        row("script", scriptPreview, "(empty)")
-        lines.append("")
-
-        // ----- Type-specific section -----
         lines.append("## Type-specific (kind: \(p.partType.rawValue))")
-        switch p.partType {
-        case .button:
-            row("style", p.buttonStyle.rawValue, "rounded")
-            row("showName", String(p.showName), "true")
-            row("popupItems", "\"\(p.popupItems.replacingOccurrences(of: "\n", with: "|"))\"", "\"\"")
-        case .field:
-            row("style", p.fieldStyle.rawValue, "rectangle")
-            row("lockText", String(p.lockText), "false")
-            row("dontWrap", String(p.dontWrap), "false")
-            row("wideMargins", String(p.wideMargins), "false")
-            row("richText", String(p.richText), "false")
-            row("enterKeyEnabled", String(p.enterKeyEnabled), "false")
-        case .shape:
-            row("shapeType", p.shapeType.rawValue, "rectangle")
-        case .webpage:
-            row("url", "\"\(p.url)\"", "\"\"")
-        case .video:
-            row("videoURL", "\"\(p.videoURL)\"", "\"\"")
-        case .image:
-            row("hasImage", String(p.imageData != nil), "false")
-            row("invertOnClick", String(p.invertOnClick), "false")
-            row("animated", String(p.animated), "true (for GIFs)")
-            row("transparentBackground", String(p.transparentBackground), "false")
-            row("imageFilter", p.imageFilter.isEmpty ? "(none)" : p.imageFilter, "(none)")
-            row("imageFilterIntensity", String(p.imageFilterIntensity), "0.7")
-        case .chart:
-            row("chartData", "\"\(p.chartData.prefix(80))\(p.chartData.count > 80 ? "..." : "")\"", "JSON config")
-            if let config = ChartConfig.fromJSON(p.chartData) {
-                row("chartType", config.chartType.rawValue, "bar")
-                row("chartTitle", "\"\(config.title)\"", "\"\"")
-                if config.chartType != .spider {
-                    row("x_axis_label", "\"\(config.xAxisLabel)\"", "\"\"")
-                    row("y_axis_label", "\"\(config.yAxisLabel)\"", "\"\"")
-                }
-                row("show_legend", String(config.showLegend), "true")
-                row("show_grid", String(config.showGrid), "true")
-                row("interactable", String(config.interactable), "false")
-                row("spider_ring_count", String(config.spiderRingCount), "5")
-                row("spider_grid_color", config.spiderGridColor, "#C9CDD3")
-                row("spider_axis_color", config.spiderAxisColor, "#AEB4BE")
-                row("spider_label_color", config.spiderLabelColor, "#111827")
-                row("spider_fill_opacity", Self.formatNumber(config.spiderFillOpacity), "0.24")
-                row("spider_point_radius", Self.formatNumber(config.spiderPointRadius), "2")
-                row("spider_show_value_labels", String(config.spiderShowValueLabels), "false")
-                row("spider_decimal_places", String(config.spiderDecimalPlaces), "0")
-            }
-        case .spriteArea:
-            row("sceneSpec", "\"\(p.sceneSpec.prefix(80))\(p.sceneSpec.count > 80 ? "..." : "")\"", "JSON spec")
-        case .calendar:
-            row("selectedDate", "\"\(p.selectedDate)\"", "\"\" (today)")
-            row("selectedTime", "\"\(p.selectedTime)\"", "\"\"")
-            row("displayMonth", "\"\(p.displayMonth)\"", "\"\"")
-            row("minDate", "\"\(p.minDate)\"", "\"\"")
-            row("maxDate", "\"\(p.maxDate)\"", "\"\"")
-            row("calendarStyle", p.calendarStyle, "graphical")
-        case .pdf:
-            row("pdfURL", "\"\(p.pdfURL)\"", "\"\"")
-            row("currentPage", String(p.pdfCurrentPage), "1")
-            row("displayMode", p.pdfDisplayMode, "continuous")
-            row("autoScales", String(p.pdfAutoScales), "true")
-        case .map:
-            row("centerLat", String(p.mapCenterLat), "37.7749")
-            row("centerLon", String(p.mapCenterLon), "-122.4194")
-            row("span", String(p.mapSpan), "0.05")
-            row("mapType", p.mapType, "standard")
-            row("location", "\"\(p.mapLocation)\"", "\"\" (use lat/lon)")
-            row("annotations", "\"\(p.mapAnnotationsJSON.prefix(80))\(p.mapAnnotationsJSON.count > 80 ? "..." : "")\"", "\"\" (JSON array)")
-        case .colorWell:
-            row("color", p.colorWellHex, "#FF5500")
-            row("interactive", String(p.colorWellInteractive), "true")
-        case .stepper, .slider:
-            row("value", String(p.controlValue), "0")
-            row("min", String(p.controlMin), "0")
-            row("max", String(p.controlMax), "100")
-            row("step", String(p.controlStep), "1")
-        case .segmented:
-            row("segments", "\"\(p.segmentItems)\"", "\"First|Second|Third\"")
-            row("selectedSegment", String(Int(p.controlValue)), "0")
-        case .audioRecorder:
-            row("recording", String(p.audioRecording), "false")
-            row("playing", String(p.audioPlaying), "false")
-            row("duration", String(p.audioDuration), "0")
-            row("outputPath", "\"\(p.audioOutputPath)\"", "\"\" (auto temp)")
-            row("format", p.audioFormat, "m4a")
-            row("saveInStack", String(p.audioEmbedInStack), "false")
-            row("audioSize", String(p.audioData?.count ?? 0), "0")
-        case .musicPlayer, .pianoKeyboard, .stepSequencer, .musicMixer, .appleMusicBrowser, .musicQueue:
-            row("musicPattern", "\"\(p.musicPatternName)\"", "\"\"")
-            row("instrument", "\"\(p.musicInstrumentName)\"", "\"Acoustic Grand Piano\"")
-            row("tempo", String(p.musicTempo), "120")
-            if p.partType == .pianoKeyboard {
-                row("keys", String(MusicKeyboardKeyCount.normalize(p.musicKeyCount)), String(MusicKeyboardKeyCount.defaultValue))
-            }
-            row("showControlType", String(p.musicShowControlType), "false")
-            row("showPattern", String(p.musicShowPattern), "false")
-            row("showInstrument", String(p.musicShowInstrument), "false")
-            row("showTempo", String(p.musicShowTempo), "false")
-            row("loop", String(p.musicLoop), "false")
-            row("volume", String(p.musicVolume), "1.0")
-            row("musicTracks", "\"\(p.musicTrackData.prefix(80))\(p.musicTrackData.count > 80 ? "..." : "")\"", "\"\" (JSON)")
-            row("musicSource", "\"\([p.musicSourceKind, p.musicSourceType, p.musicSourceID].joined(separator: ":"))\"", "hypePattern")
-            row("appleMusicTitle", "\"\(p.musicSourceTitle)\"", "\"\"")
-            row("appleMusicArtist", "\"\(p.musicSourceArtist)\"", "\"\"")
-            row("musicPosition", String(p.musicPosition), "0")
-            row("musicDuration", String(p.musicDuration), "0")
-        case .scene3D:
-            row("object", "\"\(Scene3DModelBindingResolver.displayModel(for: p))\"", "\"\"")
-            row("model", "\"\(Scene3DModelBindingResolver.displayModel(for: p))\"", "\"\"")
-            row("modelAsset", "\"\(p.scene3DAssetRef?.name ?? "")\"", "\"\"")
-            row("modelSource", p.scene3DAssetRef == nil ? "path" : "repository", "path")
-            row("modelURL", "\"\(p.scene3DURL)\"", "\"\" (resolved cache path)")
-            row("allowsCameraControl", String(p.scene3DAllowsCameraControl), "true")
-            row("autoLighting", String(p.scene3DAutoLighting), "true")
-            row("antialiasing", p.scene3DAntialiasing, "multisampling4X")
-            row("background3d", "\"\(p.scene3DBackground)\"", "\"\" (transparent)")
-        case .progressView:
-            row("value", String(p.progressValue), "0")
-            row("total", String(p.progressTotal), "1.0")
-            row("circular", String(p.progressIsCircular), "false")
-            row("indeterminate", String(p.progressIsIndeterminate), "false")
-            row("label", "\"\(p.progressLabel)\"", "\"\"")
-            row("tint", "\"\(p.progressTint)\"", "\"\" (system accent)")
-            row("decimals", String(p.progressDecimals), "0 (integral)")
-        case .gauge:
-            row("value", String(p.gaugeValue), "0")
-            row("min", String(p.gaugeMin), "0")
-            row("max", String(p.gaugeMax), "1.0")
-            row("style", p.gaugeStyle, "linearCapacity")
-            row("tint", "\"\(p.gaugeTint)\"", "\"\" (system accent)")
-            row("label", "\"\(p.gaugeLabel)\"", "\"\"")
-            row("minLabel", "\"\(p.gaugeMinLabel)\"", "\"\"")
-            row("maxLabel", "\"\(p.gaugeMaxLabel)\"", "\"\"")
-            row("decimals", String(p.gaugeDecimals), "0 (integral)")
-        case .toggle, .link, .menu, .searchField:
-            // Migrated to button/field with appropriate style at decode.
-            // Empty branch keeps the switch exhaustive.
-            break
-        case .divider:
-            row("orientation", p.dividerOrientation, "horizontal")
-            row("thickness", String(p.dividerThickness), "1.0")
-            row("color", "\"\(p.dividerColor)\"", "\"\" (system separator)")
-        case .unknown:
-            break
+        for descriptor in typeSpecific {
+            row(descriptor)
         }
         lines.append("")
+
+        // Chart sub-properties (title, spider colors, …) are handled
+        // by `chartPropertyValue`/`applyChartProperty`, NOT the
+        // registry (Condition 12: the chart intercept runs BEFORE the
+        // registry gate so chart parts never hit the colorWell-scoped
+        // `interactive` or name-scoped `title` descriptors) — only
+        // `chartdata` (the raw JSON blob) is a registry descriptor.
+        // Surfaced here through the SAME reader `get_part_property`
+        // uses, so this section can never drift from what's actually
+        // gettable.
+        if p.partType == .chart {
+            let chartPropertyNames = [
+                "charttype", "charttitle", "x_axis_label", "y_axis_label",
+                "show_legend", "show_grid", "interactable",
+                "spider_ring_count", "spider_grid_color", "spider_axis_color", "spider_label_color",
+                "spider_fill_opacity", "spider_point_radius", "spider_show_value_labels", "spider_decimal_places",
+            ]
+            lines.append("## Chart-specific")
+            for name in chartPropertyNames {
+                if let value = Self.chartPropertyValue(name, part: p) {
+                    lines.append("\(name) = \(value)")
+                }
+            }
+            lines.append("")
+        }
+
+        // A1/Condition 15: legacy properties are real, recognized
+        // HypeTalk names — they're listed here by name so the model
+        // knows they exist and are NOT silently omitted, but they are
+        // not part of the curated AI tool surface, so no value is
+        // rendered (htmlContent, in particular, must never leak a
+        // secure field's plaintext through this note).
+        let legacyDescriptors = PartPropertyRegistry.descriptors.filter { $0.legacy && belongs($0) }
+        if !legacyDescriptors.isEmpty {
+            lines.append("## Legacy / not scriptable")
+            lines.append("# Recognized HypeTalk property names, not offered by set_part_property/get_part_property.")
+            for descriptor in legacyDescriptors {
+                lines.append(descriptor.canonical)
+            }
+            lines.append("")
+        }
+
         lines.append("# Set any of these via:")
         lines.append("#   AI tool: set_part_property(part_name=\"\(p.name)\", property=\"<name>\", value=\"<new>\")")
         lines.append("#   HypeTalk: set the <name> of \(p.partType.rawValue) \"\(p.name)\" to <new>")
@@ -6560,6 +6383,287 @@ public struct HypeToolExecutor: Sendable {
             return Double(int)
         case let string as String:
             return Double(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        default:
+            return nil
+        }
+    }
+
+    /// Read-side canonical dispatch shared by `get_part_property` and
+    /// `formatAllProperties`/`list_all_properties` (Decision 1, tasks
+    /// 2.2/2.3). The caller resolves `canonical` through
+    /// `PartPropertyRegistry.resolveGet` first — this function's
+    /// `default` case is the "recognized name is registry-declared but
+    /// the AI surface's curated case list doesn't implement it yet"
+    /// fallback, reported by the caller as "Unknown property" (the
+    /// pre-existing convention) rather than an internal error, since
+    /// the AI tool surface is intentionally narrower than HypeTalk's.
+    static func partPropertyReadValue(_ canonical: String, part: Part) -> String? {
+        switch canonical {
+        case "name": return part.name
+        case "id": return part.id.uuidString
+        case "shortname", "short name", "abbrevname", "abbrev name", "abbreviatedname", "abbreviated name":
+            return part.name
+        case "left": return String(part.left)
+        case "top": return String(part.top)
+        case "width": return String(part.width)
+        case "height": return String(part.height)
+        case "right": return String(part.left + part.width)
+        case "bottom": return String(part.top + part.height)
+        case "rect", "rectangle":
+            return "\(part.left),\(part.top),\(part.left + part.width),\(part.top + part.height)"
+        case "topleft":
+            return "\(part.left),\(part.top)"
+        case "bottomright":
+            return "\(part.left + part.width),\(part.top + part.height)"
+        case "rotation": return String(part.rotation)
+        case "textheight": return String(part.textSize * 1.3)
+        case "centered": return String(part.textAlign == .center)
+        case "filled":
+            return String(part.partType == .shape && part.fillColor != "#FFFFFF" && part.fillColor != "#00000000")
+        case "type": return part.partType.rawValue
+        case "pagecount", "page_count":
+            // Model-layer page count is always "0" until a live PDFView
+            // reports otherwise (matches the HypeTalk GET exactly).
+            return "0"
+        case "size":
+            // H2/A6 parity: the geometry pair, distinct from textSize.
+            return "\(Self.formatNumber(part.width)),\(Self.formatNumber(part.height))"
+        case "textcontent", "text", "contents":
+            // Security condition 1 (masking law): every alias of
+            // textContent — text, textcontent, contents, and value
+            // (remapped here by the registry gate) — shares this ONE
+            // masked cell.
+            if part.partType == .field && part.fieldStyle == .secure {
+                return "(masked)"
+            }
+            return part.textContent
+        case "htmlcontent", "html_content":
+            // Security condition 1 (masking law): htmlContent is a
+            // second field-body property — dormant (no renderer
+            // consumes it), but still masked on a .secure field for
+            // the same reason as textContent.
+            if part.partType == .field && part.fieldStyle == .secure {
+                return "(masked)"
+            }
+            return part.htmlContent
+        case "url": return part.url
+        case "videourl", "video_url": return part.videoURL
+        case "currenttime", "current_time": return String(part.videoCurrentTime)
+        case "playrate", "play_rate", "rate": return String(part.videoPlayRate)
+        case "videoloop", "video_loop": return String(part.videoLoop)
+        case "videoautoplay", "video_autoplay": return String(part.videoAutoplay)
+        case "videovolume", "video_volume": return String(part.videoVolume)
+        case "videoduration", "video_duration": return String(part.videoDuration)
+        case "fillcolor", "fill_color": return part.fillColor
+        case "strokecolor", "stroke_color": return part.strokeColor
+        case "strokewidth": return String(part.strokeWidth)
+        case "cornerradius": return String(part.cornerRadius)
+        case "visible": return String(part.visible)
+        case "enabled": return String(part.enabled)
+        case "hilite": return String(part.hilite)
+        case "autohilite": return String(part.autoHilite)
+        case "showname": return String(part.showName)
+        case "locktext": return String(part.lockText)
+        case "richtext", "rich_text": return String(part.richText)
+        case "enterkeyenabled": return String(part.enterKeyEnabled)
+        case "dontwrap": return String(part.dontWrap)
+        case "widemargins": return String(part.wideMargins)
+        case "invertonclick": return String(part.invertOnClick)
+        case "animated", "animation", "animate": return String(part.animated)
+        case "icon":
+            // H8 parity: empty-icon sentinel is "" (not "0").
+            return part.iconId?.uuidString ?? ""
+        case "transparentbackground", "transparent_background", "transparent",
+             "transparentbg", "alpha":
+            return String(part.transparentBackground)
+        case "imagefilter", "image_filter", "filter":
+            return part.imageFilter
+        case "imagefilterintensity", "image_filter_intensity", "filterintensity", "filter_intensity":
+            return String(part.imageFilterIntensity)
+        // Calendar-specific properties — readable on any part,
+        // but only meaningful when the part's type is .calendar.
+        case "selecteddate", "selected_date": return part.selectedDate
+        case "selectedtime", "selected_time": return part.selectedTime
+        case "displaymonth", "display_month": return part.displayMonth
+        case "mindate", "min_date": return part.minDate
+        case "maxdate", "max_date": return part.maxDate
+        case "calendarstyle", "calendar_style": return part.calendarStyle
+        // PDF
+        case "pdfurl", "pdf_url": return part.pdfURL
+        case "currentpage", "current_page": return String(part.pdfCurrentPage)
+        case "displaymode", "display_mode": return part.pdfDisplayMode
+        case "autoscales", "auto_scales": return String(part.pdfAutoScales)
+        // Map
+        case "centerlat", "center_lat": return String(part.mapCenterLat)
+        case "centerlon", "center_lon": return String(part.mapCenterLon)
+        case "span": return String(part.mapSpan)
+        case "maptype", "map_type": return part.mapType
+        case "annotations": return part.mapAnnotationsJSON
+        case "maplocation", "map_location": return part.mapLocation
+        case "loc":
+            // Geometric center — the map-place-name overload for the
+            // "location" spelling is handled by the caller BEFORE the
+            // registry gate collapses "location" to this "loc"
+            // canonical (see `get_part_property`).
+            return "\(Self.formatNumber(part.left + part.width / 2)),\(Self.formatNumber(part.top + part.height / 2))"
+        case "showsuserlocation", "shows_user_location": return String(part.mapShowsUserLocation)
+        // ColorWell
+        case "colorwellhex", "colorhex", "color_hex": return part.colorWellHex
+        case "interactive": return String(part.colorWellInteractive)
+        // Form controls (and progressView / gauge / field text).
+        case "value":
+            // The registry gate remaps `value` on field/gauge/
+            // progressView/segmented to their own canonical (see the
+            // matching SET case) — this branch only ever sees toggle,
+            // stepper, slider, and (per the documented GET carve-out)
+            // any other type that keeps the old permissive controlValue
+            // read.
+            if part.partType == .toggle { return String(part.controlValue >= 0.5) }
+            return String(part.controlValue)
+        case "on": return String(part.controlValue >= 0.5)
+        case "min", "minvalue", "min_value": return String(part.controlMin)
+        case "max", "maxvalue", "max_value": return String(part.controlMax)
+        case "step", "increment": return String(part.controlStep)
+        case "progressmin": return "0"
+        case "segments", "segmentitems": return part.segmentItems
+        case "selectedsegment", "selected_segment": return String(Int(part.controlValue))
+        // AudioRecorder
+        case "recording": return String(part.audioRecording)
+        case "playing": return String(part.audioPlaying)
+        case "audioduration", "audio_duration": return String(part.audioDuration)
+        case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
+        case "format": return part.audioFormat
+        case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded": return String(part.audioEmbedInStack)
+        case "audiosize", "audio_size", "audiodatasize", "audio_data_size": return String(part.audioData?.count ?? 0)
+        // AudioKit music controls
+        case "musicpattern", "music_pattern", "patternname", "pattern_name":
+            return part.musicPatternName
+        case "musicinstrument", "music_instrument", "instrument":
+            return part.musicInstrumentName
+        case "musictempo", "music_tempo", "tempo", "bpm":
+            return String(part.musicTempo)
+        case "musickeycount", "music_key_count", "keycount", "key_count", "keys", "keyboardkeys", "keyboard_keys":
+            return String(MusicKeyboardKeyCount.normalize(part.musicKeyCount))
+        case "showcontroltype", "show_control_type", "showtype", "show_type":
+            return String(part.musicShowControlType)
+        case "showmusicpattern", "show_music_pattern", "showpattern", "show_pattern":
+            return String(part.musicShowPattern)
+        case "showmusicinstrument", "show_music_instrument", "showinstrument", "show_instrument", "showinstrumentpopup", "show_instrument_popup":
+            return String(part.musicShowInstrument)
+        case "showmusictempo", "show_music_tempo", "showtempo", "show_tempo":
+            return String(part.musicShowTempo)
+        case "musicloop", "music_loop":
+            return String(part.musicLoop)
+        case "musicvolume", "music_volume":
+            return String(part.musicVolume)
+        case "musictracks", "music_tracks", "trackdata", "track_data":
+            return part.musicTrackData
+        case "musicsource", "music_source":
+            return part.musicSourceKind == MusicSourceKind.hypePattern.rawValue
+                ? part.musicPatternName
+                : [part.musicSourceKind, part.musicSourceType, part.musicSourceID].joined(separator: ":")
+        case "musicsourcekind", "music_source_kind", "sourcekind", "source_kind":
+            return part.musicSourceKind
+        case "applemusicid", "apple_music_id", "musicid", "music_id":
+            return part.musicSourceID
+        case "applemusictype", "apple_music_type", "musictype", "music_type":
+            return part.musicSourceType
+        case "applemusictitle", "apple_music_title", "musictitle", "music_title":
+            return part.musicSourceTitle
+        case "applemusicartist", "apple_music_artist", "musicartist", "music_artist":
+            return part.musicSourceArtist
+        case "applemusicalbum", "apple_music_album", "musicalbum", "music_album":
+            return part.musicSourceAlbum
+        case "artwork", "artworkurl", "artwork_url", "musicartwork", "music_artwork":
+            return part.musicArtworkURL
+        case "musicposition", "music_position", "positionseconds", "position_seconds":
+            return String(part.musicPosition)
+        case "musicduration", "music_duration", "durationseconds", "duration_seconds":
+            return String(part.musicDuration)
+        case "musicqueue", "music_queue", "queuedata", "queue_data":
+            return part.musicQueueData
+        case "musicsearchterm", "music_search_term", "searchterm", "search_term":
+            return part.musicSearchTerm
+        case "musicsearchscope", "music_search_scope", "searchscope", "search_scope":
+            return part.musicSearchScope
+        // Scene3D
+        case "object", "model":
+            return Scene3DModelBindingResolver.displayModel(for: part)
+        case "modelasset", "asset":
+            return part.scene3DAssetRef?.name ?? ""
+        case "modelsource", "model_source":
+            return part.scene3DAssetRef == nil ? "path" : "repository"
+        case "modelurl", "model_url", "sceneurl", "scene_url": return part.scene3DURL
+        case "allowscameracontrol", "allows_camera_control", "cameracontrol": return String(part.scene3DAllowsCameraControl)
+        case "autolighting", "auto_lighting", "defaultlighting": return String(part.scene3DAutoLighting)
+        case "antialiasing", "anti_aliasing": return part.scene3DAntialiasing
+        case "background3d", "background_3d", "scenebackground": return part.scene3DBackground
+        case "textfont", "font": return part.textFont
+        case "textsize": return String(part.textSize)
+        case "textalign": return part.textAlign.rawValue
+        case "textstyle", "text_style": return part.textStyle
+        case "fontcolor", "font_color", "textcolor", "text_color":
+            return part.fontColor
+        case "helptext", "help_text", "tooltip", "tool_tip", "help":
+            return part.helpText
+        case "script":
+            if part.partType == .spriteArea {
+                let preview = part.activeSceneSpec?.script ?? ""
+                if preview.count > 5000 {
+                    return String(preview.prefix(5000)) + "\u{2026}[truncated]"
+                }
+                return preview
+            }
+            let preview = part.script
+            if preview.count > 5000 {
+                return String(preview.prefix(5000)) + "\u{2026}[truncated]"
+            }
+            return preview
+        case "style":
+            switch part.partType {
+            case .button: return part.buttonStyle.rawValue
+            case .field: return part.fieldStyle.rawValue
+            case .shape: return part.shapeType.rawValue
+            default: return "Part type '\(part.partType.rawValue)' does not support style property"
+            }
+        case "chartdata", "chart_data":
+            return part.chartData
+        // ProgressView
+        case "progressvalue", "progress_value": return String(part.progressValue)
+        case "progresstotal", "progress_total", "total": return String(part.progressTotal)
+        case "progresscircular", "progress_circular", "circular", "iscircular": return String(part.progressIsCircular)
+        case "progressindeterminate", "progress_indeterminate", "indeterminate": return String(part.progressIsIndeterminate)
+        case "progresslabel", "progress_label": return part.progressLabel
+        case "progresstint", "progress_tint": return part.progressTint
+        // Gauge
+        case "gaugevalue", "gauge_value": return String(part.gaugeValue)
+        case "gaugemin", "gauge_min": return String(part.gaugeMin)
+        case "gaugemax", "gauge_max": return String(part.gaugeMax)
+        case "gaugestyle", "gauge_style": return part.gaugeStyle
+        case "gaugetint", "gauge_tint": return part.gaugeTint
+        case "gaugelabel", "gauge_label": return part.gaugeLabel
+        case "gaugeminlabel", "gauge_min_label": return part.gaugeMinLabel
+        case "gaugemaxlabel", "gauge_max_label": return part.gaugeMaxLabel
+        case "gaugedecimals", "gauge_decimals": return String(part.gaugeDecimals)
+        case "progressdecimals", "progress_decimals": return String(part.progressDecimals)
+        // Menu / Popup
+        case "popupitems", "popup_items": return part.popupItems
+        case "menuitems", "menu_items": return part.menuItems
+        case "menutitle", "menu_title": return part.menuTitle
+        // SearchField
+        case "searchtext", "search_text":
+            // Security condition 1 (masking law): searchText is a
+            // field-body property just like textContent.
+            if part.partType == .field && part.fieldStyle == .secure {
+                return "(masked)"
+            }
+            return part.searchText
+        case "searchprompt", "search_prompt": return part.searchPrompt
+        case "searchsendsimmediately", "search_sends_immediately", "immediate": return String(part.searchSendsImmediately)
+        // Divider
+        case "dividerorientation", "divider_orientation", "orientation": return part.dividerOrientation
+        case "dividerthickness", "divider_thickness", "thickness": return String(part.dividerThickness)
+        case "dividercolor", "divider_color": return part.dividerColor
         default:
             return nil
         }
