@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "paths": [
+    "Sources/HypeCore/MCP/HypeMCPTypes.swift",
+    "Tests/HypeCoreTests/MCPJSONCodecTests.swift",
+    "Tests/HypeCoreTests/MCPMaskingTests.swift"
+  ],
+  "shared_paths": []
+}

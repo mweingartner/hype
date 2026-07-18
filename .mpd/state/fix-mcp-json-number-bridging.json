@@ -1,0 +1,552 @@
+{
+  "change": "fix-mcp-json-number-bridging",
+  "schema": "mpd",
+  "ui": false,
+  "kind": "feature",
+  "phase": "done",
+  "gates": {
+    "architecture": {
+      "verdict": "pass",
+      "by": "Architect",
+      "evidence": "openspec/changes/fix-mcp-json-number-bridging/design.md (Conditions for Builder 1-5)",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784385774,
+      "completed_at_epoch_secs": 1784385908,
+      "receipt": {
+        "id": "5c90d35833410b29b36b4c4f33ae5c1039f1651948752d587bc56bb2f1d569c9",
+        "schema": 1,
+        "phase": "architecture",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+            "governance": "3eaf1d35c423f8f7871282c72ea53b78f834204f2f84b2dd2d5f1d665cb3d9d6",
+            "design-artifacts": "260502cdbf19a41242d217b54743e43d59fb0e1b5a287b98e85ec6577eded103"
+          }
+        }
+      }
+    },
+    "security-plan": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Security (plan) PASS: fix confined to init(any:) type disambiguation; CFBooleanGetTypeID correct + symmetric for native-Bool-boxed-as-Any (kCFBoolean singleton); masking orthogonal (runs on struct pre-serialization); no new trust boundary; init(from:)/encode(to:) verified unaffected. Low advisory folded into Condition 5.",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784385908,
+      "completed_at_epoch_secs": 1784386195,
+      "receipt": {
+        "id": "aceecd1893d3b43e9c772338fa572eaa0c1fe3b99a5b468b292a86e6eb3f1730",
+        "schema": 1,
+        "phase": "security-plan",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+            "source": "ab24656bd1a00d83e28b4b718cca8f3753dc90a8f52354abca5fdd9c7396d494",
+            "governance": "3eaf1d35c423f8f7871282c72ea53b78f834204f2f84b2dd2d5f1d665cb3d9d6",
+            "design-artifacts": "260502cdbf19a41242d217b54743e43d59fb0e1b5a287b98e85ec6577eded103",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "build": {
+      "verdict": "pass",
+      "by": "Builder",
+      "evidence": "Build green: MCPJSONCodecTests (unit+fuzz+Part round-trip) + MCPMaskingTests pass WITHOUT the removed workaround (proof); full suite re-run by gate. init(from:)/encode(to:)/masking untouched.",
+      "checks": {
+        "tests_passed": 6732,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784386195,
+      "completed_at_epoch_secs": 1784386548,
+      "receipt": {
+        "id": "8180dee8b09ffe83192dac629bc3835f5c2672dfa3c2aed08a07249d8c0b0c4f",
+        "schema": 1,
+        "phase": "build",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+            "source": "b968fa2a93e312abe68403e28c84f4f1c81eb0e985b35f3a5add0a24a6499715",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "b968fa2a93e312abe68403e28c84f4f1c81eb0e985b35f3a5add0a24a6499715"
+          }
+        }
+      }
+    },
+    "security-code": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Security (code) PASS: fix confined to init(any:) NSNumber/CFBoolean disambiguation exactly per plan; WIDENS correctness (Int8/64/UInt/CGFloat no longer drop to .null); masking untouched (orthogonal layer, verified); workaround genuinely removed; regression reproduces the exact failure mode. Non-UI → Design Sign-off is a no-op. Low advisory (fuzz string/array/object) → Tester.",
+      "checks": {
+        "secrets_clean": true,
+        "scanner": "builtin+gitleaks"
+      },
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784386676,
+      "completed_at_epoch_secs": 1784386877,
+      "receipt": {
+        "id": "b3db84fff1b6689ce1bb401e4fb3467e63bd03a05a9dd44cb4152ad642f9f0f6",
+        "schema": 1,
+        "phase": "security-code",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+            "source": "b968fa2a93e312abe68403e28c84f4f1c81eb0e985b35f3a5add0a24a6499715",
+            "governance": "3eaf1d35c423f8f7871282c72ea53b78f834204f2f84b2dd2d5f1d665cb3d9d6",
+            "design-artifacts": "285d4c1f9537bd4abcc239951db22040c1f29dcec593c82fe351b3af97df21bf",
+            "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+            "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "test": {
+      "verdict": "pass",
+      "by": "Tester",
+      "evidence": "Test PASS: full suite 3307 HypeCore + 34 HypeCLI green; mutation-check proves teeth (revert fix -> exact DecodingError.typeMismatch); deepened fuzz (NSDecimalNumber, Int.max/min, seeded nested metamorphic, all PartTypes); masking + Part round-trip green.",
+      "checks": {
+        "tests_passed": 6742,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784386893,
+      "completed_at_epoch_secs": 1784388349,
+      "receipt": {
+        "id": "eb8a48bb4f9a2a567204c3910229e13f71b533d1a0c6361b18917a1e5b72d830",
+        "schema": 1,
+        "phase": "test",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+            "source": "75f29cf123c59980511e488db1217ef0afb53258380055f6d3d7fe3b61640e65",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "75f29cf123c59980511e488db1217ef0afb53258380055f6d3d7fe3b61640e65",
+            "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+          }
+        }
+      }
+    },
+    "documentation": {
+      "verdict": "pass",
+      "by": "Documenter",
+      "evidence": "openspec/changes/fix-mcp-json-number-bridging/documentation.md",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784388475,
+      "completed_at_epoch_secs": 1784392298,
+      "receipt": {
+        "id": "579614e191f1a128aae54b739a19b1e85791ab7e064cb556e35c5688ae8af2de",
+        "schema": 1,
+        "phase": "documentation",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+            "shipped-behavior": "75f29cf123c59980511e488db1217ef0afb53258380055f6d3d7fe3b61640e65",
+            "documentation": "575051918ef09092663f437f079755e649c88c36798360d707986dcef844fd6a"
+          }
+        }
+      }
+    },
+    "deploy": {
+      "verdict": "pass",
+      "by": "main-session",
+      "evidence": "Build+install of /Applications/Hype.app (main 272d4b4 + MCP JSON codec fix): suite 3307+34 green, mutation-verified.",
+      "checks": {
+        "command": "scripts/mpd-deploy.sh"
+      },
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784392298,
+      "completed_at_epoch_secs": 1784392315,
+      "receipt": {
+        "id": "2132a96264ffa90a4414a00488151fd18d35957e218830ff53406fd8e23cbf7a",
+        "schema": 1,
+        "phase": "deploy",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+            "source": "75f29cf123c59980511e488db1217ef0afb53258380055f6d3d7fe3b61640e65",
+            "produced-artifact": "75f29cf123c59980511e488db1217ef0afb53258380055f6d3d7fe3b61640e65",
+            "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+          }
+        }
+      }
+    },
+    "doc-validation": {
+      "verdict": "pass",
+      "by": "Architect & Designer",
+      "evidence": "Doc Validation FAILed on one factual error (transactionSummary mis-cited as a native-Any init(any:) call site); corrected to debugPartSummary in documentation.md + design.md + test comments per the validator's exact fix. All other claims verified accurate (fix desc, widens-correctness, scope, symmetric-Bool, usage examples).",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784392318,
+      "completed_at_epoch_secs": 1784392597,
+      "receipt": {
+        "id": "d3d3a6a6e71b31d00481e49505b45ff6a8c8fd1ac4cb3f9e7c6f09e5d4f6d6c1",
+        "schema": 1,
+        "phase": "doc-validation",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+            "shipped-behavior": "c904f07b216eabb99659071dde76002879ad0c927cdc1d41984e85a445cd5c51",
+            "documentation": "7e5b5e5799409769840872d1ea47e914ad881c4ba9a9dc49a60718c3a0373562",
+            "persona-tuning": "e48b22dd7aa27e02a9a0ad38c98bc07383c61deeb896eb2872208db4f07324b8"
+          }
+        }
+      }
+    }
+  },
+  "conditions": [],
+  "history": [
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "openspec/changes/fix-mcp-json-number-bridging/design.md (Conditions for Builder 1-5)",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784385774,
+        "completed_at_epoch_secs": 1784385908,
+        "receipt": {
+          "id": "5c90d35833410b29b36b4c4f33ae5c1039f1651948752d587bc56bb2f1d569c9",
+          "schema": 1,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+              "governance": "3eaf1d35c423f8f7871282c72ea53b78f834204f2f84b2dd2d5f1d665cb3d9d6",
+              "design-artifacts": "260502cdbf19a41242d217b54743e43d59fb0e1b5a287b98e85ec6577eded103"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Security (plan) PASS: fix confined to init(any:) type disambiguation; CFBooleanGetTypeID correct + symmetric for native-Bool-boxed-as-Any (kCFBoolean singleton); masking orthogonal (runs on struct pre-serialization); no new trust boundary; init(from:)/encode(to:) verified unaffected. Low advisory folded into Condition 5.",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784385908,
+        "completed_at_epoch_secs": 1784386195,
+        "receipt": {
+          "id": "aceecd1893d3b43e9c772338fa572eaa0c1fe3b99a5b468b292a86e6eb3f1730",
+          "schema": 1,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+              "source": "ab24656bd1a00d83e28b4b718cca8f3753dc90a8f52354abca5fdd9c7396d494",
+              "governance": "3eaf1d35c423f8f7871282c72ea53b78f834204f2f84b2dd2d5f1d665cb3d9d6",
+              "design-artifacts": "260502cdbf19a41242d217b54743e43d59fb0e1b5a287b98e85ec6577eded103",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        }
+      }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "Build green: MCPJSONCodecTests (unit+fuzz+Part round-trip) + MCPMaskingTests pass WITHOUT the removed workaround (proof); full suite re-run by gate. init(from:)/encode(to:)/masking untouched.",
+        "checks": {
+          "tests_passed": 6732,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784386195,
+        "completed_at_epoch_secs": 1784386548,
+        "receipt": {
+          "id": "8180dee8b09ffe83192dac629bc3835f5c2672dfa3c2aed08a07249d8c0b0c4f",
+          "schema": 1,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+              "source": "b968fa2a93e312abe68403e28c84f4f1c81eb0e985b35f3a5add0a24a6499715",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "b968fa2a93e312abe68403e28c84f4f1c81eb0e985b35f3a5add0a24a6499715"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Security (code) PASS: fix confined to init(any:) NSNumber/CFBoolean disambiguation exactly per plan; WIDENS correctness (Int8/64/UInt/CGFloat no longer drop to .null); masking untouched (orthogonal layer, verified); workaround genuinely removed; regression reproduces the exact failure mode. Non-UI → Design Sign-off is a no-op. Low advisory (fuzz string/array/object) → Tester.",
+        "checks": {
+          "secrets_clean": true,
+          "scanner": "builtin+gitleaks"
+        },
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784386676,
+        "completed_at_epoch_secs": 1784386877,
+        "receipt": {
+          "id": "b3db84fff1b6689ce1bb401e4fb3467e63bd03a05a9dd44cb4152ad642f9f0f6",
+          "schema": 1,
+          "phase": "security-code",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+              "source": "b968fa2a93e312abe68403e28c84f4f1c81eb0e985b35f3a5add0a24a6499715",
+              "governance": "3eaf1d35c423f8f7871282c72ea53b78f834204f2f84b2dd2d5f1d665cb3d9d6",
+              "design-artifacts": "285d4c1f9537bd4abcc239951db22040c1f29dcec593c82fe351b3af97df21bf",
+              "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+              "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        }
+      }
+    },
+    {
+      "phase": "test",
+      "record": {
+        "verdict": "pass",
+        "by": "Tester",
+        "evidence": "Test PASS: full suite 3307 HypeCore + 34 HypeCLI green; mutation-check proves teeth (revert fix -> exact DecodingError.typeMismatch); deepened fuzz (NSDecimalNumber, Int.max/min, seeded nested metamorphic, all PartTypes); masking + Part round-trip green.",
+        "checks": {
+          "tests_passed": 6742,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784386893,
+        "completed_at_epoch_secs": 1784388349,
+        "receipt": {
+          "id": "eb8a48bb4f9a2a567204c3910229e13f71b533d1a0c6361b18917a1e5b72d830",
+          "schema": 1,
+          "phase": "test",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+              "source": "75f29cf123c59980511e488db1217ef0afb53258380055f6d3d7fe3b61640e65",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "75f29cf123c59980511e488db1217ef0afb53258380055f6d3d7fe3b61640e65",
+              "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "documentation",
+      "record": {
+        "verdict": "pass",
+        "by": "Documenter",
+        "evidence": "openspec/changes/fix-mcp-json-number-bridging/documentation.md",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784388475,
+        "completed_at_epoch_secs": 1784392298,
+        "receipt": {
+          "id": "579614e191f1a128aae54b739a19b1e85791ab7e064cb556e35c5688ae8af2de",
+          "schema": 1,
+          "phase": "documentation",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+              "shipped-behavior": "75f29cf123c59980511e488db1217ef0afb53258380055f6d3d7fe3b61640e65",
+              "documentation": "575051918ef09092663f437f079755e649c88c36798360d707986dcef844fd6a"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "deploy",
+      "record": {
+        "verdict": "pass",
+        "by": "main-session",
+        "evidence": "Build+install of /Applications/Hype.app (main 272d4b4 + MCP JSON codec fix): suite 3307+34 green, mutation-verified.",
+        "checks": {
+          "command": "scripts/mpd-deploy.sh"
+        },
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784392298,
+        "completed_at_epoch_secs": 1784392315,
+        "receipt": {
+          "id": "2132a96264ffa90a4414a00488151fd18d35957e218830ff53406fd8e23cbf7a",
+          "schema": 1,
+          "phase": "deploy",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+              "source": "75f29cf123c59980511e488db1217ef0afb53258380055f6d3d7fe3b61640e65",
+              "produced-artifact": "75f29cf123c59980511e488db1217ef0afb53258380055f6d3d7fe3b61640e65",
+              "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "doc-validation",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect & Designer",
+        "evidence": "Doc Validation FAILed on one factual error (transactionSummary mis-cited as a native-Any init(any:) call site); corrected to debugPartSummary in documentation.md + design.md + test comments per the validator's exact fix. All other claims verified accurate (fix desc, widens-correctness, scope, symmetric-Bool, usage examples).",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784392318,
+        "completed_at_epoch_secs": 1784392597,
+        "receipt": {
+          "id": "d3d3a6a6e71b31d00481e49505b45ff6a8c8fd1ac4cb3f9e7c6f09e5d4f6d6c1",
+          "schema": 1,
+          "phase": "doc-validation",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "2203ff1a28e77276fb60e1f60e2fc4529084623dbe3c69c9e63b9ef29d3cdfd0",
+              "shipped-behavior": "c904f07b216eabb99659071dde76002879ad0c927cdc1d41984e85a445cd5c51",
+              "documentation": "7e5b5e5799409769840872d1ea47e914ad881c4ba9a9dc49a60718c3a0373562",
+              "persona-tuning": "e48b22dd7aa27e02a9a0ad38c98bc07383c61deeb896eb2872208db4f07324b8"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "governance": {
+    "risk": "low",
+    "threat_profile": "local-trusted-user",
+    "reconciliations": []
+  },
+  "strict": false,
+  "waivers": [],
+  "phase_started_at_epoch_secs": 1784392598,
+  "archive_closure": {
+    "base_commit": "d2ee6e1a81760a5917c8bdd325fa8a06b3098b3d",
+    "archive_path": "openspec/changes/archive/2026-07-18-fix-mcp-json-number-bridging",
+    "transaction_id": "9eb7f527153918dea224a24bb3320e6a4bfcee80cc1110e18efe5d56a1137070",
+    "allowed_paths": [
+      ".mpd/state/fix-mcp-json-number-bridging.json",
+      "Sources/HypeCore/MCP/HypeMCPTypes.swift",
+      "Tests/HypeCoreTests/MCPJSONCodecTests.swift",
+      "Tests/HypeCoreTests/MCPMaskingTests.swift",
+      "docs/fix-mcp-json-number-bridging.md",
+      "openspec/changes/archive/2026-07-18-fix-mcp-json-number-bridging",
+      "openspec/changes/fix-mcp-json-number-bridging",
+      "openspec/specs/mcp-json-codec/spec.md"
+    ],
+    "system_paths": [
+      ".mpd/state/fix-mcp-json-number-bridging.json",
+      "Sources/HypeCore/MCP/HypeMCPTypes.swift",
+      "Tests/HypeCoreTests/MCPJSONCodecTests.swift",
+      "Tests/HypeCoreTests/MCPMaskingTests.swift",
+      "docs/fix-mcp-json-number-bridging.md",
+      "openspec/changes/archive/2026-07-18-fix-mcp-json-number-bridging",
+      "openspec/changes/fix-mcp-json-number-bridging",
+      "openspec/specs/mcp-json-codec/spec.md"
+    ],
+    "post_archive_digest": "6b227a2e826f010c45d3bd63fe88c0f04d62880b2c5c5dc4b9b5fc77a639cef5",
+    "archived_at": 1784392613
+  },
+  "brief_tuning": {
+    "security-plan": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    }
+  }
+}
