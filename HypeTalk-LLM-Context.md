@@ -2,15 +2,21 @@
 type: reference
 title: HypeTalk LLM Context
 description: HypeTalk language reference distilled for LLM context — syntax, commands, control flow, chunks, and Hype extensions.
-updated: 2026-06-10
+updated: 2026-07-18
 ---
 
 # HypeTalk Language Reference — LLM Context Prompt
 
-> **Status (2026-06-10): Actively maintained.** The canonical in-app system-prompt
-> copy is `Sources/HypeCore/AI/HypeTalkGuide.swift` (`llmContext` static property).
-> Keep both documents in sync per `AGENTS.md`: changes to language semantics,
-> new built-ins, or property additions must update both files together.
+> **Status (2026-07-18): Actively maintained — property vocabulary is registry-driven.**
+> The canonical in-app system-prompt copy is `Sources/HypeCore/AI/HypeTalkGuide.swift`
+> (`llmContext` static property), whose part-property reference is reconciled against
+> `PartPropertyRegistry` (`Sources/HypeCore/Models/PartPropertyRegistry.swift`), the
+> single source of truth for HypeTalk + AI-tool property dispatch
+> (`control-property-consistency`). This file's **Part properties** list below is a
+> hand-reconciled STRICT SUBSET of the guide's property vocabulary — every name here
+> must also appear there, and `HypeTalkGuideTests` enforces that mechanically. Keep
+> both documents in sync per `AGENTS.md`: changes to language semantics, new
+> built-ins, or property additions must update both files together.
 
 You are writing scripts in HypeTalk, a modern HyperCard-inspired scripting language for the Hype app. HypeTalk is case-insensitive and English-like. Scripts attach to objects (buttons, fields, cards, backgrounds, stacks, sprite areas, scenes, and sprite nodes) and fire on events. Messages pass up the chain: scene node → parent group(s) → scene → sprite area part → card → background → stack → Hype.
 
@@ -95,7 +101,9 @@ Prefer canonical property syntax: `set the <property> of <object> to <value>` an
 `property` in forms like `set property span of map "mapper" to 0.005`, but do
 not generate that form unless preserving a user's existing script.
 
-**Part properties:** name, id, left, top, width, height, right, bottom, loc (x,y), rect (l,t,r,b), visible, enabled, hilite, style, textFont, textSize, textAlign, textStyle, fillColor, strokeColor, strokeWidth, cornerRadius, script, showName, autoHilite, lockText
+**Part properties:** name, id, left, top, width, height, right, bottom, loc (x,y), rect (l,t,r,b), visible, enabled, hilite, style, textFont, textSize, textAlign, textStyle, fontColor (aliases textColor / color), textContent (aliases text / contents), fillColor, strokeColor, strokeWidth, cornerRadius, script, showName, autoHilite, lockText, url, helpText (aliases tooltip / help)
+
+**Breaking changes (`control-property-consistency`, 2026-07):** `size` is now the geometry pair on BOTH get and set — SET parses "width,height" and writes width/height instead of textSize; a non-pair SET errors (`size expects "width,height" — use textSize to set the text size.`). `set the <property> of <object> to <value>` on an unrecognized property NAME, or a property that doesn't apply to the object's part type, is now a runtime error (with a "did you mean" hint) — never a silent variable write. `get`/`put the <property> of` stays lenient: it only errors on those same declared wrong-type cases; a fully unrecognized property NAME still reads back `""`. `textContent` (+ `text`/`contents`), `htmlContent`, and `searchText` all mask to `"(masked)"` when read from a secure-styled field, across every alias, on both HypeTalk and the AI tool surface. See `Sources/HypeCore/AI/HypeTalkGuide.swift` for the complete registry-conformant property reference, including type-scoped names (calendar/pdf/map/video/music/gauge/progressView/etc.).
 
 **Global properties:** the date, the time, the long time, the English time, the ticks, the seconds, the mouseLoc (x,y), the mouseH, the mouseV, the version, the userLevel
 
@@ -463,9 +471,10 @@ put the musicInstruments into field "instruments"
 ### Apple Music (MusicKit references)
 Apple Music is separate from AudioKit. AudioKit controls (`musicPlayer`,
 `pianoKeyboard`, `stepSequencer`, `musicMixer`) play stack-contained Hype
-patterns only. Use the single MusicKit Search control for Apple Music catalog
-or library search criteria. Hype stores Apple Music IDs and metadata snapshots,
-not protected audio bytes. Use tools first: `get_apple_music_capabilities`,
+patterns only. Use Apple Music search for catalog or library search criteria
+(MusicKit is the underlying framework name, not a scripting or UI term — the
+control is `appleMusicBrowser`). Hype stores Apple Music IDs and metadata
+snapshots, not protected audio bytes. Use tools first: `get_apple_music_capabilities`,
 `authorize_apple_music`, `search_apple_music`, `set_apple_music_selection`,
 `play_apple_music`, `seek_apple_music`, `create_apple_music_browser`. Do not expand the base prompt
 with Apple Music catalog/library context; query it through tools.

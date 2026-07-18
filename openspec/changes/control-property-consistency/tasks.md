@@ -30,7 +30,7 @@
 
 ## 4. P4 — Docs, final conformance, evidence
 
-- [ ] 4.1 Regenerate `HypeTalkGuide` property reference from `PartPropertyRegistry.guideSection` (or hand-reconcile with the conformance test as the enforcer); add breaking-change notes.
-- [ ] 4.2 Reconcile `HypeTalk-LLM-Context.md` part-properties list as a strict subset; add breaking-change notes; keep the sync note honest.
-- [ ] 4.3 Docs conformance test in `HypeTalkGuideTests.swift` (two-direction walk per spec).
-- [ ] 4.4 Full suite green (`scripts/test.sh`), fuzz suite green, benchmark after-numbers recorded alongside baseline; release build size delta noted for the -Osize budget.
+- [x] 4.1 Regenerate `HypeTalkGuide` property reference from `PartPropertyRegistry.guideSection` (or hand-reconcile with the conformance test as the enforcer); add breaking-change notes.
+- [x] 4.2 Reconcile `HypeTalk-LLM-Context.md` part-properties list as a strict subset; add breaking-change notes; keep the sync note honest.
+- [x] 4.3 Docs conformance test in `HypeTalkGuideTests.swift` (two-direction walk per spec).
+- [x] 4.4 Full suite green (`scripts/test.sh`), fuzz suite green, benchmark after-numbers recorded alongside baseline; release build size delta noted for the -Osize budget.

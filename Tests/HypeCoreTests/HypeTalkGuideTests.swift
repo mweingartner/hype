@@ -410,3 +410,236 @@ struct HypeTalkGuideTests {
         #expect(!wrapped.contains("\"\"\""))  // no accidental triple-quote escape
     }
 }
+
+// MARK: - P4 docs conformance (control-property-consistency Decision 6)
+//
+// The guide and `HypeTalk-LLM-Context.md` are hand-reconciled against
+// `PartPropertyRegistry` rather than mechanically generated (design.md
+// task 4.1's "or hand-reconcile" option) — these tests ARE the
+// enforcement mock §4 calls for: a two-direction walk between the
+// docs and the registry, so drift fails a test the moment it's typed
+// instead of silently rotting the AI's property vocabulary again.
+@Suite("HypeTalkGuide + HypeTalk-LLM-Context.md — registry docs conformance")
+struct HypeTalkGuideRegistryConformanceTests {
+
+    // MARK: - Direction 1: every registry canonical appears in the guide
+
+    /// Every NON-legacy registry canonical property name must appear
+    /// (case-insensitively, as a substring) somewhere in the guide —
+    /// mock §4 / design.md Decision 6's "every registry-canonical
+    /// property appears in the guide" direction. Section placement is
+    /// deliberately not asserted (a property may live in the
+    /// universal "Part properties" paragraph or a type-scoped
+    /// "Framework control properties" bullet) — only that it's
+    /// documented SOMEWHERE, so the AI never has to guess a name the
+    /// registry actually dispatches.
+    @Test("every non-legacy registry canonical property appears in the guide")
+    func everyNonLegacyCanonicalAppearsInGuide() {
+        let text = HypeTalkGuide.llmContext.lowercased()
+        let missing = PartPropertyRegistry.descriptors
+            .filter { !$0.legacy }
+            .map(\.canonical)
+            .filter { !text.contains($0) }
+        #expect(missing.isEmpty, "guide is missing registry canonical name(s): \(missing.sorted().joined(separator: ", "))")
+    }
+
+    /// Legacy properties (htmlContent, menuItems, family, the 11
+    /// classic no-op stubs, …) are deliberately NOT part of the main
+    /// vocabulary — but the guide's "Legacy / not exposed to scripts"
+    /// note must still NAME every one of them (mock §2.3's "Not
+    /// exposed, by decision" note, echoed into the docs surface).
+    @Test("every legacy registry canonical is named under the guide's legacy note")
+    func everyLegacyCanonicalIsNamed() {
+        let text = HypeTalkGuide.llmContext.lowercased()
+        let missing = PartPropertyRegistry.descriptors
+            .filter(\.legacy)
+            .map(\.canonical)
+            .filter { !text.contains($0) }
+        #expect(missing.isEmpty, "guide's legacy note is missing: \(missing.sorted().joined(separator: ", "))")
+    }
+
+    // MARK: - Direction 2: every property name the docs claim resolves through the registry
+
+    /// Every token in the guide's own structured "Part properties"
+    /// list must resolve via `PartPropertyRegistry.resolveGet` on at
+    /// least one live `PartType` — catches a typo'd or made-up
+    /// property name creeping into the prose the moment it's typed.
+    /// A minimum count guards against the extractor itself silently
+    /// regressing to zero matches (which would make this test
+    /// vacuously green).
+    @Test("every property token in the guide's Part-properties list resolves through the registry")
+    func guideTokensResolveThroughRegistry() {
+        let tokens = Self.extractPropertyTokens(from: HypeTalkGuide.llmContext)
+        #expect(tokens.count >= 30, "extractor found only \(tokens.count) tokens — check the guide's 'Part properties' line format")
+        let unresolved = tokens.filter { !Self.resolvesOnAnyType($0) }
+        #expect(unresolved.isEmpty, "guide names that don't resolve on any part type: \(unresolved.joined(separator: ", "))")
+    }
+
+    /// Same walk for `HypeTalk-LLM-Context.md`'s part-properties list.
+    @Test("every property token in HypeTalk-LLM-Context.md's Part-properties list resolves through the registry")
+    func mdTokensResolveThroughRegistry() throws {
+        let md = try Self.llmContextMarkdown()
+        let tokens = Self.extractPropertyTokens(from: md)
+        #expect(tokens.count >= 20, "extractor found only \(tokens.count) tokens — check the .md file's 'Part properties' line format")
+        let unresolved = tokens.filter { !Self.resolvesOnAnyType($0) }
+        #expect(unresolved.isEmpty, "HypeTalk-LLM-Context.md names that don't resolve on any part type: \(unresolved.joined(separator: ", "))")
+    }
+
+    // MARK: - Strict-subset relationship (mock §4)
+
+    /// `HypeTalk-LLM-Context.md`'s part-properties list must never
+    /// name a property the guide doesn't also cover — the "strict
+    /// subset" relationship mock §4 requires (Decision 6). Checked
+    /// against the guide's FULL text (not just its own "Part
+    /// properties" bucket) because the guide documents some of these
+    /// names in type-scoped "Framework control properties" bullets
+    /// instead of the universal paragraph.
+    @Test("HypeTalk-LLM-Context.md's Part-properties list is a strict subset of the guide")
+    func mdIsStrictSubsetOfGuide() throws {
+        let md = try Self.llmContextMarkdown()
+        let mdTokens = Self.extractPropertyTokens(from: md)
+        let guideText = HypeTalkGuide.llmContext.lowercased()
+        let extra = mdTokens.filter { !guideText.contains($0) }
+        #expect(extra.isEmpty, "HypeTalk-LLM-Context.md names the guide never documents: \(extra.joined(separator: ", "))")
+    }
+
+    // MARK: - Breaking-change notes (Design-Review Condition C4)
+
+    /// Both docs must state the `size` pair breaking change AND the
+    /// GET-lenient/SET-strict posture — the Design-Review condition
+    /// (C4) that sent this back for a rewrite: prose stating only
+    /// "SET is strict" without also stating "GET stays lenient" is
+    /// incomplete and misleading about the `the <x> of` read path.
+    @Test("both docs state the size-pair breaking change")
+    func bothDocsStateSizeBreakingChange() throws {
+        let guide = HypeTalkGuide.llmContext
+        let md = try Self.llmContextMarkdown()
+        for (label, text) in [("guide", guide), ("HypeTalk-LLM-Context.md", md)] {
+            #expect(text.contains("use textSize to set the text size"), "\(label) is missing the size/textSize breaking-change copy")
+        }
+    }
+
+    @Test("both docs state the GET-lenient / SET-strict posture explicitly")
+    func bothDocsStateGetSetPosture() throws {
+        let guide = HypeTalkGuide.llmContext
+        let md = try Self.llmContextMarkdown()
+        for (label, text) in [("guide", guide), ("HypeTalk-LLM-Context.md", md)] {
+            let lower = text.lowercased()
+            #expect(lower.contains("runtime error"), "\(label) doesn't state SET is a runtime error")
+            #expect(lower.contains("stays lenient") || lower.contains("stays permissive"),
+                    "\(label) doesn't state that GET stays lenient — the Design-Review C4 condition")
+            #expect(lower.contains("reads back \"\"") || lower.contains("reads back `\"\"`"),
+                    "\(label) doesn't state GET's fully-unknown-name fallback")
+        }
+    }
+
+    @Test("both docs state the three-field secure-masking set")
+    func bothDocsStateSecureMasking() throws {
+        let guide = HypeTalkGuide.llmContext
+        let md = try Self.llmContextMarkdown()
+        for (label, text) in [("guide", guide), ("HypeTalk-LLM-Context.md", md)] {
+            let lower = text.lowercased()
+            #expect(lower.contains("textcontent") && lower.contains("htmlcontent") && lower.contains("searchtext"),
+                    "\(label) doesn't name all three secure-maskable field-body properties")
+            #expect(lower.contains("(masked)"), "\(label) doesn't state the \"(masked)\" sentinel")
+        }
+    }
+
+    // MARK: - Helpers
+
+    private static func packageRoot() throws -> URL {
+        var url = URL(fileURLWithPath: #filePath)
+        while url.path != "/" {
+            url.deleteLastPathComponent()
+            if FileManager.default.fileExists(atPath: url.appendingPathComponent("Package.swift").path) {
+                return url
+            }
+        }
+        throw CocoaError(.fileNoSuchFile)
+    }
+
+    private static func llmContextMarkdown() throws -> String {
+        let url = try packageRoot().appendingPathComponent("HypeTalk-LLM-Context.md")
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// Splits `s` on top-level commas only — commas nested inside
+    /// parenthesized alias/format notes (e.g. `rect (alias
+    /// "rectangle", "l,t,r,b")`) do NOT split the entry apart.
+    private static func topLevelSplit(_ s: Substring, separator: Character = ",") -> [String] {
+        var parts: [String] = []
+        var depth = 0
+        var current = ""
+        for ch in s {
+            switch ch {
+            case "(": depth += 1; current.append(ch)
+            case ")": depth -= 1; current.append(ch)
+            case separator where depth == 0:
+                parts.append(current)
+                current = ""
+            default:
+                current.append(ch)
+            }
+        }
+        parts.append(current)
+        return parts
+    }
+
+    /// Extracts the property-name tokens out of a `**Part
+    /// properties**` (or `**Part properties:**`) structured list line
+    /// — the one consistent, machine-parseable format both docs use
+    /// for their core property vocabulary. Strips trailing
+    /// parenthetical alias/format notes, backticks, and punctuation;
+    /// drops any fragment that isn't a bare identifier (multi-word
+    /// prose like `shortName / longName` is intentionally dropped
+    /// rather than mis-tokenized — coverage for those names comes
+    /// from `everyNonLegacyCanonicalAppearsInGuide` instead, which
+    /// only requires substring presence).
+    private static func extractPropertyTokens(from text: String, keyword: String = "Part properties") -> [String] {
+        var tokens: [String] = []
+        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            guard let keywordRange = line.range(of: keyword) else { continue }
+            var depth = 0
+            var colonIndex: String.Index?
+            var i = keywordRange.lowerBound
+            while i < line.endIndex {
+                switch line[i] {
+                case "(": depth += 1
+                case ")": depth -= 1
+                case ":" where depth == 0: colonIndex = i
+                default: break
+                }
+                if colonIndex != nil { break }
+                i = line.index(after: i)
+            }
+            guard let colonIndex else { continue }
+            let rest = line[line.index(after: colonIndex)...].drop { $0 == "*" || $0 == " " }
+            for rawToken in topLevelSplit(rest) {
+                var token = rawToken.trimmingCharacters(in: .whitespaces)
+                if let parenIndex = token.firstIndex(of: "(") {
+                    token = String(token[token.startIndex..<parenIndex]).trimmingCharacters(in: .whitespaces)
+                }
+                token = token.trimmingCharacters(in: CharacterSet(charactersIn: " .`*"))
+                guard !token.isEmpty else { continue }
+                guard token.range(of: "^[A-Za-z_][A-Za-z0-9_]*$", options: .regularExpression) != nil else { continue }
+                tokens.append(token.lowercased())
+            }
+        }
+        return tokens
+    }
+
+    /// True when `loweredName` resolves to `.property` via
+    /// `PartPropertyRegistry.resolveGet` for at least one live
+    /// `PartType` — checked against both the default field style and
+    /// `.search`, since a small number of names (`prompt`, `searchText`)
+    /// only resolve on a search-styled field.
+    private static func resolvesOnAnyType(_ loweredName: String) -> Bool {
+        for type in PartType.allCases where type != .unknown {
+            var part = Part(partType: type, name: "x")
+            if case .property = PartPropertyRegistry.resolveGet(loweredName, for: part) { return true }
+            part.fieldStyle = .search
+            if case .property = PartPropertyRegistry.resolveGet(loweredName, for: part) { return true }
+        }
+        return false
+    }
+}

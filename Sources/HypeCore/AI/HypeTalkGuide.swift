@@ -12,13 +12,21 @@ import Foundation
 /// prompt fragment — the language evolves in one place.
 ///
 /// The guide trades narrative prose for structured headings and
-/// compact examples that a model can grep by keyword. The complete,
-/// verbose reference lives in `HypeTalk-LLM-Context.md` /
-/// `HyperTalk_Reference.md` in the repo root — this constant is the
-/// curated subset we ship to the model. Kept compact on
-/// purpose so the model has the operator table, constants list,
-/// stub-command list, and full hallucination catalogue inline rather
-/// than relying on guesswork.
+/// compact examples that a model can grep by keyword.
+/// `HyperTalk_Reference.md` in the repo root remains a separate,
+/// narrative walkthrough. For the PART-PROPERTY vocabulary
+/// specifically, this constant is the primary, registry-conformant
+/// reference (`control-property-consistency`, 2026-07):
+/// `PartPropertyRegistry` is the single source of truth for dispatch,
+/// and `HypeTalk-LLM-Context.md`'s property list is hand-reconciled
+/// as a strict SUBSET of what's documented here — it never names a
+/// property this guide doesn't also cover. Both files must still
+/// update together (AGENTS.md); `HypeTalkGuideTests` enforces the
+/// registry-conformance direction and the subset relationship
+/// mechanically. Kept compact everywhere else on purpose so the
+/// model has the operator table, constants list, stub-command list,
+/// and full hallucination catalogue inline rather than relying on
+/// guesswork.
 public enum HypeTalkGuide {
 
     /// The HypeTalk authoring guide embedded on provider chat turns.
@@ -167,7 +175,18 @@ public enum HypeTalkGuide {
         (current + default) for that part using exactly the names this
         syntax accepts.
 
-        **Part properties:** name, id, left, top, width, height, right, bottom, loc, rect, visible, enabled, hilite, style, script, textFont, textSize, textAlign, textStyle, fontColor (alias textColor / color), textContent, fillColor, strokeColor, strokeWidth, cornerRadius, showName, autoHilite, lockText, url, helpText (aliases tooltip / help — hover bubble shown in browse mode).
+        **Part properties** (identity, geometry, chrome, and text — apply to every part type unless noted; long type-prefixed names documented below, like `videoLoop` or `gaugeTint`, always work on their own type regardless of any bare-word restriction): name, id (read-only), shortName / longName (read-only; aliases `short name`, `abbrevName`, `long name`), left, top, width, height, right, bottom, loc (alias `location`, "x,y"), rect (alias `rectangle`, "l,t,r,b"), topLeft, bottomRight ("x,y"), rotation (degrees; shape/image renderers), number (read-only 1-based index, alias `partNumber`), owner (read-only), type (read-only — the part's partType rawValue, e.g. "gauge"), visible, enabled, script, helpText (aliases `tooltip` / `help` — hover bubble shown in browse mode), url (web page URL, or a button/field link target), textFont (alias `font`), textSize, textAlign, textStyle, fontColor (aliases `textColor` / `color`), textContent (aliases `text` / `contents`), textHeight (read-only, derived from textSize), centered (read-only mirror of textAlign = center), animating (read-only — true while a GIF/tween animates the part), style (button → buttonStyle rawValue, field → fieldStyle rawValue, shape → shapeType rawValue — ONE shared canonical name dispatches per part type), shapeType (alias `shape_type`), fillColor, strokeColor, strokeWidth (alias `lineSize`), cornerRadius, filled (read-only).
+
+        **`size`** is the geometry pair on BOTH get and set (BREAKING CHANGE): GET returns "width,height" (unchanged); SET now parses "width,height" and writes width/height — it no longer silently writes textSize. A non-pair SET errors: `size expects "width,height" — use textSize to set the text size.` `textSize` keeps its own classic name for the font point size, unaffected.
+
+        **`marked`** targeting a PART (as opposed to a card) always errors: `"marked" is a card property — try the marked of this card.` Card-target `marked` is unaffected — see Scope properties below.
+
+        **Secure-field masking.** `textContent` (and its `text` / `contents` aliases), `htmlContent` (legacy, below), and `searchText` (search-style fields, below) all return `"(masked)"` — never the plaintext — when read from a field whose style is `secure`, across every alias, on both HypeTalk and the AI tool surface. There is no unmasked path for these three.
+
+        **GET is lenient, SET is strict (BREAKING CHANGE).** `set the <property> of <object> to <value>` on an unrecognized property NAME, or a real property that doesn't apply to the object's part type (e.g. `set the gaugeValue of button "OK" to 5`), is now a runtime ERROR — never a silent script-variable write or a wrong-field write — with a "did you mean" hint when a close spelling exists for that part type. `get` / `put the <property> of` stays permissive: it only errors on the same declared wrong-type cases (plus part-target `marked`, above); a fully unrecognized property NAME still reads back `""` rather than erroring, so speculative `the <x> of` reads in older scripts keep working.
+
+        **Legacy / not exposed to scripts.** `family` (deprecated grouping number — no renderer consults it), `htmlContent` (dormant — no renderer consumes it; masked like textContent on a secure field), `menuItems` / `menuTitle` (HypeTalk-only, editor-internal menu-part vocabulary — not offered on the curated AI tool surface). The 11 classic HyperCard field flags (`sharedText`, `sharedHilite`, `showLines`, `showPict`, `fixedLineHeight`, `multipleLines`, `dontSearch`, `autoSelect`, `autoTab`, `cantDelete`, `cantModify`) plus `scroll` (alias `scrollPos`) are accepted no-ops: GET returns their hardcoded classic answer, SET succeeds silently without mutating anything, so imported classic stacks never error on these.
+
         **Sprite-node properties:** loc, size, width, height, rotation, alpha, xScale, yScale, zPosition, hidden, text, fontName, fontSize, fontColor, textStyle, fillColor, strokeColor, lineWidth, velocity, angularVelocity, density, friction, restitution, damping, dynamic, affectedByGravity, birthRate, particleLifetime, particleSpeed, particleColor, particleScale, emissionAngle, volume, loop, autoplay, target, zoom.
         **Scope properties:** stack supports name, script, theme, defaultFont, width, height, userLevel, webAssetsAllowed, runtimeMode, runtimeAI* settings, aiContext*. Card: name, marked, script, background, theme, effectiveTheme. Background: name, script, theme, cardCount. `this card`, `current card`, `this background`, `current background`, and `this stack` are valid scope references. `userLevel` is HyperCard-compatible authoring access: 1 browsing, 2 typing, 3 painting, 4 authoring, 5 scripting. Use `set the userLevel of stack to 5` or `set the userLevel to "authoring"`; it gates Hype's authoring UI and is not a security boundary.
 
@@ -207,25 +226,28 @@ public enum HypeTalkGuide {
           put the helpText of cd btn "Save" into recordedTooltip
           set the helpText of cd btn "Save" to ""    -- clear the bubble
           ```
-        **Framework control properties** (used as `the <prop> of <kind> "name"`):
+        **Framework control properties** (used as `the <prop> of <kind> "name"`; each name below is restricted-SET to its listed part type(s) — setting it on any other type errors; GET stays a permissive read of the stored field on any type):
           - **calendar:** selectedDate, selectedTime, displayMonth, minDate, maxDate, calendarStyle (graphical | textual | clockAndCalendar; selectedTime is HH:mm:ss for clockAndCalendar)
-          - **pdf:** pdfurl, currentPage, displayMode (single | continuous | twoUp), autoScales
-          - **map:** centerLat, centerLon, span, mapType (standard | satellite | hybrid | mutedStandard), annotations, location (alias: maplocation / map_location — geocoded place name, address, or US ZIP; resolves async)
-          - **colorWell:** color (hex like "#FF5500"), interactive
-          - **stepper / slider:** value, min, max, step
-          - **button (style=toggle / checkBox):** hilite (true/false — backs the on/off state of toggle / checkbox styles); the `on` of <kind> "X" is also accepted as an alias for hilite on these styles. (`style=switch` is a deprecated alias that resolves to `toggle`.)
+          - **pdf:** pdfurl, currentPage, displayMode (single | continuous | twoUp), autoScales, pageCount (read-only — model-layer "0" until a live PDFView reports otherwise)
+          - **map:** centerLat, centerLon, span (degrees), mapType (standard | satellite | hybrid | mutedStandard), annotations (JSON array of {lat, lon, title}), location (alias: maplocation / map_location — geocoded place name, address, or US ZIP; resolves async), showsUserLocation (boolean — whether the live map shows the device's location)
+          - **colorWell:** color (hex like "#FF5500"; canonical key `colorWellHex`), interactive
+          - **stepper / slider:** value, min, max, step (only these two types accept bare `step`)
+          - **button (style=toggle / checkBox):** hilite (true/false — backs the on/off state of toggle / checkbox styles); the `on` of <kind> "X" is also accepted as an alias for hilite on these styles; autoHilite, showName. (`style=switch` is a deprecated alias that resolves to `toggle`.)
           - **segmented:** segments, selectedSegment
-          - **recorder:** recording, playing, duration, outputPath, format (m4a | caf), saveInStack (true/false), audioSize
-          - **chart:** type,title,legend/grid,spider point name/value/min/max,spider_decimal_places(0=int)
-          - **music controls:** musicPattern, instrument, tempo, keyCount 49/61/76/88, optional chrome flags, loop, volume, tracks, source/kind, appleMusic fields
-          - **scene3d:** object (source path — preferred), modelURL (resolved path, legacy alias), allowsCameraControl, autoLighting, antialiasing, background3d
-          - **image:** imageFilter, imageFilterIntensity (along with the standard part properties)
-          - **progressView:** value (0..total), progressTotal (default 100), progressIsCircular (true/false), progressIsIndeterminate (true/false), progressLabel, progressTint (hex), progressDecimals (alias `decimals` — 0 default, integral steps; raise for fractional precision; same contract as gauge)
+          - **recorder (audioRecorder):** recording, playing, duration (read-only, alias `audioDuration`), outputPath, format (m4a | caf), saveInStack (true/false), audioSize (read-only embedded byte count)
+          - **video:** videoUrl (file path or URL), currentTime (read/write seconds), duration (read-only, alias `videoDuration`), playRate (alias `rate`, read/write, clamped ±4.0), loop (alias `videoLoop`), autoplay (alias `videoAutoplay`), volume (alias `videoVolume`, 0…1) — see Video transport below for the classic movie-window shim these long names sit alongside
+          - **chart:** type,title,legend/grid,spider point name/value/min/max,spider_decimal_places(0=int), chartData (alias `chart_data` — raw JSON-encoded ChartConfig, for bulk read/write) — every chart key except chartData routes through the single chart-property path; dead duplicate cases were removed
+          - **music controls** (musicPlayer, pianoKeyboard, stepSequencer, musicMixer, appleMusicBrowser, musicQueue): musicPattern (alias `patternName`), musicInstrument (alias `instrument`), musicTempo (alias `tempo` / `bpm`), musicKeyCount (alias `keys` / `keyCount`, pianoKeyboard only, 49/61/76/88), showControlType, showMusicPattern, showMusicInstrument, showMusicTempo (chrome-visibility toggles), loop (alias `musicLoop`), volume (alias `musicVolume`), musicTracks (alias `trackData` — raw sequencer/mixer JSON), musicSource / musicSourceKind (combined descriptor — writes route to a pattern or an Apple Music catalog item), appleMusicId, appleMusicType, appleMusicTitle, appleMusicArtist, appleMusicAlbum, artwork (alias `artworkURL`), musicPosition, duration (alias `musicDuration`), musicQueue (alias `queueData`), musicSearchTerm, musicSearchScope
+          - **scene3d:** object (source path — preferred; SET aliases `model` / `modelAsset` / `assetName` group with `object`; GET of `modelAsset` / `assetName` instead reads the bound Asset Repository ref's own name), modelURL (resolved path, legacy alias), allowsCameraControl, autoLighting (alias `defaultLighting`), antialiasing, background3d (alias `scene_background`)
+          - **image:** imageFilter, imageFilterIntensity, invertOnClick, animated (GIF autoplay) (along with the standard part properties); transparentBackground is also settable on spriteArea
+          - **progressView:** value (canonical `progressValue`, 0..progressTotal), progressTotal (alias `total` — default 100), progressMin (SET accepts only 0 — `progress always starts at 0 — set the max instead.`), progressCircular (alias `circular` / `isCircular` — true/false), progressIndeterminate (alias `indeterminate` — true/false), progressLabel, progressTint (hex), progressDecimals (alias `decimals` — 0 default, integral steps; raise for fractional precision; same contract as gauge)
           - **gauge:** value (gaugeMin..gaugeMax), gaugeMin (default 0), gaugeMax (default 100), gaugeStyle (circular | linear), gaugeTint (hex), gaugeLabel, gaugeMinLabel, gaugeMaxLabel, gaugeDecimals (alias `decimals` — 0 default, integral steps; raise for fractional precision)
           - **button (style=link):** url (target — http / https / mailto only; other schemes are refused at click time), textContent (visible link text; defaults to url if empty)
-          - **button (style=popup):** popupItems (newline-separated labels), textContent (currently-selected label)
-          - **field (style=search):** textContent (current search text — use `the text of field "search"`); fields with this style fire `searchChanged` on debounced keystroke and `searchSubmitted` on Return.
-          - **divider:** dividerOrientation (horizontal | vertical), dividerThickness (pixels, default 1), dividerColor (hex)
+          - **button (style=popup):** popupItems (newline-separated labels; first item is selected), textContent (currently-selected label), icon (bound icon asset UUID; "" when unset)
+          - **field (style=search) / searchField:** searchText (search-box text; masked to "(masked)" on a secure field — use `the text of field "search"`), searchPrompt (alias `prompt` — placeholder shown when empty), searchSendsImmediately (alias `immediate` — whether searchChanged fires on every keystroke); fields with this style fire `searchChanged` on debounced keystroke and `searchSubmitted` on Return.
+          - **field (any style):** richText, enterKeyEnabled, lockText, dontWrap, wideMargins (SET-restricted to field; GET reads the stored value on any part)
+          - **divider:** dividerOrientation (horizontal | vertical), dividerThickness (alias `thickness`, pixels, default 1), dividerColor (hex)
+          - **spriteArea:** scaleMode, showsPhysics, showsFPS, showsNodeCount, sceneName (read-only — name of the active scene), sceneCount (read-only — number of scenes defined)
         **Global properties:** the date, the time, the ticks, the seconds, the mouseLoc (returns "x,y"), the mouseH, the mouseV, the shiftKey, the optionKey, the commandKey, the version, the musicState, the musicPatterns, the musicInstruments, the appleMusicState, the appleMusicPosition, the appleMusicAuthorization, the appleMusicCapabilities.
 
         ## System & lifecycle messages
@@ -553,7 +575,7 @@ public enum HypeTalkGuide {
         Controls: musicPlayer, pianoKeyboard, stepSequencer, musicMixer. Tools: create_music_pattern, export_music_pattern.
 
         ## Apple Music
-        Use MusicKit Search for catalog/library criteria. Tools bind/play/seek refs; scripts authorize/search/play/seek/pause/resume/stop appleMusic. No audio embed.
+        Use Apple Music search for catalog/library criteria (MusicKit is the underlying framework name, not a scripting or UI term). Tools bind/play/seek refs; scripts authorize/search/play/seek/pause/resume/stop appleMusic. No audio embed.
 
         ## Animation (standard parts)
             animate the loc of button "ball" to "400,300" over 0.5
