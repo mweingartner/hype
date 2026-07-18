@@ -21,6 +21,7 @@
     "Tests/HypeCoreTests/ProgressViewTests.swift",
     "Tests/HypeCoreTests/TextStylingTests.swift",
     "Tests/HypeCoreTests/HelpTextTests.swift",
+    "Tests/HypeCoreTests/CrossSurfacePropertyEquivalenceTests.swift",
     "Sources/HypeCore/Models/PartPropertyRegistry.swift",
     "Sources/HypeCore/Models/HexColor.swift",
     "Sources/HypeCore/Models/PartDisplayNames.swift"

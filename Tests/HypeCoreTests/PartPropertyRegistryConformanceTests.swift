@@ -313,6 +313,54 @@ struct ListAllPropertiesRegistryDiffTests {
         }
     }
 
+    /// `noMissingDescriptors` above only proves the ROW exists — it
+    /// passes even when `formatAllProperties`'s `row(_:)` helper falls
+    /// back to its "(not yet exposed via set_part_property/
+    /// get_part_property)" placeholder (a real, non-error `String`, so
+    /// `.contains("\n\(canonical) =")` is still true). That blind spot
+    /// is exactly how eleven registry descriptors (`right`, `bottom`,
+    /// `centered`, `textHeight`, `lineSize`, `showsPhysics`,
+    /// `showsFPS`, `showsNodeCount`, `shapeType`, `animating`,
+    /// `sceneName`, `sceneCount`) shipped with no
+    /// `partPropertyReadValue` case at all and went undetected until
+    /// this Test phase's exhaustive round-trip suite
+    /// (`CrossSurfacePropertyEquivalenceTests.swift`) and this very
+    /// test caught them — this test closes the gap mechanically so a
+    /// FUTURE missing GET case fails here too, not just in the slower
+    /// exhaustive suite.
+    @Test(
+        "every aiExposed, non-legacy, applicable descriptor's row is a real value, never the not-yet-exposed placeholder",
+        arguments: ListAllPropertiesRegistryDiffTests.realTypes
+    )
+    func noPlaceholderValues(type: PartType) {
+        var part = Part(partType: type, name: "x")
+        if type == .chart { part.chartData = ChartConfig().toJSON() }
+        let output = HypeToolExecutor.formatAllProperties(part)
+        // Four DELIBERATE, documented exceptions — `partPropertyReadValue(_:part:)`
+        // takes only a bare `Part`, with no `document`/`currentCardId`,
+        // so a value that inherently needs card/document context
+        // cannot be computed there, only at the `get_part_property`
+        // tool call site (which DOES have that context, and where each
+        // of these is intercepted and answered correctly — see the
+        // comments at that call site in `HypeToolExecutor.swift`):
+        // `marked` (H4: always errors — a card property, never a part
+        // property), `longName`/`owner` (need a card/background name
+        // lookup), `number`/`partNumber` (needs the CURRENT card's
+        // full part list to compute a 1-based position). Every OTHER
+        // descriptor genuinely must resolve from the `Part` alone.
+        let contextDependentExceptions: Set<String> = ["marked", "longname", "owner", "number"]
+        let expected = PartPropertyRegistry.descriptors.filter {
+            $0.aiExposed && !$0.legacy && belongs($0, to: type) && !contextDependentExceptions.contains($0.canonical)
+        }
+        for descriptor in expected {
+            // Anchored with a leading newline — an unanchored check
+            // would false-positive match "name" inside "longname"'s
+            // OWN placeholder row, "type" inside "shapetype"'s, etc.
+            let placeholderRow = "\n\(descriptor.canonical) = (not yet exposed via set_part_property/get_part_property)"
+            #expect(!output.contains(placeholderRow), "\(type.rawValue): '\(descriptor.canonical)' has no real get_part_property implementation (falls back to the placeholder)")
+        }
+    }
+
     @Test(
         "every legacy descriptor applicable to the type is named under the Legacy note, without a value",
         arguments: ListAllPropertiesRegistryDiffTests.realTypes

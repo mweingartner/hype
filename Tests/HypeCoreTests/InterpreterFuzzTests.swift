@@ -321,7 +321,14 @@ private struct PropertyFuzzFixture {
 /// Builds a fresh document with one part of every object-ref-reachable
 /// major part type, so the generator below can target a wide spread of
 /// per-type dispatch cells.
-private struct PropertyFuzzTypeSpec {
+// Visibility note: `PropertyFuzzTypeSpec`/`propertyFuzzTypeSpecs`/
+// `propertyFuzzDocument()` are deliberately NOT `private` (file-private
+// in Swift) — `CrossSurfacePropertyEquivalenceTests.swift` reuses this
+// exact HypeTalk-object-type-keyword mapping for its own registry-driven
+// round-trip and cross-surface tests, so the two files stay in lockstep
+// on which part types are HypeTalk-object-ref-addressable rather than
+// maintaining two independently-drifting copies of the same table.
+struct PropertyFuzzTypeSpec {
     let type: PartType
     let objectTypeWord: String
     let partName: String
@@ -330,7 +337,7 @@ private struct PropertyFuzzTypeSpec {
 /// The type/keyword/name triples used to build both the fixture
 /// document and the (cheap, document-free) fixture list the generator
 /// draws targets from.
-private let propertyFuzzTypeSpecs: [PropertyFuzzTypeSpec] = [
+let propertyFuzzTypeSpecs: [PropertyFuzzTypeSpec] = [
     .init(type: .button, objectTypeWord: "button", partName: "fzButton"),
     .init(type: .field, objectTypeWord: "field", partName: "fzField"),
     .init(type: .shape, objectTypeWord: "shape", partName: "fzShape"),
@@ -369,7 +376,7 @@ private let propertyFuzzFixtures: [PropertyFuzzFixture] = propertyFuzzTypeSpecs.
 /// Builds a fresh document with one part of every object-ref-reachable
 /// major part type (`propertyFuzzTypeSpecs`), so the generator can
 /// target a wide spread of per-type dispatch cells.
-private func propertyFuzzDocument() -> HypeDocument {
+func propertyFuzzDocument() -> HypeDocument {
     var doc = HypeDocument.newDocument()
     let cardId = doc.cards[0].id
     for spec in propertyFuzzTypeSpecs {

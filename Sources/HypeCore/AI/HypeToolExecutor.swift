@@ -2572,7 +2572,59 @@ public struct HypeToolExecutor: Sendable {
                     // `\n`; the system tooltip wraps long lines.
                     document.parts[index].helpText = value
                 case "strokewidth": document.parts[index].strokeWidth = Double(value) ?? 1
+                case "linesize":
+                    // Classic-name alias view of `strokeWidth` (mirrors
+                    // the HypeTalk setter exactly) — a registry
+                    // descriptor in its own right (control-property-
+                    // consistency, Test-phase fix: this case was
+                    // missing here even though the registry already
+                    // declared `linesize` universally get+set).
+                    document.parts[index].strokeWidth = Double(value) ?? 1
                 case "cornerradius": document.parts[index].cornerRadius = Double(value) ?? 8
+                case "right":
+                    // Mirrors the HypeTalk setter: `right` writes width
+                    // via `newRight - left` (control-property-consistency,
+                    // Test-phase fix — this case was missing here).
+                    let newRight = Double(value) ?? 0
+                    document.parts[index].width = newRight - document.parts[index].left
+                case "bottom":
+                    // Mirrors the HypeTalk setter: `bottom` writes
+                    // height via `newBottom - top` (Test-phase fix).
+                    let newBottom = Double(value) ?? 0
+                    document.parts[index].height = newBottom - document.parts[index].top
+                case "centered":
+                    // Mirrors the HypeTalk setter's meaning (centered ==
+                    // textAlign is .center) through the AI surface's own
+                    // permissive boolean parser (Test-phase fix).
+                    document.parts[index].textAlign = try requiredBool(value) ? .center : .left
+                case "textheight":
+                    // Derived setter — mirrors the HypeTalk setter
+                    // exactly: textHeight writes textSize (Test-phase fix).
+                    document.parts[index].textSize = (Double(value) ?? 0) / 1.3
+                case "showsphysics", "shows_physics":
+                    // SpriteArea display flags (Test-phase fix): these
+                    // three registry descriptors had no case at all in
+                    // this switch, so `set_part_property` fell through
+                    // to "Unknown property" despite the registry
+                    // declaring them universally-scoped, get+set,
+                    // spriteArea-only properties HypeTalk already
+                    // supports via `updateSpriteAreaSpec`.
+                    let boolValue = try requiredBool(value)
+                    modifySpriteAreaSpec(partIndex: index, document: &document) { spec in spec.showsPhysics = boolValue }
+                case "showsfps", "shows_fps":
+                    let boolValue = try requiredBool(value)
+                    modifySpriteAreaSpec(partIndex: index, document: &document) { spec in spec.showsFPS = boolValue }
+                case "showsnodecount", "shows_node_count":
+                    let boolValue = try requiredBool(value)
+                    modifySpriteAreaSpec(partIndex: index, document: &document) { spec in spec.showsNodeCount = boolValue }
+                case "scalemode", "scale_mode":
+                    // Mirrors the HypeTalk setter: an unrecognized raw
+                    // value is a silent no-op, not an error (matches
+                    // HypeTalk's own `if let mode = SceneScaleMode(rawValue:)`
+                    // gate exactly — Test-phase fix).
+                    if let mode = SceneScaleMode(rawValue: value) {
+                        modifySpriteAreaSpec(partIndex: index, document: &document) { spec in spec.scaleMode = mode }
+                    }
                 case "chartdata", "chart_data":
                     document.parts[index].chartData = value
                 case "marked":
@@ -3939,6 +3991,42 @@ public struct HypeToolExecutor: Sendable {
             // this error sentence).
             if property.lowercased() == "marked" {
                 return "\"marked\" is a card property — try the marked of this card."
+            }
+            // `longName`/`owner`/`number` (Test-phase fix): these three
+            // registry descriptors need `document`/`currentCardId` to
+            // compute a real value (a card path, an owning card/
+            // background name, a 1-based position among the CURRENT
+            // card's parts) that `partPropertyReadValue(_:part:)`'s
+            // `Part`-only signature cannot provide — so, like `marked`/
+            // `location` above, they're intercepted here, mirroring
+            // HypeTalk's GET exactly (Interpreter.swift). Left out of
+            // `partPropertyReadValue` for the same reason `marked` is:
+            // `list_all_properties`'s registry-driven dump only has a
+            // bare `Part` to work with, so it keeps showing these
+            // under the "not yet exposed" placeholder rather than a
+            // value it cannot actually compute.
+            let loweredProperty = property.lowercased()
+            if loweredProperty == "longname" || loweredProperty == "long name" {
+                let cardId = part.cardId ?? currentCardId
+                let card = document.cards.first { $0.id == cardId }
+                let cardDesc = card.map { "card \"\($0.name)\"" } ?? "card id \(cardId)"
+                return "card \(part.partType.rawValue) \"\(part.name)\" of \(cardDesc)"
+            }
+            if loweredProperty == "owner" {
+                if let cardId = part.cardId, let card = document.cards.first(where: { $0.id == cardId }) {
+                    return card.name.isEmpty ? "card id \(cardId)" : "card \"\(card.name)\""
+                }
+                if let bgId = part.backgroundId, let bg = document.backgrounds.first(where: { $0.id == bgId }) {
+                    return bg.name.isEmpty ? "bkgnd id \(bgId)" : "bkgnd \"\(bg.name)\""
+                }
+                return ""
+            }
+            if loweredProperty == "number" || loweredProperty == "partnumber" {
+                let cardParts = document.partsForCard(currentCardId)
+                if let idx = cardParts.firstIndex(where: { $0.id == part.id }) {
+                    return String(idx + 1)
+                }
+                return "0"
             }
             // Registry gate (control-property-consistency, P2): GET is
             // lenient (Decision 3) — it only errors for a declared
@@ -6442,6 +6530,29 @@ public struct HypeToolExecutor: Sendable {
         case "filled":
             return String(part.partType == .shape && part.fillColor != "#FFFFFF" && part.fillColor != "#00000000")
         case "type": return part.partType.rawValue
+        case "shapetype", "shape_type":
+            // A distinct registry descriptor from the polymorphic
+            // `style` bare word (which also resolves to `shapetype` on
+            // a shape part) — matches HypeTalk's GET exactly
+            // (Test-phase fix: this case was missing here).
+            return part.shapeType.rawValue
+        case "animating":
+            // Matches HypeTalk's GET exactly: true while a GIF or
+            // tween is actively animating this part (Test-phase fix —
+            // this case was missing here).
+            #if canImport(AppKit)
+            return String(PartAnimator.shared.isAnimating(partId: part.id) || GIFAnimator.shared.isAnimating(partId: part.id))
+            #else
+            return "false"
+            #endif
+        case "scenename", "scene_name", "activescene", "active_scene":
+            // Read straight from the part's own `SpriteAreaSpec` — no
+            // `document` needed, unlike HypeTalk's
+            // `spriteAreaSpec(partIndex:document:)` helper (Test-phase
+            // fix: this case was missing here).
+            return part.spriteAreaSpecModel?.activeScene?.name ?? ""
+        case "scenecount", "scene_count":
+            return String(part.spriteAreaSpecModel?.scenes.count ?? 0)
         case "pagecount", "page_count":
             // Model-layer page count is always "0" until a live PDFView
             // reports otherwise (matches the HypeTalk GET exactly).
@@ -6478,7 +6589,17 @@ public struct HypeToolExecutor: Sendable {
         case "fillcolor", "fill_color": return part.fillColor
         case "strokecolor", "stroke_color": return part.strokeColor
         case "strokewidth": return String(part.strokeWidth)
+        case "linesize": return String(part.strokeWidth)
         case "cornerradius": return String(part.cornerRadius)
+        // SpriteArea display flags — read from the part's own
+        // `SpriteAreaSpec` (Test-phase fix: these had no GET case here
+        // at all, matching HypeTalk's `spriteAreaSpec(partIndex:document:)`
+        // reads, defaulting the same way HypeTalk does when there's no
+        // spec yet).
+        case "showsphysics", "shows_physics": return String(part.spriteAreaSpecModel?.showsPhysics ?? false)
+        case "showsfps", "shows_fps": return String(part.spriteAreaSpecModel?.showsFPS ?? false)
+        case "showsnodecount", "shows_node_count": return String(part.spriteAreaSpecModel?.showsNodeCount ?? false)
+        case "scalemode", "scale_mode": return part.spriteAreaSpecModel?.scaleMode.rawValue ?? ""
         case "visible": return String(part.visible)
         case "enabled": return String(part.enabled)
         case "hilite": return String(part.hilite)
