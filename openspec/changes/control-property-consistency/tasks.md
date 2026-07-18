@@ -22,11 +22,11 @@
 
 ## 3. P3 — Inspector labels and rows (app must build; green before P4)
 
-- [ ] 3.1 Adopt display names at PI:74 headline and PI:936 Type row and every enum picker (981, 1009, 1058, 2096, 3625, 4294).
-- [ ] 3.2 Helper upgrades: `propertyRow(_:binding:placeholder:unit:)`, `numberField(_:binding:unit:)` (tempo idiom trailing unit), accessibility labels wired through.
-- [ ] 3.3 Apply the §2.3 single-select label table (design.md file plan): common/button/field/shape/webpage/image/video/calendar/pdf/map/colorWell/stepper-slider/segmented/scene3D/audioRecorder/synth/appleMusic/musicQueue/progress/gauge/divider/spriteArea/chart/text-formatting sections, including all new rows (Rotation, Hilite, video playback, Show User Location, Prompt + Search While Typing, Tracks).
-- [ ] 3.4 Apply §2.4 multi-select and node-panel changes; migrate all hand-rolled headers (2075/2112/2121/2141/2148, 3494/3544/3548/3551/3569/3604/3621/3638/3667/3697/3779, 1287) to `sectionHeading`; flip Hidden→Visible (3294, 3512); physics toggle renames (3795, 3797).
-- [ ] 3.5 `Tests/HypeCoreTests/PropertyInspectorLabelSpecTests.swift` — source-scan conformance for criteria 13–18 and 20 (no rawValue rendering of the seven enums, exact §2.3 strings, no trailing colons, no parenthesized units, no hand-rolled headers, accessibility-label proximity). Suite green; app target builds.
+- [x] 3.1 Adopt display names at PI:74 headline and PI:936 Type row and every enum picker (981, 1009, 1058, 2096, 3625, 4294).
+- [x] 3.2 Helper upgrades: `propertyRow(_:binding:placeholder:unit:)`, `numberField(_:binding:unit:)` (tempo idiom trailing unit), accessibility labels wired through.
+- [x] 3.3 Apply the §2.3 single-select label table (design.md file plan): common/button/field/shape/webpage/image/video/calendar/pdf/map/colorWell/stepper-slider/segmented/scene3D/audioRecorder/synth/appleMusic/musicQueue/progress/gauge/divider/spriteArea/chart/text-formatting sections, including all new rows (Rotation, Hilite, video playback, Show User Location, Prompt + Search While Typing, Tracks).
+- [x] 3.4 Apply §2.4 multi-select and node-panel changes; migrate all hand-rolled headers (2075/2112/2121/2141/2148, 3494/3544/3548/3551/3569/3604/3621/3638/3667/3697/3779, 1287) to `sectionHeading`; flip Hidden→Visible (3294, 3512); physics toggle renames (3795, 3797).
+- [x] 3.5 `Tests/HypeCoreTests/PropertyInspectorLabelSpecTests.swift` — source-scan conformance for criteria 13–18 and 20 (no rawValue rendering of the seven enums, exact §2.3 strings, no trailing colons, no parenthesized units, no hand-rolled headers, accessibility-label proximity). Suite green; app target builds.
 
 ## 4. P4 — Docs, final conformance, evidence
 

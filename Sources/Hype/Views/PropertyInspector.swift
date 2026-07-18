@@ -71,7 +71,7 @@ struct PropertyInspector: View {
                         // pattern ("N Parts Selected"): tell the user
                         // which part they're inspecting, not just
                         // "Properties" (the whole pane is properties).
-                        Text("\(part.name.isEmpty ? "Untitled" : part.name) — \(part.partType.rawValue.capitalized)")
+                        Text("\(part.name.isEmpty ? "Untitled" : part.name) — \(part.partType.displayName)")
                             .font(.headline)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -348,7 +348,7 @@ struct PropertyInspector: View {
                 // a user with mixed visibility flip the whole group
                 // visible in one click.
                 VStack(alignment: .leading, spacing: 6) {
-                    sectionHeading("BEHAVIOR")
+                    sectionHeading("State")
 
                     Toggle("Visible", isOn: bindMultiBool(\.visible))
                     Toggle("Enabled", isOn: bindMultiBool(\.enabled))
@@ -371,10 +371,13 @@ struct PropertyInspector: View {
                         // is transparent; hex field shows "Multiple".
                         multiColorRow(label: "Fill", keyPath: \.fillColor)
                         multiColorRow(label: "Stroke", keyPath: \.strokeColor)
-                        HStack(spacing: 8) {
-                            multiNumberField("Stroke W", keyPath: \.strokeWidth)
-                            multiNumberField("Corner R", keyPath: \.cornerRadius)
-                        }
+                        // Stacked, not abbreviated — "Stroke Width" /
+                        // "Corner Radius" side by side genuinely don't
+                        // fit this panel's width at the full words, so
+                        // each gets its own row instead of shortening
+                        // the label (design-mock §2.4).
+                        multiNumberField("Stroke Width", keyPath: \.strokeWidth)
+                        multiNumberField("Corner Radius", keyPath: \.cornerRadius)
                     }
                 }
 
@@ -403,12 +406,13 @@ struct PropertyInspector: View {
                             }
                             .pickerStyle(.segmented)
                             .labelsHidden()
+                            .accessibilityLabel("Align")
                         }
 
                         // Font color across the selection. Empty hex
                         // means "auto / contrast-aware against fill" —
                         // the renderer's fallback path.
-                        multiColorRow(label: "Color", keyPath: \.fontColor)
+                        multiColorRow(label: "Text Color", keyPath: \.fontColor)
 
                         // textStyle toggles (Bold / Italic / Underline /
                         // Strikethrough) across the selection. A toggle
@@ -933,10 +937,10 @@ struct PropertyInspector: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeading("Identity")
             propertyRow("Name", binding: bindPartString(part.id, \.name))
-            propertyRow("Type", value: part.partType.rawValue.capitalized)
+            propertyRow("Type", value: part.partType.displayName)
         }
         VStack(alignment: .leading, spacing: 6) {
-            sectionHeading("Position")
+            sectionHeading("Position & Size")
             HStack {
                 numberField("X", binding: bindPartDouble(part.id, \.left))
                 numberField("Y", binding: bindPartDouble(part.id, \.top))
@@ -978,12 +982,27 @@ struct PropertyInspector: View {
             sectionHeading("Button")
             Picker("Style", selection: bindPartButtonStyle(part.id)) {
                 ForEach(HypeCore.ButtonStyle.pickerCases, id: \.self) { style in
-                    Text(style.rawValue).tag(style)
+                    Text(style.displayName).tag(style)
                 }
             }
             propertyRow("Label", binding: bindPartString(part.id, \.textContent))
+            Text("Shown on the button when Show Name is off.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
             Toggle("Show Name", isOn: bindPartBool(part.id, \.showName))
             Toggle("Auto Hilite", isOn: bindPartBool(part.id, \.autoHilite))
+
+            // Hilite is the checked / on state for the three
+            // styles that actually render one (classic HyperCard:
+            // checkbox / radio / toggle switch). Hidden for every
+            // other style so authors don't see a row with no
+            // visible effect.
+            if [HypeCore.ButtonStyle.toggle, .checkBox, .radio].contains(part.buttonStyle) {
+                Toggle("Hilite", isOn: bindPartBool(part.id, \.hilite))
+                Text("The checked / on state.")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
 
             // Popup items editor (only shown for popup style)
             if part.buttonStyle == .popup {
@@ -1006,7 +1025,7 @@ struct PropertyInspector: View {
             sectionHeading("Field")
             Picker("Style", selection: bindPartFieldStyle(part.id)) {
                 ForEach(HypeCore.FieldStyle.allCases, id: \.self) { style in
-                    Text(style.rawValue).tag(style)
+                    Text(style.displayName).tag(style)
                 }
             }
             Toggle("Lock Text", isOn: bindPartBool(part.id, \.lockText))
@@ -1015,7 +1034,7 @@ struct PropertyInspector: View {
             Toggle("Wide Margins", isOn: bindPartBool(part.id, \.wideMargins))
 
             Divider()
-            Text("Events").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+            sectionHeading("Events")
             Toggle("Enter Key Event", isOn: Binding(
                 get: { document.document.parts.first(where: { $0.id == part.id })?.enterKeyEnabled ?? false },
                 set: { newValue in
@@ -1040,11 +1059,24 @@ struct PropertyInspector: View {
             }
 
             VStack(alignment: .leading) {
-                Text("Content").font(.system(size: 11)).foregroundColor(.secondary)
+                Text("Contents").font(.system(size: 11)).foregroundColor(.secondary)
                 TextEditor(text: bindPartString(part.id, \.textContent))
                     .font(.system(size: 11, design: .monospaced))
                     .frame(height: 80)
                     .border(Color.gray.opacity(0.5))
+            }
+
+            // Search-style-only properties. Hidden for every other
+            // field style since neither has an effect there — the
+            // gap the design mock closes (search style was
+            // selectable but its properties were unreachable).
+            if part.fieldStyle == .search {
+                Divider()
+                propertyRow("Prompt", binding: bindPartString(part.id, \.searchPrompt))
+                Toggle("Search While Typing", isOn: bindPartBool(part.id, \.searchSendsImmediately))
+                Text("When off, searching happens when Return is pressed.")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
             }
         }
     }
@@ -1053,9 +1085,9 @@ struct PropertyInspector: View {
     private func shapeSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeading("Shape")
-            Picker("Shape", selection: bindPartShapeType(part.id)) {
+            Picker("Style", selection: bindPartShapeType(part.id)) {
                 ForEach(HypeCore.ShapeType.allCases, id: \.self) { type in
-                    Text(type.rawValue).tag(type)
+                    Text(type.displayName).tag(type)
                 }
             }
             colorPropertyRow(label: "Fill", partId: part.id, keyPath: \.fillColor,
@@ -1064,6 +1096,7 @@ struct PropertyInspector: View {
                              supportsOpacity: true)
             numberField("Stroke Width", binding: bindPartDouble(part.id, \.strokeWidth))
             numberField("Corner Radius", binding: bindPartDouble(part.id, \.cornerRadius))
+            numberField("Rotation", binding: bindPartDouble(part.id, \.rotation), unit: "°")
         }
     }
 
@@ -1099,6 +1132,7 @@ struct PropertyInspector: View {
             // alpha. Backed by ImageChromaKey (see ImageRenderer).
             Toggle("Transparent Background", isOn: bindPartBool(part.id, \.transparentBackground))
                 .help("Treat the image's dominant corner color as transparent so whatever's behind shows through. Already-transparent PNGs are unaffected.")
+            numberField("Rotation", binding: bindPartDouble(part.id, \.rotation), unit: "°")
 
             // CoreImage filter — applied at render time. None means
             // pass-through. Some filters (sepia / blur / vignette /
@@ -1125,6 +1159,7 @@ struct PropertyInspector: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .accessibilityLabel("Filter")
             }
             if !part.imageFilter.isEmpty && ["sepia", "blur", "vignette", "posterize"].contains(part.imageFilter) {
                 HStack {
@@ -1148,7 +1183,7 @@ struct PropertyInspector: View {
     private func videoSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeading("Video")
-            propertyRow("URL/Path", binding: bindPartString(part.id, \.videoURL))
+            propertyRow("Source", binding: bindPartString(part.id, \.videoURL), placeholder: "File path or URL")
             Button("Choose Video...") {
                 chooseVideoForPart(partId: part.id)
             }
@@ -1158,17 +1193,25 @@ struct PropertyInspector: View {
                     .foregroundColor(.secondary)
                     .lineLimit(2)
             }
+
+            Toggle("Autoplay", isOn: bindPartBool(part.id, \.videoAutoplay))
+            Toggle("Loop", isOn: bindPartBool(part.id, \.videoLoop))
+            HStack {
+                Text("Volume").font(.system(size: 10)).foregroundColor(.secondary)
+                Slider(value: bindPartDouble(part.id, \.videoVolume), in: 0...1)
+            }
+            numberField("Play Rate", binding: bindPartDouble(part.id, \.videoPlayRate), unit: "×")
         }
     }
 
     private func calendarSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeading("Calendar")
-            propertyRow("Selected (yyyy-MM-dd)", binding: bindPartString(part.id, \.selectedDate))
+            propertyRow("Date", binding: bindPartString(part.id, \.selectedDate), placeholder: "yyyy-MM-dd")
             if TargetRuntimeCalendarStyle(rawOrAlias: part.calendarStyle).persistsTime {
-                propertyRow("Selected Time (HH:mm:ss)", binding: bindPartString(part.id, \.selectedTime))
+                propertyRow("Time", binding: bindPartString(part.id, \.selectedTime), placeholder: "HH:mm:ss")
             }
-            propertyRow("Display Month", binding: bindPartString(part.id, \.displayMonth))
+            propertyRow("Display Month", binding: bindPartString(part.id, \.displayMonth), placeholder: "yyyy-MM")
             propertyRow("Min Date", binding: bindPartString(part.id, \.minDate))
             propertyRow("Max Date", binding: bindPartString(part.id, \.maxDate))
             HStack {
@@ -1180,6 +1223,7 @@ struct PropertyInspector: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .accessibilityLabel("Style")
             }
         }
     }
@@ -1187,7 +1231,7 @@ struct PropertyInspector: View {
     private func pdfSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeading("PDF")
-            propertyRow("URL/Path", binding: bindPartString(part.id, \.pdfURL))
+            propertyRow("Source", binding: bindPartString(part.id, \.pdfURL))
             Button("Choose PDF...") { choosePDFForPart(partId: part.id) }
             HStack {
                 Text("Page").font(.system(size: 10))
@@ -1196,7 +1240,7 @@ struct PropertyInspector: View {
                 }
             }
             HStack {
-                Text("Mode").font(.system(size: 10))
+                Text("Display Mode").font(.system(size: 10))
                 Picker("", selection: bindPartString(part.id, \.pdfDisplayMode)) {
                     Text("Single").tag("single")
                     Text("Continuous").tag("continuous")
@@ -1205,8 +1249,9 @@ struct PropertyInspector: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .accessibilityLabel("Display Mode")
             }
-            Toggle("Auto-scale to fit", isOn: bindPartBool(part.id, \.pdfAutoScales))
+            Toggle("Auto-Scale to Fit", isOn: bindPartBool(part.id, \.pdfAutoScales))
         }
     }
 
@@ -1240,7 +1285,7 @@ struct PropertyInspector: View {
             sectionHeading("Map")
             propertyRow("Center Lat", binding: bindPartDoubleString(part.id, \.mapCenterLat))
             propertyRow("Center Lon", binding: bindPartDoubleString(part.id, \.mapCenterLon))
-            propertyRow("Span (deg)", binding: bindPartDoubleString(part.id, \.mapSpan))
+            propertyRow("Span", binding: bindPartDoubleString(part.id, \.mapSpan), unit: "°")
             propertyRow("Location", binding: Binding<String>(
                 get: { document.document.parts.first(where: { $0.id == part.id })?.mapLocation ?? "" },
                 // Clamp to 256 chars to match the AI tool + HypeTalk
@@ -1265,9 +1310,14 @@ struct PropertyInspector: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .accessibilityLabel("Type")
             }
-            propertyRow("Annotations JSON", binding: bindPartString(part.id, \.mapAnnotationsJSON))
+            propertyRow("Annotations", binding: bindPartString(part.id, \.mapAnnotationsJSON))
             Text("Format: [{\"lat\":37.77,\"lon\":-122.42,\"title\":\"HQ\"}]")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+            Toggle("Show User Location", isOn: bindPartBool(part.id, \.mapShowsUserLocation))
+            Text("Shows the system location dot in Browse mode. macOS asks for location permission the first time.")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
         }
@@ -1284,8 +1334,7 @@ struct PropertyInspector: View {
 
     private func numericControlSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(part.partType == .stepper ? "Stepper" : "Slider")
-                .font(.subheadline).foregroundColor(.secondary)
+            sectionHeading(part.partType == .stepper ? "Stepper" : "Slider")
             propertyRow("Value", binding: bindPartDoubleString(part.id, \.controlValue))
             propertyRow("Min", binding: bindPartDoubleString(part.id, \.controlMin))
             propertyRow("Max", binding: bindPartDoubleString(part.id, \.controlMax))
@@ -1302,8 +1351,14 @@ struct PropertyInspector: View {
     private func segmentedSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeading("Segmented")
-            propertyRow("Segments (pipe-separated)", binding: bindPartString(part.id, \.segmentItems))
-            propertyRow("Selected Index", binding: bindPartDoubleString(part.id, \.controlValue))
+            propertyRow("Segments", binding: bindPartString(part.id, \.segmentItems))
+            Text("Separate segments with | — e.g. Day|Week|Month.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+            propertyRow("Selected Segment", binding: bindPartDoubleString(part.id, \.controlValue))
+            Text("0 = first segment.")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
         }
     }
 
@@ -1325,6 +1380,7 @@ struct PropertyInspector: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .disabled(model3DAssets.isEmpty)
+                .accessibilityLabel("From Repository")
             }
 
             // Generate-from-prompt button — opens Generate3DSheet
@@ -1355,13 +1411,13 @@ struct PropertyInspector: View {
             // source path for everything else). Letting the user
             // edit it directly would bypass STLConverter's size cap
             // and NaN sanitization, so we render it as a label.
-            propertyRow("Resolved", value: part.scene3DURL.isEmpty ? "(none)" : part.scene3DURL)
+            propertyRow("Resolved Path", value: part.scene3DURL.isEmpty ? "(none)" : part.scene3DURL)
             Toggle("Allow Camera Control", isOn: bindPartBool(part.id, \.scene3DAllowsCameraControl))
-            Toggle("Default Lighting", isOn: bindPartBool(part.id, \.scene3DAutoLighting))
+            Toggle("Auto Lighting", isOn: bindPartBool(part.id, \.scene3DAutoLighting))
             colorPropertyRow(label: "Background", partId: part.id, keyPath: \.scene3DBackground,
                              hint: "Empty hex = transparent (let the card show through)")
             HStack {
-                Text("Anti-aliasing").font(.system(size: 10))
+                Text("Anti-Aliasing").font(.system(size: 10))
                 Picker("", selection: bindPartString(part.id, \.scene3DAntialiasing)) {
                     Text("None").tag("none")
                     Text("2× MSAA").tag("multisampling2X")
@@ -1370,6 +1426,7 @@ struct PropertyInspector: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .accessibilityLabel("Anti-Aliasing")
             }
         }
     }
@@ -1526,6 +1583,7 @@ struct PropertyInspector: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .accessibilityLabel("Format")
             }
             if !part.audioEmbedInStack {
                 propertyRow("Output Path", binding: bindPartString(part.id, \.audioOutputPath))
@@ -1534,17 +1592,9 @@ struct PropertyInspector: View {
                     .foregroundColor(.secondary)
             }
             if let audioData = part.audioData {
-                HStack {
-                    Text("Stored Audio:").font(.system(size: 10)).foregroundColor(.secondary)
-                    Text(ByteCountFormatter.string(fromByteCount: Int64(audioData.count), countStyle: .file))
-                        .font(.system(size: 10, design: .monospaced))
-                }
+                propertyRow("Stored Audio", value: ByteCountFormatter.string(fromByteCount: Int64(audioData.count), countStyle: .file))
             }
-            HStack {
-                Text("Duration:").font(.system(size: 10)).foregroundColor(.secondary)
-                Text(String(format: "%.1f s", part.audioDuration))
-                    .font(.system(size: 10, design: .monospaced))
-            }
+            propertyRow("Duration", value: String(format: "%.1f s", part.audioDuration))
         }
     }
 
@@ -1570,13 +1620,10 @@ struct PropertyInspector: View {
             tempoEditor(part: part)
             if part.partType == .pianoKeyboard || part.partType == .stepSequencer {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(part.partType == .pianoKeyboard ? "Show on Keyboard" : "Show on Sequencer")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.secondary)
-                    Toggle("Control Type", isOn: bindPartBool(part.id, \.musicShowControlType))
-                    Toggle("Pattern", isOn: bindPartBool(part.id, \.musicShowPattern))
-                    Toggle("Instrument Popup", isOn: bindPartBool(part.id, \.musicShowInstrument))
-                    Toggle("Tempo", isOn: bindPartBool(part.id, \.musicShowTempo))
+                    Toggle("Show Control Type", isOn: bindPartBool(part.id, \.musicShowControlType))
+                    Toggle("Show Pattern Name", isOn: bindPartBool(part.id, \.musicShowPattern))
+                    Toggle("Show Instrument Popup", isOn: bindPartBool(part.id, \.musicShowInstrument))
+                    Toggle("Show Tempo", isOn: bindPartBool(part.id, \.musicShowTempo))
                     Text("When Instrument Popup is shown, Browse mode lets the user choose from Hype's available instruments.")
                         .font(.system(size: 9))
                         .foregroundColor(.secondary)
@@ -1584,10 +1631,34 @@ struct PropertyInspector: View {
             }
             Toggle("Loop", isOn: bindPartBool(part.id, \.musicLoop))
             propertyRow("Volume", binding: bindPartDoubleString(part.id, \.musicVolume))
-            Text("Synth controls play stack-contained Hype music patterns. Use MusicKit Search for Apple Music catalog or library lookup.")
+            if part.partType == .stepSequencer || part.partType == .musicMixer {
+                propertyRow("Tracks", value: musicTrackCountDescription(part.musicTrackData))
+                Text("Edit tracks on the control in Browse mode. Scripts: the trackData of this part.")
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+            }
+            Text("Synth controls play stack-contained Hype music patterns. Use Apple Music search for Apple Music catalog or library lookup.")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
         }
+    }
+
+    /// Read-only "Tracks" row value for the sequencer/mixer synth
+    /// controls — a real track editor is a documented deferral
+    /// (design-mock §7); this row just answers "how many tracks are
+    /// stored" so the inspector isn't silent about `musicTrackData`.
+    /// Parses as a bag of JSON objects the same tolerant way the
+    /// runtime's `MusicModel.tracks(fromStoredTrackData:)` does
+    /// (arbitrary keys, no required `id`/`pan`/etc.) rather than
+    /// through `MusicTrackSpec`'s strict Codable synthesis, which
+    /// would reject track JSON written by the AI tool surface.
+    private func musicTrackCountDescription(_ trackDataJSON: String) -> String {
+        guard let data = trackDataJSON.data(using: .utf8),
+              let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              !array.isEmpty else {
+            return "(none)"
+        }
+        return "\(array.count)"
     }
 
     private func tempoEditor(part: Part) -> some View {
@@ -1614,14 +1685,14 @@ struct PropertyInspector: View {
 
     private func musicKitSearchSection(part: Part) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            sectionHeading("MusicKit Search")
+            sectionHeading("Apple Music")
             propertyRow("Search", binding: bindPartString(part.id, \.musicSearchTerm))
             Picker("Search Scope", selection: bindPartString(part.id, \.musicSearchScope)) {
                 Text("Catalog").tag(AppleMusicSearchScope.catalog.rawValue)
                 Text("Library").tag(AppleMusicSearchScope.library.rawValue)
             }
             .pickerStyle(.menu)
-            Picker("Music Type", selection: bindPartString(part.id, \.musicSourceType)) {
+            Picker("Type", selection: bindPartString(part.id, \.musicSourceType)) {
                 ForEach([AppleMusicItemKind.song, .album, .artist, .playlist], id: \.rawValue) { kind in
                     Text(appleMusicDisplayName(for: kind)).tag(kind.rawValue)
                 }
@@ -1644,11 +1715,11 @@ struct PropertyInspector: View {
             }
             propertyRow("Selected ID", binding: bindPartString(part.id, \.musicSourceID))
             propertyRow("Title", binding: bindPartString(part.id, \.musicSourceTitle))
-            propertyRow("Artist / Singer", binding: bindPartString(part.id, \.musicSourceArtist))
+            propertyRow("Artist", binding: bindPartString(part.id, \.musicSourceArtist))
             propertyRow("Album", binding: bindPartString(part.id, \.musicSourceAlbum))
             propertyRow("Artwork URL", binding: bindPartString(part.id, \.musicArtworkURL))
-            propertyRow("Position Seconds", binding: bindPartDoubleString(part.id, \.musicPosition))
-            propertyRow("Duration Seconds", binding: bindPartDoubleString(part.id, \.musicDuration))
+            propertyRow("Position", binding: bindPartDoubleString(part.id, \.musicPosition), unit: "s")
+            propertyRow("Duration", binding: bindPartDoubleString(part.id, \.musicDuration), unit: "s")
             HStack {
                 Button("Play") { playAppleMusicFromInspector(part: part) }
                     .disabled(part.musicSourceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -1794,7 +1865,7 @@ struct PropertyInspector: View {
         switch kind {
         case .song: return "Song"
         case .album: return "Album"
-        case .artist: return "Singer"
+        case .artist: return "Artist"
         case .playlist: return "Playlist"
         case .station: return "Station"
         case .musicVideo: return "Music Video"
@@ -1828,7 +1899,9 @@ struct PropertyInspector: View {
             Toggle("Indeterminate", isOn: bindPartBool(part.id, \.progressIsIndeterminate))
             if !part.progressIsIndeterminate {
                 propertyRow("Value", binding: bindPartDoubleString(part.id, \.progressValue))
-                propertyRow("Total", binding: bindPartDoubleString(part.id, \.progressTotal))
+                propertyRow("Max", binding: bindPartDoubleString(part.id, \.progressTotal))
+                Text("Progress runs from 0 to Max.")
+                    .font(.system(size: 9)).foregroundColor(.secondary)
             }
             colorPropertyRow(label: "Tint", partId: part.id, keyPath: \.progressTint,
                              hint: "Empty = system accent color")
@@ -1849,7 +1922,7 @@ struct PropertyInspector: View {
             }
             Text("0 = integer-only steps when the value is set. Same contract as the gauge control.")
                 .font(.system(size: 9)).foregroundColor(.secondary)
-            Text("HypeTalk: `set the value of progressView \"X\" to 0.5`. Fires `progressFinished` when value reaches total.")
+            Text("HypeTalk: `set the value of progressView \"X\" to 0.5`. Fires `progressFinished` when value reaches max.")
                 .font(.system(size: 9)).foregroundColor(.secondary)
         }
     }
@@ -1872,6 +1945,7 @@ struct PropertyInspector: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .accessibilityLabel("Style")
             }
             colorPropertyRow(label: "Tint", partId: part.id, keyPath: \.gaugeTint,
                              hint: "Empty = system accent color")
@@ -1914,8 +1988,9 @@ struct PropertyInspector: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
+                .accessibilityLabel("Orientation")
             }
-            propertyRow("Thickness (pts)", binding: bindPartDoubleString(part.id, \.dividerThickness))
+            propertyRow("Thickness", binding: bindPartDoubleString(part.id, \.dividerThickness), unit: "pt")
             colorPropertyRow(label: "Color", partId: part.id, keyPath: \.dividerColor,
                              hint: "Empty hex = system separator color")
         }
@@ -2072,7 +2147,7 @@ struct PropertyInspector: View {
 
                 let checklist = spec.authoringChecklist(using: document.document.assetRepository)
                 Divider()
-                Text("Setup Checklist").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                sectionHeading("Setup Checklist")
                 ForEach(checklist) { item in
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: checklistIcon(for: item.status))
@@ -2093,7 +2168,7 @@ struct PropertyInspector: View {
 
                 Picker("Scale", selection: bindSceneScaleMode(part.id)) {
                     ForEach(SceneScaleMode.allCases, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
+                        Text(mode.displayName).tag(mode)
                     }
                 }
                 .font(.system(size: 11))
@@ -2109,7 +2184,7 @@ struct PropertyInspector: View {
                     .help("Let whatever's behind this sprite area (e.g. a card image) show through. The scene's nodes still render normally on top.")
 
                 Divider()
-                Text("Physics").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                sectionHeading("Physics")
                 HStack {
                     Text("Gravity").font(.system(size: 11))
                     Spacer()
@@ -2118,7 +2193,7 @@ struct PropertyInspector: View {
                 }
 
                 Divider()
-                Text("Controls").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                sectionHeading("Controls")
                 HStack(spacing: 8) {
                     Button(action: { toggleScenePause(partId: part.id) }) {
                         Image(systemName: spec.isPaused ? "play.fill" : "pause.fill")
@@ -2138,14 +2213,14 @@ struct PropertyInspector: View {
                 .buttonStyle(.borderless)
 
                 Divider()
-                Text("Debug").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                sectionHeading("Debug")
                 Toggle("Show FPS", isOn: bindSceneSpecBool(part.id, \.showsFPS))
                 Toggle("Show Physics", isOn: bindSceneSpecBool(part.id, \.showsPhysics))
                 Toggle("Show Node Count", isOn: bindSceneSpecBool(part.id, \.showsNodeCount))
                 Toggle("Paused", isOn: bindSceneSpecBool(part.id, \.isPaused))
 
                 Divider()
-                Text("Nodes").font(.system(size: 10, weight: .bold)).foregroundColor(.secondary)
+                sectionHeading("Nodes")
 
                 if !spec.nodes.isEmpty {
                     // Multi-node panel — appears above the tree when
@@ -2341,6 +2416,7 @@ struct PropertyInspector: View {
                 .labelsHidden()
                 .font(.system(size: 10))
                 .frame(width: 90)
+                .accessibilityLabel("Role")
 
                 Button("Add") {
                     addRecipeEntity(partId: partId)
@@ -2422,6 +2498,7 @@ struct PropertyInspector: View {
                 .labelsHidden()
                 .font(.system(size: 9))
                 .frame(width: 80)
+                .accessibilityLabel("Role")
 
                 Button(action: { removeRecipeEntity(partId: partId, entityId: entity.id) }) {
                     Image(systemName: "minus.circle.fill")
@@ -3271,29 +3348,32 @@ struct PropertyInspector: View {
             }
             if allHaveSize {
                 HStack(spacing: 8) {
-                    multiNodeOptionalSizeField("W", partId: partId, nodes: selected, axis: .width)
-                    multiNodeOptionalSizeField("H", partId: partId, nodes: selected, axis: .height)
+                    multiNodeOptionalSizeField("Width", partId: partId, nodes: selected, axis: .width)
+                    multiNodeOptionalSizeField("Height", partId: partId, nodes: selected, axis: .height)
                 }
             }
 
             // Transform: rotation, scale, alpha, zPosition.
             HStack(spacing: 8) {
-                multiNodeNumberField("Rot", partId: partId, nodes: selected, keyPath: \.rotation)
+                multiNodeNumberField("Rotation", partId: partId, nodes: selected, keyPath: \.rotation)
                 multiNodeNumberField("Alpha", partId: partId, nodes: selected, keyPath: \.alpha)
             }
             HStack(spacing: 8) {
-                multiNodeNumberField("xScale", partId: partId, nodes: selected, keyPath: \.xScale)
-                multiNodeNumberField("yScale", partId: partId, nodes: selected, keyPath: \.yScale)
+                multiNodeNumberField("Scale X", partId: partId, nodes: selected, keyPath: \.xScale)
+                multiNodeNumberField("Scale Y", partId: partId, nodes: selected, keyPath: \.yScale)
             }
             HStack(spacing: 8) {
-                multiNodeNumberField("zPos", partId: partId, nodes: selected, keyPath: \.zPosition)
+                multiNodeNumberField("Z", partId: partId, nodes: selected, keyPath: \.zPosition)
             }
 
             // Visibility — the only non-numeric property uniformly
-            // available across every node type.
-            Toggle("Hidden", isOn: Binding(
-                get: { MultiSelectionEditing.commonValue(in: selected, for: \.isHidden) ?? false },
-                set: { newVal in applyToSelectedNodes(partId: partId, ids: selectedNodeIds) { $0.isHidden = newVal } }
+            // available across every node type. "Visible" (inverted
+            // binding over the stored `isHidden`) matches the single
+            // node panel and the part-level polarity — one concept,
+            // one polarity, everywhere (design-mock §1.5.4).
+            Toggle("Visible", isOn: Binding(
+                get: { !(MultiSelectionEditing.commonValue(in: selected, for: \.isHidden) ?? false) },
+                set: { newVal in applyToSelectedNodes(partId: partId, ids: selectedNodeIds) { $0.isHidden = !newVal } }
             ))
 
             // Label-only text formatting. The Optional<String> /
@@ -3332,7 +3412,8 @@ struct PropertyInspector: View {
                         }
                     ), supportsOpacity: false)
                     .labelsHidden()
-                    Text("Font Color").font(.system(size: 11))
+                    .accessibilityLabel("Text Color")
+                    Text("Text Color").font(.system(size: 11))
                     Spacer()
                 }
             }
@@ -3491,7 +3572,7 @@ struct PropertyInspector: View {
             }
 
             // -- Common properties (all node types) --
-            Text("POSITION").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+            sectionHeading("Position")
             HStack {
                 numberField("X", binding: bindNodePositionX(partId: partId, nodeId: node.id))
                 numberField("Y", binding: bindNodePositionY(partId: partId, nodeId: node.id))
@@ -3509,7 +3590,7 @@ struct PropertyInspector: View {
                 Slider(value: bindNodeDouble(partId: partId, nodeId: node.id, \.alpha), in: 0...1)
                 Text(String(format: "%.1f", node.alpha)).font(.system(size: 10, design: .monospaced)).frame(width: 28)
             }
-            Toggle("Hidden", isOn: bindNodeBool(partId: partId, nodeId: node.id, \.isHidden))
+            Toggle("Visible", isOn: bindNodeVisible(partId: partId, nodeId: node.id))
                 .font(.system(size: 11))
 
             // Parent assignment
@@ -3541,14 +3622,14 @@ struct PropertyInspector: View {
             case .video:
                 videoNodeProperties(partId: partId, node: node)
             case .crop:
-                Text("CROP").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                sectionHeading("Crop")
                 Text("Uses asset as mask texture").font(.system(size: 10)).foregroundColor(.secondary)
                 spriteNodeProperties(partId: partId, node: node)
             case .effect:
-                Text("EFFECT").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                sectionHeading("Effect")
                 Text("Applies Core Image filter").font(.system(size: 10)).foregroundColor(.secondary)
             case .light:
-                Text("LIGHT").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+                sectionHeading("Light")
                 Text("Illuminates sprites with lighting").font(.system(size: 10)).foregroundColor(.secondary)
             case .group, .tileMap, .camera:
                 EmptyView()
@@ -3566,7 +3647,7 @@ struct PropertyInspector: View {
 
     @ViewBuilder
     private func spriteNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
-        Text("SPRITE").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+        sectionHeading("Sprite")
 
         let imageAssets = document.document.assetRepository.assets.filter {
             $0.kind == .imageTexture || $0.kind == .spriteSheet
@@ -3601,7 +3682,7 @@ struct PropertyInspector: View {
 
     @ViewBuilder
     private func labelNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
-        Text("LABEL").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+        sectionHeading("Label")
         propertyRow("Text", binding: bindNodeOptionalString(partId: partId, nodeId: node.id, \.text))
 
         Picker("Font", selection: bindNodeOptionalString(partId: partId, nodeId: node.id, \.fontName)) {
@@ -3613,16 +3694,16 @@ struct PropertyInspector: View {
 
         numberField("Size", binding: bindNodeOptionalDouble(partId: partId, nodeId: node.id, \.fontSize))
 
-        ColorPicker("Color", selection: bindNodeColor(partId: partId, nodeId: node.id, getter: { $0.fontColor }, setter: { $0.fontColor = $1 }))
+        ColorPicker("Text Color", selection: bindNodeColor(partId: partId, nodeId: node.id, getter: { $0.fontColor }, setter: { $0.fontColor = $1 }))
     }
 
     @ViewBuilder
     private func shapeNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
-        Text("SHAPE").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+        sectionHeading("Shape")
 
-        Picker("Type", selection: bindShapeType(partId: partId, nodeId: node.id)) {
+        Picker("Style", selection: bindShapeType(partId: partId, nodeId: node.id)) {
             ForEach(SpriteShapeType.allCases, id: \.self) { type in
-                Text(type.rawValue).tag(type)
+                Text(type.displayName).tag(type)
             }
         }
         .font(.system(size: 11))
@@ -3635,7 +3716,7 @@ struct PropertyInspector: View {
 
     @ViewBuilder
     private func audioNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
-        Text("AUDIO").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+        sectionHeading("Audio")
 
         let audioAssets = document.document.assetRepository.assets.filter { $0.kind == .audioClip }
 
@@ -3664,7 +3745,7 @@ struct PropertyInspector: View {
 
     @ViewBuilder
     private func videoNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
-        Text("VIDEO").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+        sectionHeading("Video")
 
         let videoAssets = document.document.assetRepository.assets.filter { $0.kind == .videoClip }
 
@@ -3694,7 +3775,7 @@ struct PropertyInspector: View {
 
     @ViewBuilder
     private func emitterNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
-        Text("EMITTER").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+        sectionHeading("Emitter")
 
         HStack {
             numberField("Birth Rate", binding: bindEmitterDouble(partId: partId, nodeId: node.id, \.particleBirthRate))
@@ -3776,7 +3857,7 @@ struct PropertyInspector: View {
 
     @ViewBuilder
     private func physicsNodeProperties(partId: UUID, node: HypeNodeSpec) -> some View {
-        Text("PHYSICS").font(.system(size: 9, weight: .bold)).foregroundColor(.secondary)
+        sectionHeading("Physics")
 
         // Enable physics toggle
         Toggle("Enable Physics", isOn: bindNodeHasPhysics(partId: partId, nodeId: node.id))
@@ -3792,9 +3873,9 @@ struct PropertyInspector: View {
 
             Toggle("Dynamic", isOn: bindPhysicsBool(partId: partId, nodeId: node.id, \.isDynamic))
                 .font(.system(size: 11))
-            Toggle("Gravity", isOn: bindPhysicsBool(partId: partId, nodeId: node.id, \.affectedByGravity))
+            Toggle("Affected by Gravity", isOn: bindPhysicsBool(partId: partId, nodeId: node.id, \.affectedByGravity))
                 .font(.system(size: 11))
-            Toggle("Rotation", isOn: bindPhysicsBool(partId: partId, nodeId: node.id, \.allowsRotation))
+            Toggle("Allow Rotation", isOn: bindPhysicsBool(partId: partId, nodeId: node.id, \.allowsRotation))
                 .font(.system(size: 11))
 
             HStack {
@@ -3918,6 +3999,21 @@ struct PropertyInspector: View {
             set: { newVal in
                 modifySceneSpec(partId: partId) { spec in
                     Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) { $0[keyPath: keyPath] = newVal }
+                }
+            }
+        )
+    }
+
+    /// "Visible" toggle for a single node — the inverse of the
+    /// stored `isHidden` flag. One polarity for one concept across
+    /// the node single panel, the node multi panel, and the part
+    /// panel, all of which say "Visible" (design-mock §1.5.4).
+    private func bindNodeVisible(partId: UUID, nodeId: UUID) -> Binding<Bool> {
+        Binding(
+            get: { !bindNodeBool(partId: partId, nodeId: nodeId, \.isHidden).wrappedValue },
+            set: { newVal in
+                modifySceneSpec(partId: partId) { spec in
+                    Self.updateNodeInTree(nodeId: nodeId, in: &spec.nodes) { $0.isHidden = !newVal }
                 }
             }
         )
@@ -4198,6 +4294,7 @@ struct PropertyInspector: View {
                 }
                 .labelsHidden()
                 .font(.system(size: 11))
+                .accessibilityLabel("Font")
             }
             numberField("Size", binding: bindPartDouble(part.id, \.textSize))
             Picker("Align", selection: bindPartTextAlign(part.id)) {
@@ -4210,7 +4307,7 @@ struct PropertyInspector: View {
             // Font color — empty hex means "auto / contrast-aware".
             // ColorPicker writes any hex; the existing
             // colorPropertyRow already pairs swatch + hex text.
-            colorPropertyRow(label: "Color", partId: part.id, keyPath: \.fontColor,
+            colorPropertyRow(label: "Text Color", partId: part.id, keyPath: \.fontColor,
                              hint: "Empty = auto (contrasts with the part fill).")
 
             // textStyle toggles. Each toggle reads / writes one flag
@@ -4291,7 +4388,7 @@ struct PropertyInspector: View {
 
             Picker("Type", selection: bindChartType(part.id)) {
                 ForEach(ChartType.allCases, id: \.self) { type in
-                    Text(type.rawValue.capitalized).tag(type)
+                    Text(type.displayName).tag(type)
                 }
             }
 
@@ -4300,7 +4397,7 @@ struct PropertyInspector: View {
             Toggle("Show Grid", isOn: bindChartBool(part.id, \.showGrid))
 
             if config.chartType == .spider {
-                Toggle("Interactable", isOn: bindChartBool(part.id, \.interactable, defaultValue: false))
+                Toggle("Interactive", isOn: bindChartBool(part.id, \.interactable, defaultValue: false))
             } else {
                 propertyRow("X Label", binding: bindChartField(part.id, \.xAxisLabel))
                 propertyRow("Y Label", binding: bindChartField(part.id, \.yAxisLabel))
@@ -4361,9 +4458,9 @@ struct PropertyInspector: View {
                         TextField("2", value: bindChartDouble(part.id, \.spiderPointRadius, min: 1, max: 12), format: .number)
                             .textFieldStyle(.roundedBorder)
                     }
-                    chartColorRow("Grid", partId: part.id, keyPath: \.spiderGridColor, fallback: "#C9CDD3")
-                    chartColorRow("Axis", partId: part.id, keyPath: \.spiderAxisColor, fallback: "#AEB4BE")
-                    chartColorRow("Labels", partId: part.id, keyPath: \.spiderLabelColor, fallback: "#111827")
+                    chartColorRow("Grid Color", partId: part.id, keyPath: \.spiderGridColor, fallback: "#C9CDD3")
+                    chartColorRow("Axis Color", partId: part.id, keyPath: \.spiderAxisColor, fallback: "#AEB4BE")
+                    chartColorRow("Label Color", partId: part.id, keyPath: \.spiderLabelColor, fallback: "#111827")
                 }
                 .padding(6)
                 .background(Color.gray.opacity(0.05))
@@ -4380,10 +4477,12 @@ struct PropertyInspector: View {
                         Spacer()
                         ColorPicker("", selection: bindSeriesColor(part.id, seriesIndex: index))
                             .labelsHidden().frame(width: 20)
+                            .accessibilityLabel("Series \(index + 1) color")
                         TextField("Hex", text: bindSeriesColorHex(part.id, seriesIndex: index))
                             .textFieldStyle(.roundedBorder)
                             .font(.system(size: 10))
                             .frame(width: 78)
+                            .accessibilityLabel("Series \(index + 1) hex value")
                         Button(action: { removeSeries(partId: part.id, index: index) }) {
                             Image(systemName: "minus.circle").foregroundColor(.red)
                         }.buttonStyle(.borderless)
@@ -4399,10 +4498,12 @@ struct PropertyInspector: View {
                             HStack(spacing: 3) {
                                 ColorPicker("", selection: bindDataPointColor(part.id, seriesIndex: index, dataIndex: di, seriesColor: series.color))
                                     .labelsHidden().frame(width: 18, height: 18)
+                                    .accessibilityLabel("Data point color")
                                 TextField("Hex", text: bindDataPointColorHex(part.id, seriesIndex: index, dataIndex: di, seriesColor: series.color))
                                     .textFieldStyle(.roundedBorder)
                                     .font(.system(size: 10))
                                     .frame(width: 72)
+                                    .accessibilityLabel("Data point hex value")
                                 TextField("Label", text: bindDataLabel(part.id, seriesIndex: index, dataIndex: di))
                                     .textFieldStyle(.roundedBorder).font(.system(size: 10))
                                 TextField("Value", value: bindDataValue(part.id, seriesIndex: index, dataIndex: di), format: .number)
@@ -4462,12 +4563,12 @@ struct PropertyInspector: View {
                     help: "Current value. Interactive dragging moves this value between the minimum and maximum."
                 )
                 spiderNumberField(
-                    "Minimum",
+                    "Min",
                     value: bindDataMinimumValue(partId, seriesIndex: seriesIndex, dataIndex: dataIndex),
                     help: "Lowest selectable value for this point."
                 )
                 spiderNumberField(
-                    "Maximum",
+                    "Max",
                     value: bindDataMaximumValue(partId, seriesIndex: seriesIndex, dataIndex: dataIndex),
                     help: "Highest selectable value for this point."
                 )
@@ -4623,13 +4724,15 @@ struct PropertyInspector: View {
         fallback: String
     ) -> some View {
         HStack(spacing: 6) {
-            Text(title).font(.system(size: 10)).frame(width: 48, alignment: .leading)
+            Text(title).font(.system(size: 10)).frame(width: 64, alignment: .leading)
             ColorPicker("", selection: bindChartColor(partId, keyPath, fallback: fallback))
                 .labelsHidden()
                 .frame(width: 22)
+                .accessibilityLabel(title)
             TextField("Hex", text: bindChartColorHex(partId, keyPath, fallback: fallback))
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 10))
+                .accessibilityLabel("\(title) hex value")
         }
     }
 
@@ -5098,12 +5201,14 @@ struct PropertyInspector: View {
         HStack {
             ColorPicker("", selection: bindMultiColor(keyPath), supportsOpacity: supportsOpacity)
                 .labelsHidden()
+                .accessibilityLabel(label)
             Text(label).font(.system(size: 11))
             Spacer()
             TextField("Multiple", text: bindMultiString(keyPath))
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11, design: .monospaced))
                 .frame(width: 90)
+                .accessibilityLabel(label)
         }
     }
 
@@ -5258,12 +5363,14 @@ struct PropertyInspector: View {
         HStack {
             ColorPicker("", selection: bindPartColor(partId, keyPath), supportsOpacity: supportsOpacity)
                 .labelsHidden()
+                .accessibilityLabel(label)
             Text(label).font(.system(size: 11))
             Spacer()
             TextField("hex", text: bindPartString(partId, keyPath))
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11, design: .monospaced))
                 .frame(width: 90)
+                .accessibilityLabel(label)
         }
         if let hint = hint {
             Text(hint).font(.system(size: 9)).foregroundColor(.secondary)
@@ -5272,10 +5379,30 @@ struct PropertyInspector: View {
 
     // MARK: - Helper views
 
-    private func propertyRow(_ label: String, binding: Binding<String>) -> some View {
+    /// Trailing-label text row for a `String` property. `placeholder`
+    /// carries input-format hints ("yyyy-MM-dd") that used to live in
+    /// the row label itself (design-mock §1.6 — hints move to the
+    /// field, never the label). `unit` renders a secondary trailing
+    /// `Text` after the field — the canonical way units are shown
+    /// (the Tempo/BPM idiom, §1.6), never a label parenthetical.
+    /// `accessibilityLabel` is wired to the row's canonical `label`
+    /// so a `TextField` with a detached `Text` sibling still reads
+    /// correctly to VoiceOver (§6).
+    private func propertyRow(
+        _ label: String,
+        binding: Binding<String>,
+        placeholder: String = "",
+        unit: String? = nil
+    ) -> some View {
         HStack {
             Text(label).frame(width: 60, alignment: .trailing).font(.system(size: 11))
-            TextField("", text: binding).textFieldStyle(.roundedBorder).font(.system(size: 11))
+            TextField(placeholder, text: binding)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 11))
+                .accessibilityLabel(label)
+            if let unit {
+                Text(unit).font(.system(size: 10)).foregroundColor(.secondary)
+            }
         }
     }
 
@@ -5286,13 +5413,21 @@ struct PropertyInspector: View {
         }
     }
 
-    private func numberField(_ label: String, binding: Binding<Double>) -> some View {
+    /// Compact numeric row. `unit` renders a secondary trailing
+    /// `Text` after the field — the Tempo/BPM idiom (design-mock
+    /// §1.6) — so a rotation/degrees or play-rate row never has to
+    /// stuff the unit into the label itself.
+    private func numberField(_ label: String, binding: Binding<Double>, unit: String? = nil) -> some View {
         HStack(spacing: 2) {
             Text(label).font(.system(size: 10)).foregroundColor(.secondary)
             TextField("", value: binding, format: .number)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11))
                 .frame(width: 60)
+                .accessibilityLabel(label)
+            if let unit {
+                Text(unit).font(.system(size: 10)).foregroundColor(.secondary)
+            }
         }
     }
 }
@@ -5449,7 +5584,7 @@ func openScriptEditorWindow(
         switch t {
         case .part(let id):
             if let part = doc.parts.first(where: { $0.id == id }) {
-                let typeName = part.partType.rawValue.capitalized
+                let typeName = part.partType.displayName
                 let name = part.name.isEmpty ? "Untitled" : part.name
                 windowTitle = "\(name) (\(typeName)) — Script Editor"
             } else {
@@ -5484,7 +5619,7 @@ func openScriptEditorWindow(
             windowTitle = "Hype App — Script Editor"
         }
     } else if let pid = partId, let part = doc.parts.first(where: { $0.id == pid }) {
-        let typeName = part.partType.rawValue.capitalized
+        let typeName = part.partType.displayName
         let name = part.name.isEmpty ? "Untitled" : part.name
         windowTitle = "\(name) (\(typeName)) — Script Editor"
     } else {
