@@ -1199,6 +1199,7 @@ struct PropertyInspector: View {
             HStack {
                 Text("Volume").font(.system(size: 10)).foregroundColor(.secondary)
                 Slider(value: bindPartDouble(part.id, \.videoVolume), in: 0...1)
+                    .accessibilityLabel("Volume")
             }
             numberField("Play Rate", binding: bindPartDouble(part.id, \.videoPlayRate), unit: "×")
         }
@@ -1883,7 +1884,7 @@ struct PropertyInspector: View {
         VStack(alignment: .leading, spacing: 6) {
             sectionHeading("Legacy Music Queue")
             propertyRow("Queue Data", binding: bindPartString(part.id, \.musicQueueData))
-            Text("This legacy queue remains readable for older stacks. New stacks should use synth controls for stack music and MusicKit Search for Apple Music lookup.")
+            Text("This legacy queue remains readable for older stacks. New stacks should use synth controls for stack music and the Apple Music search for Apple Music lookup.")
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
         }
@@ -5388,6 +5389,25 @@ struct PropertyInspector: View {
     /// `accessibilityLabel` is wired to the row's canonical `label`
     /// so a `TextField` with a detached `Text` sibling still reads
     /// correctly to VoiceOver (§6).
+    /// Maps a display unit symbol to a VoiceOver-spoken word so a units-bearing
+    /// row announces "Span, degrees" rather than the bare "Span" (design-mock §6:
+    /// the unit is appended to the accessibility label, not left as a silent
+    /// sibling Text). Unknown units fall back to the symbol itself.
+    private func spokenUnit(_ unit: String) -> String {
+        switch unit {
+        case "°": return "degrees"
+        case "×": return "times"
+        case "s": return "seconds"
+        case "pt": return "points"
+        default: return unit
+        }
+    }
+
+    /// Accessibility label for a row that may carry a trailing unit.
+    private func unitLabel(_ label: String, _ unit: String?) -> String {
+        unit.map { "\(label), \(spokenUnit($0))" } ?? label
+    }
+
     private func propertyRow(
         _ label: String,
         binding: Binding<String>,
@@ -5399,7 +5419,7 @@ struct PropertyInspector: View {
             TextField(placeholder, text: binding)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11))
-                .accessibilityLabel(label)
+                .accessibilityLabel(unitLabel(label, unit))
             if let unit {
                 Text(unit).font(.system(size: 10)).foregroundColor(.secondary)
             }
@@ -5424,7 +5444,7 @@ struct PropertyInspector: View {
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 11))
                 .frame(width: 60)
-                .accessibilityLabel(label)
+                .accessibilityLabel(unitLabel(label, unit))
             if let unit {
                 Text(unit).font(.system(size: 10)).foregroundColor(.secondary)
             }

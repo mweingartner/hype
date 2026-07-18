@@ -511,3 +511,62 @@ struct AIMaskingLawTests {
         #expect(search == "term")
     }
 }
+
+// MARK: - Unknown-property length cap (Security code review, SC1/S4-gap fix)
+//
+// The three AI-surface "Unknown property '\(property)'" fallback
+// strings must cap the echoed property name at `prefix(200)`, matching
+// `PartPropertyRegistry`'s message constructors (`unknownPropertyMessage`,
+// `notApplicableMessage`, `readOnlyMessage`), so an attacker-controlled
+// property name of unbounded length can't inflate the tool response.
+
+@Suite("AI unknown-property length cap", .serialized)
+struct AIUnknownPropertyLengthCapTests {
+    @Test("an over-long unknown property name is truncated in the get_part_property error")
+    func overlongUnknownPropertyTruncatesOnGet() async {
+        var (doc, cardId) = aiFreshDoc()
+        let button = Part(partType: .button, cardId: cardId, name: "b", left: 0, top: 0, width: 100, height: 40)
+        doc.addPart(button)
+        let longName = String(repeating: "z", count: 500)
+        let result = await aiGet(&doc, cardId: cardId, part: "b", property: longName)
+        #expect(result.contains("Unknown property"), "unexpected: \(result)")
+        #expect(!result.contains(longName), "error echoed the full 500-char input uncapped")
+        #expect(result.count < 300, "expected the echoed name capped near 200 chars, got \(result.count) chars: \(result)")
+    }
+}
+
+// MARK: - `marked` AI-surface parity with HypeTalk (H4; Security code review, DDD fix)
+//
+// `marked` is a card property, never a part property. HypeTalk's
+// Interpreter already errors identically on GET and SET when a part is
+// targeted (`PartPropertyDispatchTests.h4MarkedOnPartErrors`); this
+// closes the gap where the AI surface used to fall through to a
+// generic "Unknown property" instead of the same, byte-identical
+// card-property error — one concept, one behavior, on every surface.
+
+@Suite("AI marked parity (H4)", .serialized)
+struct AIMarkedParityTests {
+    private static let expectedMessage = "\"marked\" is a card property — try the marked of this card."
+
+    @Test("get_part_property property=\"marked\" on a button errors with HypeTalk's exact card-property copy")
+    func markedOnButtonGetErrors() async {
+        var (doc, cardId) = aiFreshDoc()
+        let button = Part(partType: .button, cardId: cardId, name: "b", left: 0, top: 0, width: 100, height: 40)
+        doc.addPart(button)
+        let result = await aiGet(&doc, cardId: cardId, part: "b", property: "marked")
+        #expect(result == Self.expectedMessage)
+    }
+
+    @Test("set_part_property property=\"marked\" on a button errors with HypeTalk's exact card-property copy")
+    func markedOnButtonSetErrors() async {
+        var (doc, cardId) = aiFreshDoc()
+        let button = Part(partType: .button, cardId: cardId, name: "b", left: 0, top: 0, width: 100, height: 40)
+        doc.addPart(button)
+        let result = await aiSet(&doc, cardId: cardId, part: "b", property: "marked", value: "true")
+        #expect(result == Self.expectedMessage)
+        // The write must not have silently mutated anything on the part
+        // (there is no `marked` field on `Part` at all — this asserts
+        // the button's other state is untouched by the rejected call).
+        #expect(doc.parts.first { $0.name == "b" }?.name == "b")
+    }
+}

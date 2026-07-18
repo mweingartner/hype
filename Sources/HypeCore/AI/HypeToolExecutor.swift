@@ -2575,7 +2575,14 @@ public struct HypeToolExecutor: Sendable {
                 case "cornerradius": document.parts[index].cornerRadius = Double(value) ?? 8
                 case "chartdata", "chart_data":
                     document.parts[index].chartData = value
-                default: return "Unknown property '\(property)'"
+                case "marked":
+                    // H4 parity (control-property-consistency, S4 fix):
+                    // `marked` is a card property, never a part
+                    // property — matches HypeTalk's SET exactly
+                    // (Interpreter.swift), byte-identical error copy
+                    // rather than falling through to "Unknown property".
+                    throw AIPropertyValueError(message: "\"marked\" is a card property — try the marked of this card.")
+                default: return "Unknown property '\(String(property.prefix(200)))'"
                 }
             } catch let error as AIPropertyValueError {
                 return error.message
@@ -2584,7 +2591,7 @@ public struct HypeToolExecutor: Sendable {
                 // only throwing calls in this switch and both only
                 // ever throw `AIPropertyValueError`. Kept so the
                 // compiler sees an exhaustive catch.
-                return "Unknown property '\(property)'"
+                return "Unknown property '\(String(property.prefix(200)))'"
             }
             return "Set \(property) of '\(partName)' to '\(value)'"
 
@@ -3919,6 +3926,20 @@ public struct HypeToolExecutor: Sendable {
             if property.lowercased() == "location", part.partType == .map, !part.mapLocation.isEmpty {
                 return part.mapLocation
             }
+            // H4 parity (control-property-consistency, S4 fix): `marked`
+            // is a card property, never a part property — matches
+            // HypeTalk's GET exactly (Interpreter.swift), byte-identical
+            // error copy instead of falling through to "Unknown
+            // property". Checked directly on the raw property name
+            // before the registry gate, mirroring the location
+            // intercept above (and left out of `partPropertyReadValue`
+            // so `list_all_properties`'s registry-driven dump — which
+            // treats `marked` as universally applicable — keeps
+            // showing its "not yet exposed" placeholder rather than
+            // this error sentence).
+            if property.lowercased() == "marked" {
+                return "\"marked\" is a card property — try the marked of this card."
+            }
             // Registry gate (control-property-consistency, P2): GET is
             // lenient (Decision 3) — it only errors for a declared
             // bare-word error cell (`.notApplicable`); a fully unknown
@@ -3941,7 +3962,7 @@ public struct HypeToolExecutor: Sendable {
             if let result = Self.partPropertyReadValue(canonical, part: part) {
                 return result
             }
-            return "Unknown property '\(property)'"
+            return "Unknown property '\(String(property.prefix(200)))'"
         case "list_all_properties":
             // Enumerate every settable / readable property on the
             // named part. The output mirrors the property names the

@@ -131,6 +131,23 @@ struct PropertyInspectorLabelSpecTests {
         }
     }
 
+    // MARK: - §6 — units are appended to the accessibility label (Design Sign-off DS1)
+
+    @Test("§6 units are spoken: propertyRow/numberField route the trailing unit into the accessibility label, and the new video Volume slider is labeled")
+    func unitBearingRowsSpeakTheUnit() throws {
+        let source = try Self.propertyInspectorSource()
+        // Both units-bearing helpers must build their a11y label from the unit,
+        // not the bare label (so VoiceOver announces "Span, degrees").
+        #expect(Self.occurrences(of: ".accessibilityLabel(unitLabel(label, unit))", in: source) == 2)
+        #expect(source.contains("private func spokenUnit")) // spoken-unit map exists
+        // The spoken map covers the units actually used in §2.3/§2.4.
+        for spoken in ["\"degrees\"", "\"seconds\"", "\"points\"", "\"times\""] {
+            #expect(source.contains(spoken), "spokenUnit missing mapping for \(spoken)")
+        }
+        // The new video Volume slider (a labels-less Slider) carries an explicit label.
+        #expect(source.contains(".accessibilityLabel(\"Volume\")"))
+    }
+
     @Test("new §2.3 rows are present: Rotation, Hilite, video playback family, Show User Location, search-style Prompt/Search While Typing, Tracks")
     func newRowsPresent() throws {
         let source = try Self.propertyInspectorSource()

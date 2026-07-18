@@ -728,6 +728,17 @@ public enum PartPropertyRegistry {
     /// names applicable to `type` (Condition 11) — never from every
     /// property in the registry.
     public static func nearestName(to loweredName: String, for type: PartType) -> String? {
+        // Low-severity DoS guard (Security code review): the DP below
+        // is O(len(loweredName) × len(candidate)), run once per
+        // candidate name. A pathologically long property name (the
+        // caller's raw, unbounded string, lowercased) would still be
+        // cheap per-call but needlessly scales with attacker-controlled
+        // input for zero user benefit — nobody typos a 64+ character
+        // property name into something worth suggesting. Skip the
+        // suggestion computation entirely past that length; the caller
+        // still produces its own (length-capped) unknown-property
+        // error, just without a "did you mean" hint.
+        guard loweredName.count <= 64 else { return nil }
         var best: String?
         var bestDistance = 3 // one past the maximum accepted distance (2)
         for candidate in candidateNames(for: type) where candidate != loweredName {
