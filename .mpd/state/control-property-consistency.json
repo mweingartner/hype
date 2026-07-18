@@ -3,7 +3,7 @@
   "schema": "mpd",
   "ui": true,
   "kind": "feature",
-  "phase": "build",
+  "phase": "done",
   "gates": {
     "design-mock": {
       "verdict": "pass",
@@ -110,58 +110,278 @@
         "base_modified": true,
         "weakened": true
       }
+    },
+    "build": {
+      "verdict": "pass",
+      "by": "Builder",
+      "evidence": "P1-P4 all green: registry+HypeTalk (3181), AI surface (3230), inspector (3240 + app builds), docs+conformance (3248). Benchmark +2.1% (<5%), size +0.067%. Full suite re-run by gate.",
+      "checks": {
+        "tests_passed": 6624,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784352252,
+      "completed_at_epoch_secs": 1784365042,
+      "receipt": {
+        "id": "9d0c76a43edb066103dadbb374669ec8c02f336978fdc6aa67dfd3310dcd733f",
+        "schema": 1,
+        "phase": "build",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "3971d18324ab0cd2b5ecfda0de324c85c8312a3a0408ffdf2ff9962cbb3e0125",
+            "source": "6bbd546248d8ab87dddcc7da93c0d51c3f28b0bf853951e09ba0eb00248022dc",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "6bbd546248d8ab87dddcc7da93c0d51c3f28b0bf853951e09ba0eb00248022dc"
+          }
+        }
+      }
+    },
+    "security-code": {
+      "verdict": "conditional-pass",
+      "by": "Security",
+      "evidence": "Security (code) full-depth CONDITIONAL PASS: S1 masking law VERIFIED fixed (registry-driven tests both surfaces); S3 suites green; strict-SET/script-gate/HexColor/chart-interception/Sendable all verified; no Codable changes; no secrets. Non-credential findings only.",
+      "checks": {
+        "secrets_clean": true,
+        "scanner": "builtin+gitleaks"
+      },
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784365175,
+      "completed_at_epoch_secs": 1784365856,
+      "receipt": {
+        "id": "45bfc00473b6bdfe734512ce3c8b161bc10b58e0f379f065ed316ad3deda9865",
+        "schema": 1,
+        "phase": "security-code",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "3971d18324ab0cd2b5ecfda0de324c85c8312a3a0408ffdf2ff9962cbb3e0125",
+            "source": "6bbd546248d8ab87dddcc7da93c0d51c3f28b0bf853951e09ba0eb00248022dc",
+            "governance": "80fb6453bcae729297b0c53fb9c97e648c6446facc1e84057e499c5759cd626e",
+            "design-artifacts": "bece703a2f3abee468d6d155f84c336af0c8a474f7dd6515776a70718d03be5f",
+            "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+            "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "design-signoff": {
+      "verdict": "conditional-pass",
+      "by": "Designer",
+      "evidence": "Designer Sign-off: implementation matches mock string-for-string (§2.1/2.2 display names, §2.3/2.4 labels, new rows, C1/C2/C6 satisfied); label-spec 10/10; no regression. Visual checklist produced. Non-blocking nits noted (stray 'MusicKit Search' caption PI:1886).",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784365871,
+      "completed_at_epoch_secs": 1784366285,
+      "receipt": {
+        "id": "a057222771dd1bffbee3ce9a506d2f528a3a99ea10e81dc9782bc21ffb588d87",
+        "schema": 1,
+        "phase": "design-signoff",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "3971d18324ab0cd2b5ecfda0de324c85c8312a3a0408ffdf2ff9962cbb3e0125",
+            "governance": "80fb6453bcae729297b0c53fb9c97e648c6446facc1e84057e499c5759cd626e",
+            "design-artifacts": "bece703a2f3abee468d6d155f84c336af0c8a474f7dd6515776a70718d03be5f"
+          }
+        }
+      }
+    },
+    "test": {
+      "verdict": "pass",
+      "by": "Tester",
+      "evidence": "Test PASS: full suite 3277 HypeCoreTests + 34 HypeCLITests green; registry-driven round-trip + cross-surface HypeTalk↔AI equivalence + error-copy parity added; 15 real AI-parity bugs found+fixed; fuzz suites green; masking suites untouched+green; benchmark +2.1% (<5%).",
+      "checks": {
+        "tests_passed": 6682,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784366285,
+      "completed_at_epoch_secs": 1784369456,
+      "receipt": {
+        "id": "9fb7457aa38a964ee1539bc0bfbf084bf3260cac8e4c67b825c555ea8b232fbf",
+        "schema": 1,
+        "phase": "test",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "77d253c7620622c41609c7d1169c77b51f80890c194641f8ff591fc66396e66b",
+            "source": "93b723a04ec070eb694a761ff60ddbfd1e07e1abeda03e2f73e89abb95e133a3",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "93b723a04ec070eb694a761ff60ddbfd1e07e1abeda03e2f73e89abb95e133a3",
+            "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+          }
+        }
+      }
+    },
+    "documentation": {
+      "verdict": "pass",
+      "by": "Documenter",
+      "evidence": "openspec/changes/control-property-consistency/documentation.md",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784369587,
+      "completed_at_epoch_secs": 1784369725,
+      "receipt": {
+        "id": "7a29b45d62909bc49034a925f9eaf09c49c0ea537c175ca4916b1b6d14802b2d",
+        "schema": 1,
+        "phase": "documentation",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "77d253c7620622c41609c7d1169c77b51f80890c194641f8ff591fc66396e66b",
+            "shipped-behavior": "93b723a04ec070eb694a761ff60ddbfd1e07e1abeda03e2f73e89abb95e133a3",
+            "documentation": "e80cbd3289ae993c307e26361d3c767795c6d93059490e5d273a61dbd299093d"
+          }
+        }
+      }
+    },
+    "deploy": {
+      "verdict": "pass",
+      "by": "main-session",
+      "evidence": "Integrated build+install of /Applications/Hype.app: control-property-consistency (vocabulary unification, secure-field masking law) + mask-mcp-object-tools (MCP transport masking). Suite 3297+34 green; all conditions closed.",
+      "checks": {
+        "command": "scripts/mpd-deploy.sh"
+      },
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784369725,
+      "completed_at_epoch_secs": 1784369968,
+      "receipt": {
+        "id": "d7bcf34adf13f520edc2624f6aaafd80901ffbe46ff736bb2c677dc6a5aa08fc",
+        "schema": 1,
+        "phase": "deploy",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "77d253c7620622c41609c7d1169c77b51f80890c194641f8ff591fc66396e66b",
+            "source": "93b723a04ec070eb694a761ff60ddbfd1e07e1abeda03e2f73e89abb95e133a3",
+            "produced-artifact": "93b723a04ec070eb694a761ff60ddbfd1e07e1abeda03e2f73e89abb95e133a3",
+            "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+          }
+        }
+      }
+    },
+    "doc-validation": {
+      "verdict": "pass",
+      "by": "Architect & Designer",
+      "evidence": "Doc Validation deep-tier reviewed doc against shipped code; FAILed 3 byte-level claims (polymorphic list, error-copy casing, search-vs-secure masking) + citation/test-name nits; all applied verbatim per the validator's stated-correct text (commit above). Registry/dispatch/breaking-changes/masking/labels/usage all verified accurate.",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784369971,
+      "completed_at_epoch_secs": 1784370505,
+      "receipt": {
+        "id": "48f3dad86d593589409d3336b0dc40d62ff2df2fb2b80d52ba02a1daeaacd724",
+        "schema": 1,
+        "phase": "doc-validation",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "77d253c7620622c41609c7d1169c77b51f80890c194641f8ff591fc66396e66b",
+            "shipped-behavior": "93b723a04ec070eb694a761ff60ddbfd1e07e1abeda03e2f73e89abb95e133a3",
+            "documentation": "202dbeed382efb55520655f3edd0315e1389c18ba9b14d9b31ce2f42bcec6a2d",
+            "persona-tuning": "e48b22dd7aa27e02a9a0ad38c98bc07383c61deeb896eb2872208db4f07324b8"
+          }
+        }
+      }
     }
   },
   "conditions": [
     {
       "text": "C1(P3): migrate Events header PI:1018 to sectionHeading — label-spec scan includes site",
       "owner": "Designer",
-      "closed": false
+      "closed": true
     },
     {
       "text": "C2(P3): remove redundant 'Show on Keyboard/Sequencer' synth sub-caption — absence asserted",
       "owner": "Designer",
-      "closed": false
+      "closed": true
     },
     {
       "text": "C3(P1/P2): dispatch test per surface: garbage spider-color write errors (HexColor/ChartConfig parity)",
       "owner": "Designer",
-      "closed": false
+      "closed": true
     },
     {
       "text": "C4(P4): guide states GET posture (SET strict, GET lenient, unknown GET returns \"\")",
       "owner": "Designer",
-      "closed": false
+      "closed": true
     },
     {
       "text": "C5(P4): purge stale vocabulary — grep-clean 'MusicKit Search', 'Artist / Singer', 'Interactable', 'Selected Index'",
       "owner": "Designer",
-      "closed": false
+      "closed": true
     },
     {
       "text": "C6(P3): button Label caption exact string 'Shown on the button when Show Name is off.'",
       "owner": "Designer",
-      "closed": false
+      "closed": true
     },
     {
       "text": "S1: masking law — every textContent alias (text/textcontent/value/contents) masks on .secure fields, BOTH surfaces, registry-driven test in SecurityRegressionTests (closes live vuln; lands in THIS change)",
       "owner": "Security",
-      "closed": false
+      "closed": true
     },
     {
       "text": "S2: MCP object-tool masking = tracked prompt follow-up change (not open-ended); mock 7.4 + design Condition 17 reworded",
       "owner": "Security",
-      "closed": false
+      "closed": true
     },
     {
       "text": "S3: SecurityRegressionTests.swift + ScriptStorageGateIntegrationTests.swift named must-stay-green in plan",
       "owner": "Security",
-      "closed": false
+      "closed": true
     },
     {
       "text": "S4(advisory): error copy caps property-name echo at prefix(200); Condition 4 wording corrected (no interpreter-side script gate exists)",
       "owner": "Security",
-      "closed": false
+      "closed": true
+    },
+    {
+      "text": "SC1(Builder): cap the 3 AI 'Unknown property' fallback strings at prefix(200) (HypeToolExecutor.swift:2578,2587,3944); bound Levenshtein input before DP; add marked AI-surface error parity; regression tests",
+      "owner": "Security",
+      "closed": true
+    },
+    {
+      "text": "SC2(pre-deploy): S2 MCP object-tool masking closed by merging mask-mcp-object-tools before the integrated deploy (that change had its own full Security cycle)",
+      "owner": "Security",
+      "closed": true
+    },
+    {
+      "text": "DS1(Builder): §6 accessibility — append spoken unit to propertyRow/numberField accessibilityLabel; add accessibilityLabel to the new video Volume slider; pin via PropertyInspectorLabelSpecTests. Close before Deploy.",
+      "owner": "Designer",
+      "closed": true
     }
   ],
   "history": [
@@ -282,6 +502,232 @@
           "weakened": true
         }
       }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "P1-P4 all green: registry+HypeTalk (3181), AI surface (3230), inspector (3240 + app builds), docs+conformance (3248). Benchmark +2.1% (<5%), size +0.067%. Full suite re-run by gate.",
+        "checks": {
+          "tests_passed": 6624,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784352252,
+        "completed_at_epoch_secs": 1784365042,
+        "receipt": {
+          "id": "9d0c76a43edb066103dadbb374669ec8c02f336978fdc6aa67dfd3310dcd733f",
+          "schema": 1,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "3971d18324ab0cd2b5ecfda0de324c85c8312a3a0408ffdf2ff9962cbb3e0125",
+              "source": "6bbd546248d8ab87dddcc7da93c0d51c3f28b0bf853951e09ba0eb00248022dc",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "6bbd546248d8ab87dddcc7da93c0d51c3f28b0bf853951e09ba0eb00248022dc"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "conditional-pass",
+        "by": "Security",
+        "evidence": "Security (code) full-depth CONDITIONAL PASS: S1 masking law VERIFIED fixed (registry-driven tests both surfaces); S3 suites green; strict-SET/script-gate/HexColor/chart-interception/Sendable all verified; no Codable changes; no secrets. Non-credential findings only.",
+        "checks": {
+          "secrets_clean": true,
+          "scanner": "builtin+gitleaks"
+        },
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784365175,
+        "completed_at_epoch_secs": 1784365856,
+        "receipt": {
+          "id": "45bfc00473b6bdfe734512ce3c8b161bc10b58e0f379f065ed316ad3deda9865",
+          "schema": 1,
+          "phase": "security-code",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "3971d18324ab0cd2b5ecfda0de324c85c8312a3a0408ffdf2ff9962cbb3e0125",
+              "source": "6bbd546248d8ab87dddcc7da93c0d51c3f28b0bf853951e09ba0eb00248022dc",
+              "governance": "80fb6453bcae729297b0c53fb9c97e648c6446facc1e84057e499c5759cd626e",
+              "design-artifacts": "bece703a2f3abee468d6d155f84c336af0c8a474f7dd6515776a70718d03be5f",
+              "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+              "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        }
+      }
+    },
+    {
+      "phase": "design-signoff",
+      "record": {
+        "verdict": "conditional-pass",
+        "by": "Designer",
+        "evidence": "Designer Sign-off: implementation matches mock string-for-string (§2.1/2.2 display names, §2.3/2.4 labels, new rows, C1/C2/C6 satisfied); label-spec 10/10; no regression. Visual checklist produced. Non-blocking nits noted (stray 'MusicKit Search' caption PI:1886).",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784365871,
+        "completed_at_epoch_secs": 1784366285,
+        "receipt": {
+          "id": "a057222771dd1bffbee3ce9a506d2f528a3a99ea10e81dc9782bc21ffb588d87",
+          "schema": 1,
+          "phase": "design-signoff",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "3971d18324ab0cd2b5ecfda0de324c85c8312a3a0408ffdf2ff9962cbb3e0125",
+              "governance": "80fb6453bcae729297b0c53fb9c97e648c6446facc1e84057e499c5759cd626e",
+              "design-artifacts": "bece703a2f3abee468d6d155f84c336af0c8a474f7dd6515776a70718d03be5f"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "test",
+      "record": {
+        "verdict": "pass",
+        "by": "Tester",
+        "evidence": "Test PASS: full suite 3277 HypeCoreTests + 34 HypeCLITests green; registry-driven round-trip + cross-surface HypeTalk↔AI equivalence + error-copy parity added; 15 real AI-parity bugs found+fixed; fuzz suites green; masking suites untouched+green; benchmark +2.1% (<5%).",
+        "checks": {
+          "tests_passed": 6682,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784366285,
+        "completed_at_epoch_secs": 1784369456,
+        "receipt": {
+          "id": "9fb7457aa38a964ee1539bc0bfbf084bf3260cac8e4c67b825c555ea8b232fbf",
+          "schema": 1,
+          "phase": "test",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "77d253c7620622c41609c7d1169c77b51f80890c194641f8ff591fc66396e66b",
+              "source": "93b723a04ec070eb694a761ff60ddbfd1e07e1abeda03e2f73e89abb95e133a3",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "93b723a04ec070eb694a761ff60ddbfd1e07e1abeda03e2f73e89abb95e133a3",
+              "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "documentation",
+      "record": {
+        "verdict": "pass",
+        "by": "Documenter",
+        "evidence": "openspec/changes/control-property-consistency/documentation.md",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784369587,
+        "completed_at_epoch_secs": 1784369725,
+        "receipt": {
+          "id": "7a29b45d62909bc49034a925f9eaf09c49c0ea537c175ca4916b1b6d14802b2d",
+          "schema": 1,
+          "phase": "documentation",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "77d253c7620622c41609c7d1169c77b51f80890c194641f8ff591fc66396e66b",
+              "shipped-behavior": "93b723a04ec070eb694a761ff60ddbfd1e07e1abeda03e2f73e89abb95e133a3",
+              "documentation": "e80cbd3289ae993c307e26361d3c767795c6d93059490e5d273a61dbd299093d"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "deploy",
+      "record": {
+        "verdict": "pass",
+        "by": "main-session",
+        "evidence": "Integrated build+install of /Applications/Hype.app: control-property-consistency (vocabulary unification, secure-field masking law) + mask-mcp-object-tools (MCP transport masking). Suite 3297+34 green; all conditions closed.",
+        "checks": {
+          "command": "scripts/mpd-deploy.sh"
+        },
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784369725,
+        "completed_at_epoch_secs": 1784369968,
+        "receipt": {
+          "id": "d7bcf34adf13f520edc2624f6aaafd80901ffbe46ff736bb2c677dc6a5aa08fc",
+          "schema": 1,
+          "phase": "deploy",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "77d253c7620622c41609c7d1169c77b51f80890c194641f8ff591fc66396e66b",
+              "source": "93b723a04ec070eb694a761ff60ddbfd1e07e1abeda03e2f73e89abb95e133a3",
+              "produced-artifact": "93b723a04ec070eb694a761ff60ddbfd1e07e1abeda03e2f73e89abb95e133a3",
+              "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "doc-validation",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect & Designer",
+        "evidence": "Doc Validation deep-tier reviewed doc against shipped code; FAILed 3 byte-level claims (polymorphic list, error-copy casing, search-vs-secure masking) + citation/test-name nits; all applied verbatim per the validator's stated-correct text (commit above). Registry/dispatch/breaking-changes/masking/labels/usage all verified accurate.",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784369971,
+        "completed_at_epoch_secs": 1784370505,
+        "receipt": {
+          "id": "48f3dad86d593589409d3336b0dc40d62ff2df2fb2b80d52ba02a1daeaacd724",
+          "schema": 1,
+          "phase": "doc-validation",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "77d253c7620622c41609c7d1169c77b51f80890c194641f8ff591fc66396e66b",
+              "shipped-behavior": "93b723a04ec070eb694a761ff60ddbfd1e07e1abeda03e2f73e89abb95e133a3",
+              "documentation": "202dbeed382efb55520655f3edd0315e1389c18ba9b14d9b31ce2f42bcec6a2d",
+              "persona-tuning": "e48b22dd7aa27e02a9a0ad38c98bc07383c61deeb896eb2872208db4f07324b8"
+            }
+          }
+        }
+      }
     }
   ],
   "governance": {
@@ -291,7 +737,78 @@
   },
   "strict": false,
   "waivers": [],
-  "phase_started_at_epoch_secs": 1784352252,
+  "phase_started_at_epoch_secs": 1784370505,
+  "archive_closure": {
+    "base_commit": "7efeac8d7d091a699612f5f511a3f795082c3a52",
+    "archive_path": "openspec/changes/archive/2026-07-18-control-property-consistency",
+    "transaction_id": "d6f9de782c7b7282cd4096a30d3428d0b65befe6576a4228f7e3eeb00c5d4803",
+    "allowed_paths": [
+      ".mpd/state/control-property-consistency.json",
+      "HypeTalk-LLM-Context.md",
+      "Sources/Hype/Views/PropertyInspector.swift",
+      "Sources/HypeCore/AI/HypeTalkGuide.swift",
+      "Sources/HypeCore/AI/HypeToolExecutor.swift",
+      "Sources/HypeCore/AI/HypeTools.swift",
+      "Sources/HypeCore/Models/HexColor.swift",
+      "Sources/HypeCore/Models/HypeStack.swift",
+      "Sources/HypeCore/Models/Part.swift",
+      "Sources/HypeCore/Models/PartDisplayNames.swift",
+      "Sources/HypeCore/Models/PartPropertyRegistry.swift",
+      "Sources/HypeCore/Script/Interpreter.swift",
+      "Tests/HypeCoreTests/CrossSurfacePropertyEquivalenceTests.swift",
+      "Tests/HypeCoreTests/HelpTextTests.swift",
+      "Tests/HypeCoreTests/HypeTalkGuideTests.swift",
+      "Tests/HypeCoreTests/InterpreterFuzzTests.swift",
+      "Tests/HypeCoreTests/PartDisplayNamesTests.swift",
+      "Tests/HypeCoreTests/PartPropertyAIDispatchTests.swift",
+      "Tests/HypeCoreTests/PartPropertyDispatchTests.swift",
+      "Tests/HypeCoreTests/PartPropertyRegistryConformanceTests.swift",
+      "Tests/HypeCoreTests/Phase1ControlsTests.swift",
+      "Tests/HypeCoreTests/ProgressViewTests.swift",
+      "Tests/HypeCoreTests/PropertyAuditTests.swift",
+      "Tests/HypeCoreTests/PropertyInspectorLabelSpecTests.swift",
+      "Tests/HypeCoreTests/SecurityRegressionTests.swift",
+      "Tests/HypeCoreTests/TextStylingTests.swift",
+      "docs/control-property-consistency.md",
+      "openspec/changes/archive/2026-07-18-control-property-consistency",
+      "openspec/changes/control-property-consistency",
+      "openspec/specs/part-properties/spec.md"
+    ],
+    "system_paths": [
+      ".mpd/state/control-property-consistency.json",
+      "HypeTalk-LLM-Context.md",
+      "Sources/Hype/Views/PropertyInspector.swift",
+      "Sources/HypeCore/AI/HypeTalkGuide.swift",
+      "Sources/HypeCore/AI/HypeToolExecutor.swift",
+      "Sources/HypeCore/AI/HypeTools.swift",
+      "Sources/HypeCore/Models/HexColor.swift",
+      "Sources/HypeCore/Models/HypeStack.swift",
+      "Sources/HypeCore/Models/Part.swift",
+      "Sources/HypeCore/Models/PartDisplayNames.swift",
+      "Sources/HypeCore/Models/PartPropertyRegistry.swift",
+      "Sources/HypeCore/Script/Interpreter.swift",
+      "Tests/HypeCoreTests/CrossSurfacePropertyEquivalenceTests.swift",
+      "Tests/HypeCoreTests/HelpTextTests.swift",
+      "Tests/HypeCoreTests/HypeTalkGuideTests.swift",
+      "Tests/HypeCoreTests/InterpreterFuzzTests.swift",
+      "Tests/HypeCoreTests/PartDisplayNamesTests.swift",
+      "Tests/HypeCoreTests/PartPropertyAIDispatchTests.swift",
+      "Tests/HypeCoreTests/PartPropertyDispatchTests.swift",
+      "Tests/HypeCoreTests/PartPropertyRegistryConformanceTests.swift",
+      "Tests/HypeCoreTests/Phase1ControlsTests.swift",
+      "Tests/HypeCoreTests/ProgressViewTests.swift",
+      "Tests/HypeCoreTests/PropertyAuditTests.swift",
+      "Tests/HypeCoreTests/PropertyInspectorLabelSpecTests.swift",
+      "Tests/HypeCoreTests/SecurityRegressionTests.swift",
+      "Tests/HypeCoreTests/TextStylingTests.swift",
+      "docs/control-property-consistency.md",
+      "openspec/changes/archive/2026-07-18-control-property-consistency",
+      "openspec/changes/control-property-consistency",
+      "openspec/specs/part-properties/spec.md"
+    ],
+    "post_archive_digest": "2132bb259c3a00286a72bab0d2f168083b4f5e8944cf83e04dd1f18ba77b146f",
+    "archived_at": 1784370563
+  },
   "brief_tuning": {
     "security-plan": {
       "attempt": 1,
