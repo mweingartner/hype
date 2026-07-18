@@ -1,4 +1,4 @@
-<!-- Canonical current checklist. Move superseded plans to history/. -->
+# Tasks — control-property-consistency (P1–P4, all complete)
 
 ## 1. P1 — Registry foundations + HypeTalk dispatch (green build + tests before P2)
 

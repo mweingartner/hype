@@ -1,6 +1,6 @@
 # Part Properties
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: One property vocabulary, declared in a registry
 
