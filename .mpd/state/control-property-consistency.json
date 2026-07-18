@@ -1,0 +1,304 @@
+{
+  "change": "control-property-consistency",
+  "schema": "mpd",
+  "ui": true,
+  "kind": "feature",
+  "phase": "build",
+  "gates": {
+    "design-mock": {
+      "verdict": "pass",
+      "by": "Designer",
+      "evidence": "openspec/changes/control-property-consistency/design-mock.md",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784348738,
+      "completed_at_epoch_secs": 1784349537,
+      "receipt": {
+        "id": "282aacf7dc31882b3260e5bfa59881dd25d94f558a3ee136e16e8e6df05b2329",
+        "schema": 1,
+        "phase": "design-mock",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "2cf8c528cea7ea52f188c31a5056aa1a4997147dcaf9be4932cd00c2c7c6ad17",
+            "governance": "80fb6453bcae729297b0c53fb9c97e648c6446facc1e84057e499c5759cd626e",
+            "design-artifacts": "1c674f183e23b27256b1b92dc8afbc45878a9c563d99b8f7dcbe5eb6f7ec63c8"
+          }
+        }
+      }
+    },
+    "architecture": {
+      "verdict": "pass",
+      "by": "Architect",
+      "evidence": "openspec/changes/control-property-consistency/design.md",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784349537,
+      "completed_at_epoch_secs": 1784351257,
+      "receipt": {
+        "id": "6053eb7875029c4a9011481cf11d5871c0f38896401f3d67cf45333882b96b66",
+        "schema": 1,
+        "phase": "architecture",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "edcc503cb7fc0212a9df8bdf5059bb7bec5f9d8c579434ea1613f457b95421cb",
+            "governance": "80fb6453bcae729297b0c53fb9c97e648c6446facc1e84057e499c5759cd626e",
+            "design-artifacts": "528402fa9661d251a6621f404bde9776be0d34ac658beb0f39873e00693849c0"
+          }
+        }
+      }
+    },
+    "design-review": {
+      "verdict": "conditional-pass",
+      "by": "Designer",
+      "evidence": "openspec/changes/control-property-consistency/design-mock.md#revision-log",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784351257,
+      "completed_at_epoch_secs": 1784351661,
+      "receipt": {
+        "id": "167d8245b16a5fa25aeaf0b8f071d711967aed64977cb5a36f8fc3192835ca83",
+        "schema": 1,
+        "phase": "design-review",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "edcc503cb7fc0212a9df8bdf5059bb7bec5f9d8c579434ea1613f457b95421cb",
+            "governance": "80fb6453bcae729297b0c53fb9c97e648c6446facc1e84057e499c5759cd626e",
+            "design-artifacts": "528402fa9661d251a6621f404bde9776be0d34ac658beb0f39873e00693849c0"
+          }
+        }
+      }
+    },
+    "security-plan": {
+      "verdict": "conditional-pass",
+      "by": "Security",
+      "evidence": "security-plan review (Sonnet): 6 findings, verdict CONDITIONAL PASS; rigor escalation invoked for Security (code)",
+      "at": "2026-07-18",
+      "attempt": 1,
+      "started_at_epoch_secs": 1784351661,
+      "completed_at_epoch_secs": 1784352252,
+      "receipt": {
+        "id": "aed5b0cbe7159028d89c3461bb435b72901570064be1fb95067dec51236c2b64",
+        "schema": 1,
+        "phase": "security-plan",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 1,
+          "values": {
+            "scope": "edcc503cb7fc0212a9df8bdf5059bb7bec5f9d8c579434ea1613f457b95421cb",
+            "source": "e04c0fd5578795d062a864b48ec3b7ac8dcb01101d2eff738a4604bac81cc942",
+            "governance": "80fb6453bcae729297b0c53fb9c97e648c6446facc1e84057e499c5759cd626e",
+            "design-artifacts": "528402fa9661d251a6621f404bde9776be0d34ac658beb0f39873e00693849c0",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      }
+    }
+  },
+  "conditions": [
+    {
+      "text": "C1(P3): migrate Events header PI:1018 to sectionHeading — label-spec scan includes site",
+      "owner": "Designer",
+      "closed": false
+    },
+    {
+      "text": "C2(P3): remove redundant 'Show on Keyboard/Sequencer' synth sub-caption — absence asserted",
+      "owner": "Designer",
+      "closed": false
+    },
+    {
+      "text": "C3(P1/P2): dispatch test per surface: garbage spider-color write errors (HexColor/ChartConfig parity)",
+      "owner": "Designer",
+      "closed": false
+    },
+    {
+      "text": "C4(P4): guide states GET posture (SET strict, GET lenient, unknown GET returns \"\")",
+      "owner": "Designer",
+      "closed": false
+    },
+    {
+      "text": "C5(P4): purge stale vocabulary — grep-clean 'MusicKit Search', 'Artist / Singer', 'Interactable', 'Selected Index'",
+      "owner": "Designer",
+      "closed": false
+    },
+    {
+      "text": "C6(P3): button Label caption exact string 'Shown on the button when Show Name is off.'",
+      "owner": "Designer",
+      "closed": false
+    },
+    {
+      "text": "S1: masking law — every textContent alias (text/textcontent/value/contents) masks on .secure fields, BOTH surfaces, registry-driven test in SecurityRegressionTests (closes live vuln; lands in THIS change)",
+      "owner": "Security",
+      "closed": false
+    },
+    {
+      "text": "S2: MCP object-tool masking = tracked prompt follow-up change (not open-ended); mock 7.4 + design Condition 17 reworded",
+      "owner": "Security",
+      "closed": false
+    },
+    {
+      "text": "S3: SecurityRegressionTests.swift + ScriptStorageGateIntegrationTests.swift named must-stay-green in plan",
+      "owner": "Security",
+      "closed": false
+    },
+    {
+      "text": "S4(advisory): error copy caps property-name echo at prefix(200); Condition 4 wording corrected (no interpreter-side script gate exists)",
+      "owner": "Security",
+      "closed": false
+    }
+  ],
+  "history": [
+    {
+      "phase": "design-mock",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "openspec/changes/control-property-consistency/design-mock.md",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784348738,
+        "completed_at_epoch_secs": 1784349537,
+        "receipt": {
+          "id": "282aacf7dc31882b3260e5bfa59881dd25d94f558a3ee136e16e8e6df05b2329",
+          "schema": 1,
+          "phase": "design-mock",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "2cf8c528cea7ea52f188c31a5056aa1a4997147dcaf9be4932cd00c2c7c6ad17",
+              "governance": "80fb6453bcae729297b0c53fb9c97e648c6446facc1e84057e499c5759cd626e",
+              "design-artifacts": "1c674f183e23b27256b1b92dc8afbc45878a9c563d99b8f7dcbe5eb6f7ec63c8"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "openspec/changes/control-property-consistency/design.md",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784349537,
+        "completed_at_epoch_secs": 1784351257,
+        "receipt": {
+          "id": "6053eb7875029c4a9011481cf11d5871c0f38896401f3d67cf45333882b96b66",
+          "schema": 1,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "edcc503cb7fc0212a9df8bdf5059bb7bec5f9d8c579434ea1613f457b95421cb",
+              "governance": "80fb6453bcae729297b0c53fb9c97e648c6446facc1e84057e499c5759cd626e",
+              "design-artifacts": "528402fa9661d251a6621f404bde9776be0d34ac658beb0f39873e00693849c0"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "design-review",
+      "record": {
+        "verdict": "conditional-pass",
+        "by": "Designer",
+        "evidence": "openspec/changes/control-property-consistency/design-mock.md#revision-log",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784351257,
+        "completed_at_epoch_secs": 1784351661,
+        "receipt": {
+          "id": "167d8245b16a5fa25aeaf0b8f071d711967aed64977cb5a36f8fc3192835ca83",
+          "schema": 1,
+          "phase": "design-review",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "edcc503cb7fc0212a9df8bdf5059bb7bec5f9d8c579434ea1613f457b95421cb",
+              "governance": "80fb6453bcae729297b0c53fb9c97e648c6446facc1e84057e499c5759cd626e",
+              "design-artifacts": "528402fa9661d251a6621f404bde9776be0d34ac658beb0f39873e00693849c0"
+            }
+          }
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "conditional-pass",
+        "by": "Security",
+        "evidence": "security-plan review (Sonnet): 6 findings, verdict CONDITIONAL PASS; rigor escalation invoked for Security (code)",
+        "at": "2026-07-18",
+        "attempt": 1,
+        "started_at_epoch_secs": 1784351661,
+        "completed_at_epoch_secs": 1784352252,
+        "receipt": {
+          "id": "aed5b0cbe7159028d89c3461bb435b72901570064be1fb95067dec51236c2b64",
+          "schema": 1,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 1,
+            "values": {
+              "scope": "edcc503cb7fc0212a9df8bdf5059bb7bec5f9d8c579434ea1613f457b95421cb",
+              "source": "e04c0fd5578795d062a864b48ec3b7ac8dcb01101d2eff738a4604bac81cc942",
+              "governance": "80fb6453bcae729297b0c53fb9c97e648c6446facc1e84057e499c5759cd626e",
+              "design-artifacts": "528402fa9661d251a6621f404bde9776be0d34ac658beb0f39873e00693849c0",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        }
+      }
+    }
+  ],
+  "governance": {
+    "risk": "medium",
+    "threat_profile": "local-trusted-user",
+    "reconciliations": []
+  },
+  "strict": false,
+  "waivers": [],
+  "phase_started_at_epoch_secs": 1784352252,
+  "brief_tuning": {
+    "security-plan": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    }
+  }
+}

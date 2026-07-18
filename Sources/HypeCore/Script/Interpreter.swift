@@ -1312,13 +1312,14 @@ public struct Interpreter: Sendable {
                             currentCardId: context.currentCardId
                         )
                     } else if let partIndex = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
-                        applyPartPropertySet(
+                        try setPartProperty(
                             partIndex: partIndex,
                             property: property,
                             value: value,
                             env: &env,
                             document: &document,
-                            context: context
+                            context: context,
+                            handler: handler
                         )
                     }
                 }
@@ -1534,7 +1535,7 @@ public struct Interpreter: Sendable {
                         document.stack.aiContextCloudSharingAllowed = isTruthy(value)
                     case "runtimemode", "runtime_mode", "runtimemodeenabled", "runtime_mode_enabled":
                         document.stack.runtimeModeEnabled = isTruthy(value)
-                    case "userlevel", "user_level":
+                    case "userlevel", "user_level", "user level":
                         let level = try resolvedUserLevel(from: value, handler: handler)
                         document.stack.userLevel = level.rawValue
                     case "runtimeaiproviderpolicy", "runtime_ai_provider_policy", "aiproviderpolicy":
@@ -1592,13 +1593,14 @@ public struct Interpreter: Sendable {
                     } else if !handledAsNode {
                     let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
                     if let partIndex = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
-                        applyPartPropertySet(
+                        try setPartProperty(
                             partIndex: partIndex,
                             property: property,
                             value: value,
                             env: &env,
                             document: &document,
-                            context: context
+                            context: context,
+                            handler: handler
                         )
                     } else {
                         env.setVariable(property, value)
@@ -1606,13 +1608,14 @@ public struct Interpreter: Sendable {
                     } // close else (non-sprite objectRef)
                 } else if case .me = targetExpr {
                     if let partIndex = document.parts.firstIndex(where: { $0.id == context.targetId }) {
-                        applyPartPropertySet(
+                        try setPartProperty(
                             partIndex: partIndex,
                             property: property,
                             value: value,
                             env: &env,
                             document: &document,
-                            context: context
+                            context: context,
+                            handler: handler
                         )
                     } else if let spriteTarget = locateSpriteTarget(id: context.targetId, document: document, currentCardId: context.currentCardId) {
                         if let nodeId = spriteTarget.nodeId {
@@ -5296,7 +5299,7 @@ public struct Interpreter: Sendable {
                document: document,
                context: context
            ) {
-            return partPropertyValue(document.parts[idx], property: property, document: document, context: context)
+            return try partPropertyValue(document.parts[idx], property: property, document: document, context: context)
         }
 
         let targetVal = try await evaluate(targetExpr, env: &env, document: document, context: context)
@@ -5497,6 +5500,17 @@ public struct Interpreter: Sendable {
                 return bg?.themeName ?? ""
             case "name":
                 return bg?.name ?? ""
+            // H9: background lacked the short/long/abbreviated name
+            // variants that stack/card/part already support (Interpreter.swift:5488-5507).
+            case "short name", "shortname",
+                 "abbrev name", "abbreviated name",
+                 "abbrevname", "abbreviatedname":
+                return bg?.name ?? ""
+            case "long name", "longname":
+                if let bg = bg {
+                    return "bkgnd \"\(bg.name)\""
+                }
+                return ""
             case "script":
                 return bg?.script ?? ""
             case "cardcount", "card_count":
@@ -5510,7 +5524,7 @@ public struct Interpreter: Sendable {
         if case .objectRef(let ref) = targetExpr {
             let ident = try await evaluate(ref.identifier, env: &env, document: document, context: context)
             if let idx = findPartIndex(ref.objectType, identifier: ident, env: &env, document: document, currentCardId: context.currentCardId) {
-                return partPropertyValue(document.parts[idx], property: property, document: document, context: context)
+                return try partPropertyValue(document.parts[idx], property: property, document: document, context: context)
             }
         }
 
@@ -5521,7 +5535,7 @@ public struct Interpreter: Sendable {
         // host part's properties.
         if case .me = targetExpr,
            let part = document.parts.first(where: { $0.id == context.targetId }) {
-            return partPropertyValue(part, property: property, document: document, context: context)
+            return try partPropertyValue(part, property: property, document: document, context: context)
         }
 
         if case .me = targetExpr,
@@ -5548,7 +5562,7 @@ public struct Interpreter: Sendable {
         // that looks like a part identifier (a name or UUID
         // string, or the UUID that the `me` path produces).
         if let part = findPart(targetVal, document: document) {
-            return partPropertyValue(part, property: property, document: document, context: context)
+            return try partPropertyValue(part, property: property, document: document, context: context)
         }
 
         return ""
@@ -5564,15 +5578,33 @@ public struct Interpreter: Sendable {
         property: String,
         document: HypeDocument,
         context: ExecutionContext
-    ) -> Value {
+    ) throws -> Value {
         // Chart-specific properties (title, xAxisLabel, etc.) take
         // precedence over the generic part-property switch so
         // `the title of chart "Sales"` resolves to the chart's
-        // title field rather than the part name.
+        // title field rather than the part name (Condition 12: the
+        // registry gate below must never see chart-owned names).
         if let chartProp = chartLevelProperty(property, part: part) {
             return chartProp
         }
-        switch property.lowercased() {
+        // Registry gate (control-property-consistency, Decision 1/3):
+        // GET is lenient — it throws only for the declared bare-word
+        // error cells (`.notApplicable`); a fully unknown name keeps
+        // the documented `""` posture via the switch's own `default`.
+        let canonical: String
+        switch PartPropertyRegistry.resolveGet(property.lowercased(), for: part) {
+        case .property(let resolved):
+            canonical = resolved
+        case .noOp:
+            canonical = property.lowercased()
+        case .readOnly(let resolved):
+            canonical = resolved
+        case .notApplicable(_, let appliesTo):
+            throw PartPropertyError(PartPropertyRegistry.notApplicableMessage(rawName: property, part: part, appliesTo: appliesTo))
+        case .unknown:
+            canonical = property.lowercased()
+        }
+        switch canonical {
         case "name":        return part.name
         case "short name", "shortname",
              "abbrev name", "abbreviated name",
@@ -5582,6 +5614,7 @@ public struct Interpreter: Sendable {
             // Full path: "card button "X" of card "Y""
             return descriptorForObject(id: part.id, document: document, context: context, form: .long)
         case "id":          return part.id.uuidString
+        case "type":        return part.partType.rawValue
         case "left", "left_pos":  return formatNumber(part.left)
         case "top", "top_pos":    return formatNumber(part.top)
         case "width":       return formatNumber(part.width)
@@ -5606,7 +5639,15 @@ public struct Interpreter: Sendable {
         case "enabled":     return part.enabled ? "true" : "false"
         case "hilite":      return part.hilite ? "true" : "false"
         case "style":
-            return part.partType == .button ? part.buttonStyle.rawValue : part.fieldStyle.rawValue
+            // H1: GET now mirrors the SET branch (button/field/shape)
+            // instead of defaulting non-button parts to fieldStyle —
+            // a shape used to read back fieldStyle garbage.
+            switch part.partType {
+            case .button: return part.buttonStyle.rawValue
+            case .field: return part.fieldStyle.rawValue
+            case .shape: return part.shapeType.rawValue
+            default: return "" // unreachable: the registry gate restricts `style` to button/field/shape.
+            }
         case "textfont", "font": return part.textFont
         case "textsize": return formatNumber(part.textSize)
         case "textstyle", "text_style":   return part.textStyle
@@ -5659,21 +5700,22 @@ public struct Interpreter: Sendable {
         case "showsuserlocation", "shows_user_location":
             return part.mapShowsUserLocation ? "true" : "false"
         // ColorWell
-        case "color", "colorhex", "color_hex":  return part.colorWellHex
+        case "colorwellhex", "colorhex", "color_hex":  return part.colorWellHex
         case "interactive":                     return part.colorWellInteractive ? "true" : "false"
         // Form controls (stepper, slider, toggle, segmented).
         // Toggle's `on` returns boolean; segmented's `selectedSegment`
         // returns the integer index. Stepper/slider use `value`.
         case "value":
-            if part.partType == .progressView { return formatNumber(part.progressValue) }
-            if part.partType == .gauge { return formatNumber(part.gaugeValue) }
+            // Security condition 1: `value` on a field used to read
+            // `part.textContent` directly here, bypassing the secure-field
+            // mask below. The registry gate now remaps `value` on a
+            // field/gauge/progressView/segmented part to the SAME
+            // canonical (`textcontent`/`gaugevalue`/`progressvalue`/
+            // `selectedsegment`) those types' own long names use, so
+            // this case only ever sees toggle, stepper, slider — and,
+            // per the documented GET carve-out, every other type that
+            // keeps the old permissive controlValue read.
             if part.partType == .toggle { return part.controlValue >= 0.5 ? "true" : "false" }
-            if part.partType == .segmented { return String(Int(part.controlValue)) }
-            // For text fields `the value of <field>` returns the
-            // textContent — what the user typed. This matches the
-            // common-sense expectation. Numeric form controls
-            // (stepper / slider) still use controlValue.
-            if part.partType == .field { return part.textContent }
             return formatNumber(part.controlValue)
         case "on":
             return part.controlValue >= 0.5 ? "true" : "false"
@@ -5685,14 +5727,12 @@ public struct Interpreter: Sendable {
         // AudioRecorder
         case "recording":           return part.audioRecording ? "true" : "false"
         case "playing":             return part.audioPlaying ? "true" : "false"
-        case "duration":
-            if part.partType == .video {
-                return formatNumber(part.videoDuration)
-            } else if part.partType == .appleMusicBrowser {
-                return formatNumber(part.musicDuration)
-            } else {
-                return formatNumber(part.audioDuration)
-            }
+        // Bare `duration` is now polymorphic per the registry gate
+        // (video→videoduration, music family→musicduration,
+        // audioRecorder→audioduration) — see those canonical cases
+        // below instead of a single inline dispatch here.
+        case "audioduration", "audio_duration":
+            return formatNumber(part.audioDuration)
         case "outputpath", "output_path", "filepath", "file_path": return part.audioOutputPath
         case "format":              return part.audioFormat
         case "saveinstack", "save_in_stack", "embedinstack", "embed_in_stack", "embedded", "audioembedded":
@@ -5716,9 +5756,9 @@ public struct Interpreter: Sendable {
             return part.musicShowInstrument ? "true" : "false"
         case "showmusictempo", "show_music_tempo", "showtempo", "show_tempo":
             return part.musicShowTempo ? "true" : "false"
-        case "musicloop", "music_loop", "loop", "looping":
+        case "musicloop", "music_loop":
             return part.musicLoop ? "true" : "false"
-        case "musicvolume", "music_volume", "volume":
+        case "musicvolume", "music_volume":
             return formatNumber(part.musicVolume)
         case "musictracks", "music_tracks", "trackdata", "track_data":
             return part.musicTrackData
@@ -5760,13 +5800,23 @@ public struct Interpreter: Sendable {
             return Scene3DModelBindingResolver.displayModel(for: part)
         case "model":
             return Scene3DModelBindingResolver.displayModel(for: part)
+        // H6: `modelAsset`/`assetName` gain a GET alias — reads the
+        // bound asset-repository model's own name, matching the AI
+        // tool surface. Remapped here by the registry gate (which
+        // deliberately diverges from SET's grouping of these
+        // spellings with `object`/`model`).
+        case "modelasset":
+            return part.scene3DAssetRef?.name ?? ""
         case "modelurl", "model_url", "sceneurl", "scene_url": return part.scene3DURL
         case "allowscameracontrol", "allows_camera_control", "cameracontrol": return part.scene3DAllowsCameraControl ? "true" : "false"
         case "autolighting", "auto_lighting", "defaultlighting": return part.scene3DAutoLighting ? "true" : "false"
         case "antialiasing", "anti_aliasing": return part.scene3DAntialiasing
         case "background3d", "background_3d", "scenebackground": return part.scene3DBackground
-        case "text", "textcontent":
-            // Security condition 2: mask secure field text in HypeTalk reads.
+        case "text", "textcontent", "contents":
+            // Security condition 1 (masking law): mask secure field text
+            // in HypeTalk reads. Every alias of this descriptor — text,
+            // textcontent, contents, and value (remapped here by the
+            // registry gate) — shares this one masked cell.
             if part.partType == .field && part.fieldStyle == .secure {
                 return "(masked)"
             }
@@ -5774,6 +5824,7 @@ public struct Interpreter: Sendable {
         // ProgressView
         case "progressvalue", "progress_value":     return formatNumber(part.progressValue)
         case "progresstotal", "progress_total":     return formatNumber(part.progressTotal)
+        case "progressmin":                          return "0"
         case "progresscircular", "progress_circular", "circular", "iscircular":
             return part.progressIsCircular ? "true" : "false"
         case "progressindeterminate", "progress_indeterminate", "indeterminate":
@@ -5799,11 +5850,18 @@ public struct Interpreter: Sendable {
             if part.partType == .progressView { return formatNumber(Double(part.progressDecimals)) }
             return "0"
         // Menu
-        case "menuitems", "menu_items", "items":    return part.menuItems
+        case "menuitems", "menu_items":              return part.menuItems
         case "menutitle", "menu_title":             return part.menuTitle
         // SearchField
-        case "searchtext", "search_text":           return part.searchText
-        case "searchprompt", "search_prompt", "prompt": return part.searchPrompt
+        case "searchtext", "search_text":
+            // Security condition 1 (masking law): searchText is a
+            // field-body property just like textContent — mask it on
+            // a .secure field for the same reason.
+            if part.partType == .field && part.fieldStyle == .secure {
+                return "(masked)"
+            }
+            return part.searchText
+        case "searchprompt", "search_prompt": return part.searchPrompt
         case "searchsendsimmediately", "search_sends_immediately", "immediate":
             return part.searchSendsImmediately ? "true" : "false"
         // Divider
@@ -5867,10 +5925,10 @@ public struct Interpreter: Sendable {
         case "autotab":      return "false"
         case "textheight":   return formatNumber(part.textSize * 1.3)
         case "marked":
-            if let card = document.cards.first(where: { $0.id == context.currentCardId }) {
-                return card.marked ? "true" : "false"
-            }
-            return "false"
+            // H4: `marked` is a card property; a part-target read
+            // used to silently answer with the CURRENT card's marked
+            // state (part name ignored). Now errors, matching SET.
+            throw PartPropertyError("\"marked\" is a card property — try the marked of this card.")
         case "cantdelete":   return "false"
         case "cantmodify":   return "false"
         case "centered":
@@ -5880,7 +5938,9 @@ public struct Interpreter: Sendable {
         case "linesize":
             return formatNumber(part.strokeWidth)
         case "icon":
-            return part.iconId?.uuidString ?? "0"
+            // H8: empty-icon sentinel is now "" (the app-wide empty
+            // convention), not "0" — `is empty` now behaves correctly.
+            return part.iconId?.uuidString ?? ""
         case "size":
             return "\(formatNumber(part.width)),\(formatNumber(part.height))"
         case "fillcolor", "fill_color":
@@ -5905,9 +5965,24 @@ public struct Interpreter: Sendable {
             return formatNumber(part.videoCurrentTime)
         case "playrate", "play_rate", "rate":
             return formatNumber(part.videoPlayRate)
+        case "videoloop", "video_loop":
+            return part.videoLoop ? "true" : "false"
+        case "videoautoplay", "video_autoplay":
+            return part.videoAutoplay ? "true" : "false"
+        case "videovolume", "video_volume":
+            return formatNumber(part.videoVolume)
+        case "videoduration", "video_duration":
+            return formatNumber(part.videoDuration)
         case "popupitems", "popup_items":
             return part.popupItems
         case "htmlcontent", "html_content":
+            // Security condition 1 (masking law): htmlContent is a
+            // second field-body property (dormant/unreachable by any
+            // renderer, but still a stored field on every part) — mask
+            // it on a .secure field for the same reason as textContent.
+            if part.partType == .field && part.fieldStyle == .secure {
+                return "(masked)"
+            }
             return part.htmlContent
         // SpriteArea-specific properties (read from SpriteAreaSpec JSON)
         case "scalemode", "scale_mode":
@@ -7408,27 +7483,100 @@ public struct Interpreter: Sendable {
         }
     }
 
+    /// Validates and normalizes a color-kind property write (Decision
+    /// 4). Every color-kind part property write on both script
+    /// surfaces routes through this one validator so malformed hex
+    /// errors instead of storing garbage — chart spider colors are
+    /// deliberately NOT routed through this (Condition 6); they keep
+    /// using `ChartConfig.normalizedHex`'s fallback-on-invalid
+    /// behavior unchanged.
+    private func normalizedColorOrThrow(_ value: Value) throws -> String {
+        guard let normalized = HexColor.normalized(value) else {
+            throw PartPropertyError("\"\(String(value.prefix(200)))\" is not a color — use \"#RRGGBB\" or \"#RRGGBBAA\" (empty clears).")
+        }
+        return normalized
+    }
+
+    /// Decision 2: calls `applyPartPropertySet` and wraps any
+    /// `PartPropertyError` it throws into a `ScriptError` carrying the
+    /// calling handler's line/name and the target part's id — the one
+    /// place all three `set`/`put`-into-property call sites route
+    /// through, so the wrapping is applied identically everywhere.
+    private func setPartProperty(
+        partIndex: Int,
+        property: String,
+        value: Value,
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext,
+        handler: Handler
+    ) throws {
+        do {
+            try applyPartPropertySet(
+                partIndex: partIndex,
+                property: property,
+                value: value,
+                env: &env,
+                document: &document,
+                context: context,
+                handler: handler
+            )
+        } catch let error as PartPropertyError {
+            throw ScriptError(
+                message: error.message,
+                line: handler.line,
+                handler: handler.name,
+                objectId: document.parts[partIndex].id
+            )
+        }
+    }
+
+    /// `handler` is threaded through per the design plan so future
+    /// property-set error paths can attribute a line/handler name
+    /// without a signature change; today's throws are wrapped into a
+    /// `ScriptError` at the three call sites instead (Decision 2),
+    /// which already have `handler` in scope.
     private func applyPartPropertySet(
         partIndex: Int,
         property: String,
         value: Value,
         env: inout Environment,
         document: inout HypeDocument,
-        context: ExecutionContext
-    ) {
+        context: ExecutionContext,
+        handler: Handler
+    ) throws {
         // Chart-specific properties (title, xAxisLabel, etc.) take
         // precedence so `set the title of chart "Sales" to "…"`
-        // writes the chart's ChartConfig.
+        // writes the chart's ChartConfig. Condition 12: this
+        // interception MUST run before the registry gate so chart
+        // parts never hit the colorWell-scoped `interactive` or
+        // name-scoped `title` descriptors.
         if setChartLevelProperty(property, value: value, partIndex: partIndex, document: &document) {
             return
         }
-        switch property.lowercased() {
+        // Registry gate (control-property-consistency, Decision 1/2):
+        // SET is strict — every resolution other than `.property` and
+        // `.noOp` throws a specific, name-bearing error (mock §3.7).
+        let canonical: String
+        switch PartPropertyRegistry.resolveSet(property.lowercased(), for: document.parts[partIndex]) {
+        case .property(let resolved):
+            canonical = resolved
+        case .noOp:
+            return
+        case .readOnly:
+            throw PartPropertyError(PartPropertyRegistry.readOnlyMessage(rawName: property, part: document.parts[partIndex]))
+        case .notApplicable(_, let appliesTo):
+            throw PartPropertyError(PartPropertyRegistry.notApplicableMessage(rawName: property, part: document.parts[partIndex], appliesTo: appliesTo))
+        case .unknown(let suggestion):
+            throw PartPropertyError(PartPropertyRegistry.unknownPropertyMessage(rawName: property, part: document.parts[partIndex], suggestion: suggestion))
+        }
+        switch canonical {
         case "url":
             document.parts[partIndex].url = value
         case "name":
             document.parts[partIndex].name = value
             env.invalidatePartLookupCache()
-        case "textcontent", "text":
+        case "textcontent", "text", "contents":
             document.parts[partIndex].textContent = value
         case "visible":
             document.parts[partIndex].visible = isTruthy(value)
@@ -7438,12 +7586,22 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].textAlign = TextAlignment(rawValue: value.lowercased()) ?? .left
         case "textfont", "font":
             document.parts[partIndex].textFont = value
-        case "textsize", "size":
+        case "textsize":
             document.parts[partIndex].textSize = toNumber(value)
+        case "size":
+            // H2 fix: `size` is now its own canonical, the geometry
+            // pair — the old behavior (writing textSize) is removed;
+            // use the dedicated `textSize` name for that instead.
+            let components = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) }
+            guard components.count == 2, let newWidth = components[0], let newHeight = components[1] else {
+                throw PartPropertyError("size expects \"width,height\" — use textSize to set the text size.")
+            }
+            document.parts[partIndex].width = newWidth
+            document.parts[partIndex].height = newHeight
         case "fillcolor", "fill_color":
-            document.parts[partIndex].fillColor = value
+            document.parts[partIndex].fillColor = try normalizedColorOrThrow(value)
         case "strokecolor", "stroke_color":
-            document.parts[partIndex].strokeColor = value
+            document.parts[partIndex].strokeColor = try normalizedColorOrThrow(value)
         case "left", "left_pos":
             document.parts[partIndex].left = toNumber(value)
         case "top", "top_pos":
@@ -7496,11 +7654,10 @@ public struct Interpreter: Sendable {
             // Empty string is meaningful — "" means "revert to auto
             // contrast-aware text color". We let the user clear back
             // to auto by setting "" (or "empty" via the existing HypeTalk
-            // empty literal). Hex parsing happens in the renderer at
-            // draw time, so any string is accepted here; an invalid
-            // hex would silently fall back to the contrast-aware
-            // default at draw time.
-            document.parts[partIndex].fontColor = value
+            // empty literal). Decision 4: every other value now
+            // validates through the shared hex validator instead of
+            // silently falling back to auto at draw time.
+            document.parts[partIndex].fontColor = try normalizedColorOrThrow(value)
         // Hover help bubble — shown on hover in browse mode via
         // a native `NSToolTip`. Empty string disables the bubble.
         // Multi-line is supported (embed `\n` for line breaks);
@@ -7534,9 +7691,10 @@ public struct Interpreter: Sendable {
                 document.parts[partIndex].top = components[1]! - document.parts[partIndex].height / 2
             }
         case "marked":
-            if let idx = document.cards.firstIndex(where: { $0.id == context.currentCardId }) {
-                document.cards[idx].marked = isTruthy(value)
-            }
+            // H4: `marked` is a card property; a part-target write
+            // used to silently mutate the CURRENT card's marked
+            // state (part name ignored). Now errors, matching GET.
+            throw PartPropertyError("\"marked\" is a card property — try the marked of this card.")
         case "right":
             let newRight = toNumber(value)
             document.parts[partIndex].width = newRight - document.parts[partIndex].left
@@ -7556,7 +7714,12 @@ public struct Interpreter: Sendable {
                 document.parts[partIndex].height = components[1] - document.parts[partIndex].top
             }
         case "icon":
-            if let uuid = UUID(uuidString: value) {
+            // H8: accept "" or "0" to clear the icon (the "0" spelling
+            // is kept as a nod to classic numbered icons).
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || trimmed == "0" {
+                document.parts[partIndex].iconId = nil
+            } else if let uuid = UUID(uuidString: trimmed) {
                 document.parts[partIndex].iconId = uuid
             }
         case "scroll", "scrollpos":
@@ -7631,6 +7794,12 @@ public struct Interpreter: Sendable {
             // player's playback engine. Negative (reverse) is intentionally allowed.
             let requestedRate = toNumber(value)
             document.parts[partIndex].videoPlayRate = requestedRate.isFinite ? max(-4.0, min(requestedRate, 4.0)) : 1.0
+        case "videoloop", "video_loop":
+            document.parts[partIndex].videoLoop = isTruthy(value)
+        case "videoautoplay", "video_autoplay":
+            document.parts[partIndex].videoAutoplay = isTruthy(value)
+        case "videovolume", "video_volume":
+            document.parts[partIndex].videoVolume = min(1, max(0, toNumber(value)))
         // Calendar-specific writes — settable on .calendar parts.
         // Empty string clears the bound (NSDatePicker.minDate/maxDate accept nil).
         case "selecteddate", "selected_date":
@@ -7677,33 +7846,24 @@ public struct Interpreter: Sendable {
         case "showsuserlocation", "shows_user_location":
             document.parts[partIndex].mapShowsUserLocation = isTruthy(value)
         // ColorWell
-        case "color", "colorhex", "color_hex":
-            document.parts[partIndex].colorWellHex = value
+        case "colorwellhex", "colorhex", "color_hex":
+            document.parts[partIndex].colorWellHex = try normalizedColorOrThrow(value)
         case "interactive":
             document.parts[partIndex].colorWellInteractive = isTruthy(value)
-        // Form-control writes (stepper / slider / segmented) and
-        // text-field text writes via the `value` alias.
+        // Form-control writes (stepper / slider) and the toggle's own
+        // boolean. The `value` bare word used to also branch on
+        // field/gauge/progressView/segmented inline here — Security
+        // condition 1 fix: that field branch wrote `textContent`
+        // directly, bypassing the secure-field mask entirely. The
+        // registry gate now remaps `value` on those four types to
+        // their own canonical (`textcontent`/`gaugevalue`/
+        // `progressvalue`/`selectedsegment`), so this case only ever
+        // sees toggle, stepper, slider — and, per the documented GET
+        // carve-out, no other type reaches SET here at all (SET is
+        // strict; only GET keeps a universal fallback).
         case "value":
-            let pt = document.parts[partIndex].partType
-            if pt == .toggle {
+            if document.parts[partIndex].partType == .toggle {
                 document.parts[partIndex].controlValue = isTruthy(value) ? 1 : 0
-            } else if pt == .progressView {
-                // Route through the canonical setProgressValue
-                // helper — clamps to [0, progressTotal] and rounds
-                // to progressDecimals. Previously this branch
-                // rounded but didn't clamp; the gauge branch did
-                // neither. The audit flagged three different
-                // behaviors for "set the value of …" depending on
-                // surface; routing through Part.setProgressValue /
-                // setGaugeValue collapses them to one.
-                document.parts[partIndex].setProgressValue(toNumber(value))
-            } else if pt == .gauge {
-                document.parts[partIndex].setGaugeValue(toNumber(value))
-            } else if pt == .field {
-                // `set the value of field "X" to "..."` — same as
-                // `set the text of field "X" to "..."`. Symmetrical
-                // with the getter overload above.
-                document.parts[partIndex].textContent = value
             } else {
                 document.parts[partIndex].controlValue = toNumber(value)
             }
@@ -7747,9 +7907,9 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].musicShowInstrument = isTruthy(value)
         case "showmusictempo", "show_music_tempo", "showtempo", "show_tempo":
             document.parts[partIndex].musicShowTempo = isTruthy(value)
-        case "musicloop", "music_loop", "loop", "looping":
+        case "musicloop", "music_loop":
             document.parts[partIndex].musicLoop = isTruthy(value)
-        case "musicvolume", "music_volume", "volume":
+        case "musicvolume", "music_volume":
             document.parts[partIndex].musicVolume = min(1, max(0, toNumber(value)))
         case "musictracks", "music_tracks", "trackdata", "track_data":
             document.parts[partIndex].musicTrackData = value
@@ -7829,7 +7989,7 @@ public struct Interpreter: Sendable {
         case "antialiasing", "anti_aliasing":
             document.parts[partIndex].scene3DAntialiasing = value
         case "background3d", "background_3d", "scenebackground":
-            document.parts[partIndex].scene3DBackground = value
+            document.parts[partIndex].scene3DBackground = try normalizedColorOrThrow(value)
         case "popupitems", "popup_items":
             document.parts[partIndex].popupItems = value
         // ProgressView setters (security condition 5: clamp values).
@@ -7837,8 +7997,15 @@ public struct Interpreter: Sendable {
         // "value"` produce identical clamp+round results.
         case "progressvalue", "progress_value":
             document.parts[partIndex].setProgressValue(toNumber(value))
-        case "progresstotal", "progress_total":
+        case "progresstotal", "progress_total", "total":
             document.parts[partIndex].progressTotal = max(1e-10, toNumber(value))
+        case "progressmin":
+            // Progress views always start at 0 — there's no stored
+            // "min" field to write. Accepting exactly 0 is a no-op;
+            // anything else is the documented error (mock §3.1).
+            if abs(toNumber(value)) > 1e-9 {
+                throw PartPropertyError("progress always starts at 0 — set the max instead.")
+            }
         case "progressdecimals", "progress_decimals":
             let n = clampedInt(toNumber(value))
             document.parts[partIndex].progressDecimals = max(0, min(10, n))
@@ -7861,7 +8028,7 @@ public struct Interpreter: Sendable {
             // Security condition 6: cap at 256 chars.
             document.parts[partIndex].progressLabel = String(value.prefix(256))
         case "progresstint", "progress_tint":
-            document.parts[partIndex].progressTint = value
+            document.parts[partIndex].progressTint = try normalizedColorOrThrow(value)
         // Gauge setters (security condition 5: enforce max > min).
         // Routes through Part.setGaugeValue — same drift fix as
         // progressvalue above. Previously this branch clamped but
@@ -7877,8 +8044,8 @@ public struct Interpreter: Sendable {
             document.parts[partIndex].gaugeMax = newMax > gMin ? newMax : gMin + 1
         case "gaugestyle", "gauge_style":
             document.parts[partIndex].gaugeStyle = value
-        case "gaugetint", "gauge_tint", "tint":
-            document.parts[partIndex].gaugeTint = value
+        case "gaugetint", "gauge_tint":
+            document.parts[partIndex].gaugeTint = try normalizedColorOrThrow(value)
         case "gaugelabel", "gauge_label":
             document.parts[partIndex].gaugeLabel = String(value.prefix(256))
         case "gaugeminlabel", "gauge_min_label":
@@ -7932,7 +8099,7 @@ public struct Interpreter: Sendable {
         case "searchtext", "search_text":
             // Security condition 6: cap at 1 KB.
             document.parts[partIndex].searchText = String(value.prefix(1024))
-        case "searchprompt", "search_prompt", "prompt":
+        case "searchprompt", "search_prompt":
             document.parts[partIndex].searchPrompt = String(value.prefix(256))
         case "searchsendsimmediately", "search_sends_immediately", "immediate":
             document.parts[partIndex].searchSendsImmediately = isTruthy(value)
@@ -7942,7 +8109,7 @@ public struct Interpreter: Sendable {
         case "dividerthickness", "divider_thickness", "thickness":
             document.parts[partIndex].dividerThickness = max(0.5, toNumber(value))
         case "dividercolor", "divider_color":
-            document.parts[partIndex].dividerColor = value
+            document.parts[partIndex].dividerColor = try normalizedColorOrThrow(value)
         case "htmlcontent", "html_content":
             document.parts[partIndex].htmlContent = value
         case "linesize":
@@ -7967,7 +8134,13 @@ public struct Interpreter: Sendable {
                 document.parts[partIndex].updateSpriteAreaSpec { spec in spec.showsNodeCount = isTruthy(value) }
             }
         default:
-            env.setVariable(property, value)
+            // Unreachable under normal operation: the registry gate
+            // above only ever hands the switch a canonical it
+            // recognizes. Throwing here (rather than the old silent
+            // `env.setVariable` fallthrough, H10) turns a
+            // registry/switch drift bug into a loud failure instead
+            // of a silently-created script variable.
+            throw PartPropertyError("internal error: unresolved property dispatch for \"\(String(property.prefix(200)))\" — please report this as a bug.")
         }
     }
 

@@ -128,6 +128,139 @@ struct SecureFieldMaskingTests {
     }
 }
 
+// MARK: - Registry-driven masking law (control-property-consistency, Security condition 1)
+
+/// Sets the underlying model field a `secureMasked` descriptor reads,
+/// so the test below can drive an arbitrary masked descriptor without
+/// a hand-maintained per-property switch of its own.
+///
+/// Returns `false` when `canonical` isn't a recognized secureMasked
+/// descriptor, so the caller can fail loudly instead of silently
+/// skipping a newly-added masked descriptor this seeder doesn't know
+/// how to prime yet.
+private func seedSecureMaskedField(canonical: String, into part: inout Part) -> Bool {
+    switch canonical {
+    case "textcontent": part.textContent = "s3cr3t-text"
+    case "htmlcontent": part.htmlContent = "s3cr3t-html"
+    case "searchtext": part.searchText = "s3cr3t-search"
+    default: return false
+    }
+    return true
+}
+
+/// Pins Security condition 1 (the masking law) STRUCTURALLY: it walks
+/// `PartPropertyRegistry.secureMaskedDescriptors` — every descriptor
+/// flagged `secureMasked` — rather than a hand-listed set of property
+/// names, so a future masked field is caught by test *shape*: add a
+/// descriptor with `secureMasked: true` and this suite immediately
+/// exercises every one of its aliases against a `.secure` field,
+/// without anyone remembering to touch this test file.
+@Suite("Registry-driven masking law — every secureMasked descriptor, every alias", .serialized)
+struct RegistryDrivenMaskingLawTests {
+    @Test("secureMasked descriptor set is exactly {textContent, htmlContent, searchText}")
+    func secureMaskedSetIsTheDocumentedThree() {
+        let names = Set(PartPropertyRegistry.secureMaskedDescriptors.map(\.canonical))
+        #expect(names == ["textcontent", "htmlcontent", "searchtext"])
+    }
+
+    @Test(
+        "every alias of every secureMasked descriptor returns \"(masked)\" on a .secure field, via HypeTalk GET",
+        arguments: PartPropertyRegistry.secureMaskedDescriptors.flatMap { descriptor in
+            ([descriptor.canonical] + descriptor.aliases).map { (descriptor.canonical, $0) }
+        }
+    )
+    func everyAliasIsMasked(canonical: String, alias: String) async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        var secureField = Part(partType: .field, cardId: cardId, name: "pwd",
+                               left: 0, top: 0, width: 200, height: 30)
+        secureField.fieldStyle = .secure
+        guard seedSecureMaskedField(canonical: canonical, into: &secureField) else {
+            Issue.record("no test seeder registered for secureMasked descriptor '\(canonical)' — add one to seedSecureMaskedField(canonical:into:)")
+            return
+        }
+        doc.addPart(secureField)
+        let outputField = Part(partType: .field, cardId: cardId, name: "output",
+                               left: 0, top: 50, width: 200, height: 30)
+        doc.addPart(outputField)
+        doc.cards[0].script = """
+        on openCard
+          put the \(alias) of field "pwd" into field "output"
+        end openCard
+        """
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
+            message: "openCard", params: [], targetId: cardId,
+            document: doc, currentCardId: cardId
+        ) }
+        #expect(result.status == .completed, "'\(alias)' script error: \(result.error?.message ?? "")")
+        let outputText = result.modifiedDocument?.parts.first { $0.name == "output" }?.textContent ?? ""
+        #expect(outputText == "(masked)", "alias '\(alias)' of descriptor '\(canonical)' did not mask: got '\(outputText)'")
+    }
+
+    @Test("a non-secure (rectangle) field still reads plaintext through every secureMasked alias")
+    func nonSecureFieldStaysPlaintext() async {
+        for descriptor in PartPropertyRegistry.secureMaskedDescriptors {
+            var doc = HypeDocument.newDocument(name: "Test")
+            let cardId = doc.cards[0].id
+            var field = Part(partType: .field, cardId: cardId, name: "notes",
+                             left: 0, top: 0, width: 200, height: 30)
+            field.fieldStyle = .rectangle
+            guard seedSecureMaskedField(canonical: descriptor.canonical, into: &field) else { continue }
+            doc.addPart(field)
+            let outputField = Part(partType: .field, cardId: cardId, name: "output",
+                                   left: 0, top: 50, width: 200, height: 30)
+            doc.addPart(outputField)
+            doc.cards[0].script = """
+            on openCard
+              put the \(descriptor.canonical) of field "notes" into field "output"
+            end openCard
+            """
+            let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
+                message: "openCard", params: [], targetId: cardId,
+                document: doc, currentCardId: cardId
+            ) }
+            #expect(result.status == .completed, "'\(descriptor.canonical)' script error: \(result.error?.message ?? "")")
+            let outputText = result.modifiedDocument?.parts.first { $0.name == "output" }?.textContent ?? ""
+            #expect(outputText != "(masked)", "'\(descriptor.canonical)' must not mask a non-secure field")
+        }
+    }
+
+    /// `value` is deliberately NOT a literal alias of the `textContent`
+    /// descriptor (it's a bare polymorphic word that the registry
+    /// remaps to the `textcontent` canonical only when the target is
+    /// a field) — Condition 1 names it explicitly as the property that
+    /// bypassed masking before this change (HypeToolExecutor.swift
+    /// 3827-3835 / Interpreter.swift 5667-5677, pre-fix), so it gets
+    /// its own direct test rather than relying on the alias-list walk
+    /// above to happen to cover it.
+    @Test("`value` of a .secure field masks too (Security Finding 1 — the exact bypass this change closes)")
+    func valueAliasIsMaskedOnSecureField() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        var secureField = Part(partType: .field, cardId: cardId, name: "pwd",
+                               left: 0, top: 0, width: 200, height: 30)
+        secureField.fieldStyle = .secure
+        secureField.textContent = "s3cr3t-value"
+        doc.addPart(secureField)
+        let outputField = Part(partType: .field, cardId: cardId, name: "output",
+                               left: 0, top: 50, width: 200, height: 30)
+        doc.addPart(outputField)
+        doc.cards[0].script = """
+        on openCard
+          put the value of field "pwd" into field "output"
+        end openCard
+        """
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
+            message: "openCard", params: [], targetId: cardId,
+            document: doc, currentCardId: cardId
+        ) }
+        #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
+        let outputText = result.modifiedDocument?.parts.first { $0.name == "output" }?.textContent ?? ""
+        #expect(outputText == "(masked)")
+        #expect(!outputText.contains("s3cr3t-value"))
+    }
+}
+
 // MARK: - PartType.unknown forward-compat filtering (Security condition 4)
 
 /// Pins the forward-compat filtering of unknown part types so a

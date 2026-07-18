@@ -462,3 +462,69 @@ struct SceneWidthHeightSetTests {
         #expect(area2?.spriteAreaSpecModel?.activeScene?.size.height == 600)
     }
 }
+
+// MARK: - Strict-SET negatives (control-property-consistency, H10/A2, mock §3.7)
+//
+// `PartPropertyDispatchTests.swift` carries the main strict-SET law
+// suite; these tests round out the picture against properties this
+// file already exercises positively above, so a reader sees both the
+// "works" and "now correctly errors" halves of the same names in one
+// place.
+
+@Suite("Property audit: strict-SET negatives", .serialized)
+struct StrictSetNegativeTests {
+    @Test("popupitems on a non-button (e.g. a field) now errors instead of silently writing an unrendered field")
+    func popupItemsOnFieldErrors() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        let field = Part(partType: .field, cardId: cardId, name: "notabutton")
+        doc.addPart(field)
+        doc.cards[0].script = """
+        on openCard
+          set the popupitems of field "notabutton" to "Apple,Banana"
+        end openCard
+        """
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
+            message: "openCard", params: [], targetId: cardId,
+            document: doc, currentCardId: cardId
+        ) }
+        #expect(result.status == .error)
+    }
+
+    @Test("videourl on a non-video (e.g. a shape) now errors instead of silently writing an unrendered field")
+    func videoURLOnShapeErrors() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        let shape = Part(partType: .shape, cardId: cardId, name: "notvideo")
+        doc.addPart(shape)
+        doc.cards[0].script = """
+        on openCard
+          set the videourl of shape "notvideo" to "http://example.com/x.mp4"
+        end openCard
+        """
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
+            message: "openCard", params: [], targetId: cardId,
+            document: doc, currentCardId: cardId
+        ) }
+        #expect(result.status == .error)
+    }
+
+    @Test("fill_color underscore alias still works after the strict-SET gate (no regression from the earlier positive test)")
+    func fillColorUnderscoreStillWorksUnderGate() async {
+        var doc = HypeDocument.newDocument(name: "Test")
+        let cardId = doc.cards[0].id
+        let shape = Part(partType: .shape, cardId: cardId, name: "s")
+        doc.addPart(shape)
+        doc.cards[0].script = """
+        on openCard
+          set the fill_color of shape "s" to "#00FF00"
+        end openCard
+        """
+        let result = await runOnLargeStack { [doc, cardId] in MessageDispatcher().dispatch(
+            message: "openCard", params: [], targetId: cardId,
+            document: doc, currentCardId: cardId
+        ) }
+        #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
+        #expect(result.modifiedDocument?.parts.first { $0.name == "s" }?.fillColor == "#00FF00")
+    }
+}

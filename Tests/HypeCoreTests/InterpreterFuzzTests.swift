@@ -290,3 +290,188 @@ struct InterpreterMetamorphicTests {
         #expect(lhs == rhs, "length not additive for \(a),\(b): \(lhs ?? "nil") vs \(rhs ?? "nil")")
     }
 }
+
+// MARK: - Layer 3: property-statement fuzzer (control-property-consistency, task 1.8)
+//
+// Extends the harness with a generator over `set the <name> of <target>
+// to <expr>` / `put the <name> of <target> into buf`, driving the
+// `PartPropertyRegistry` gate directly. The name pool mixes real
+// canonical names, real aliases, near-miss typos, and the bare
+// polymorphic words (min/max/value/style/color/…) across a fixture
+// document carrying one part per major reachable type. The oracles are
+// the same as Layer 1: no crash/trap, and determinism — a `ScriptError`
+// (from the strict-SET gate, a wrong-type read, or anything else) is a
+// perfectly valid outcome, so long as it's the SAME outcome every time.
+
+/// One property-fuzzable fixture part: its HypeTalk object-type
+/// keyword (as accepted by `findPartIndex`/the parser) and its name.
+///
+/// `.toggle` and `.searchField` are deliberately excluded — HypeTalk's
+/// grammar does not currently recognize `toggle "X"` or `searchField
+/// "X"` as an object-reference start (Parser.swift's keyword-gated
+/// object-ref list omits both), so scripts cannot address a part of
+/// either type by `<type> "<name>"` at all. This is a pre-existing,
+/// out-of-scope parser gap flagged separately in the Builder's report,
+/// not a regression from this change.
+private struct PropertyFuzzFixture {
+    let objectTypeWord: String
+    let partName: String
+}
+
+/// Builds a fresh document with one part of every object-ref-reachable
+/// major part type, so the generator below can target a wide spread of
+/// per-type dispatch cells.
+private struct PropertyFuzzTypeSpec {
+    let type: PartType
+    let objectTypeWord: String
+    let partName: String
+}
+
+/// The type/keyword/name triples used to build both the fixture
+/// document and the (cheap, document-free) fixture list the generator
+/// draws targets from.
+private let propertyFuzzTypeSpecs: [PropertyFuzzTypeSpec] = [
+    .init(type: .button, objectTypeWord: "button", partName: "fzButton"),
+    .init(type: .field, objectTypeWord: "field", partName: "fzField"),
+    .init(type: .shape, objectTypeWord: "shape", partName: "fzShape"),
+    .init(type: .webpage, objectTypeWord: "webpage", partName: "fzWebpage"),
+    .init(type: .image, objectTypeWord: "image", partName: "fzImage"),
+    .init(type: .video, objectTypeWord: "video", partName: "fzVideo"),
+    .init(type: .chart, objectTypeWord: "chart", partName: "fzChart"),
+    .init(type: .spriteArea, objectTypeWord: "spritearea", partName: "fzSpriteArea"),
+    .init(type: .calendar, objectTypeWord: "calendar", partName: "fzCalendar"),
+    .init(type: .pdf, objectTypeWord: "pdf", partName: "fzPdf"),
+    .init(type: .map, objectTypeWord: "map", partName: "fzMap"),
+    .init(type: .colorWell, objectTypeWord: "colorwell", partName: "fzColorWell"),
+    .init(type: .stepper, objectTypeWord: "stepper", partName: "fzStepper"),
+    .init(type: .slider, objectTypeWord: "slider", partName: "fzSlider"),
+    .init(type: .segmented, objectTypeWord: "segmented", partName: "fzSegmented"),
+    .init(type: .audioRecorder, objectTypeWord: "recorder", partName: "fzRecorder"),
+    .init(type: .scene3D, objectTypeWord: "scene3d", partName: "fzScene3D"),
+    .init(type: .musicPlayer, objectTypeWord: "musicplayer", partName: "fzMusicPlayer"),
+    .init(type: .pianoKeyboard, objectTypeWord: "pianokeyboard", partName: "fzPianoKeyboard"),
+    .init(type: .stepSequencer, objectTypeWord: "stepsequencer", partName: "fzStepSequencer"),
+    .init(type: .musicMixer, objectTypeWord: "musicmixer", partName: "fzMusicMixer"),
+    .init(type: .appleMusicBrowser, objectTypeWord: "applemusicbrowser", partName: "fzAppleMusicBrowser"),
+    .init(type: .musicQueue, objectTypeWord: "musicqueue", partName: "fzMusicQueue"),
+    .init(type: .progressView, objectTypeWord: "progressview", partName: "fzProgressView"),
+    .init(type: .gauge, objectTypeWord: "gauge", partName: "fzGauge"),
+    .init(type: .menu, objectTypeWord: "menu", partName: "fzMenu"),
+    .init(type: .divider, objectTypeWord: "divider", partName: "fzDivider"),
+]
+
+/// Cheap: just the (objectTypeWord, partName) pairs the generator picks
+/// from — no document construction.
+private let propertyFuzzFixtures: [PropertyFuzzFixture] = propertyFuzzTypeSpecs.map {
+    PropertyFuzzFixture(objectTypeWord: $0.objectTypeWord, partName: $0.partName)
+}
+
+/// Builds a fresh document with one part of every object-ref-reachable
+/// major part type (`propertyFuzzTypeSpecs`), so the generator can
+/// target a wide spread of per-type dispatch cells.
+private func propertyFuzzDocument() -> HypeDocument {
+    var doc = HypeDocument.newDocument()
+    let cardId = doc.cards[0].id
+    for spec in propertyFuzzTypeSpecs {
+        var part = Part(partType: spec.type, cardId: cardId, name: spec.partName, left: 0, top: 0, width: 100, height: 40)
+        if spec.type == .field { part.fieldStyle = .rectangle }
+        if spec.type == .chart { part.chartData = ChartConfig().toJSON() }
+        doc.addPart(part)
+    }
+    return doc
+}
+
+/// Every canonical name + alias in the registry, the bare polymorphic
+/// words (which don't have their own descriptor entries — they're
+/// resolved by `PartPropertyRegistry`'s internal per-type remap), and
+/// a handful of near-miss typos (drop-last-character) of real
+/// canonicals — the pool the generator draws property names from.
+private let propertyFuzzNamePool: [String] = {
+    var names = Set<String>()
+    for descriptor in PartPropertyRegistry.descriptors {
+        names.insert(descriptor.canonical)
+        names.formUnion(descriptor.aliases)
+    }
+    let bareWords = [
+        "value", "on", "min", "max", "step", "loop", "looping", "volume", "autoplay",
+        "duration", "tint", "prompt", "total", "items", "decimals", "style", "color",
+        "background",
+    ]
+    names.formUnion(bareWords)
+    var typos: [String] = []
+    for descriptor in PartPropertyRegistry.descriptors where descriptor.canonical.count > 4 {
+        typos.append(String(descriptor.canonical.dropLast()))
+    }
+    names.formUnion(typos)
+    return names.sorted()
+}()
+
+/// Parses and executes a single-statement handler against `document`,
+/// targeting `cardId`. Mirrors `execHandler` above but threads a real
+/// document (with fixture parts) instead of a bare one.
+private func execPropertyHandler(_ source: String, document: HypeDocument, cardId: UUID) -> (errored: Bool, value: String)? {
+    var lexer = Lexer(source: source)
+    let tokens = lexer.tokenize()
+    var parser = Parser(tokens: tokens)
+    guard let script = try? parser.parse(), let handler = script.handlers.first else { return nil }
+    let context = ExecutionContext(targetId: cardId, currentCardId: cardId, document: document)
+    let result = Interpreter().execute(handler: handler, params: [], context: context)
+    if case .error = result.status { return (true, result.returnValue ?? "") }
+    return (false, result.returnValue ?? "")
+}
+
+@Suite("Interpreter fuzz — property statements (registry dispatch)", .serialized)
+struct PropertyStatementFuzzTests {
+    /// Seeds that previously surfaced a failure. Add a seed here when the
+    /// fuzzer finds a bug so it is pinned as a permanent regression case.
+    static let regressionSeeds: [UInt64] = []
+
+    /// Generates one `set the <name> of <target> to <expr>` or `put the
+    /// <name> of <target> into buf` statement, wrapped in a handler that
+    /// returns `buf` (populated only by the `put` form; `""` for `set`).
+    private static func generate(seed: UInt64) -> String {
+        var rng = SplitMix64(seed: seed)
+        let fixture = rng.pick(propertyFuzzFixtures)
+        let name = rng.pick(propertyFuzzNamePool)
+        let target = "\(fixture.objectTypeWord) \"\(fixture.partName)\""
+        if rng.bool() {
+            let value: String
+            switch rng.int(0...3) {
+            case 0: value = "\"\(rng.int(0...999))\""
+            case 1: value = "\"\(rng.int(0...999)),\(rng.int(0...999))\""   // pair-shaped (size/loc/rect-ish)
+            case 2: value = rng.bool() ? "true" : "false"
+            default: value = "\"#\(String(format: "%06X", rng.int(0...0xFFFFFF)))\""  // color-shaped
+            }
+            return "on t\nset the \(name) of \(target) to \(value)\nreturn buf\nend t"
+        }
+        return "on t\nput the \(name) of \(target) into buf\nreturn buf\nend t"
+    }
+
+    @Test("Generated property statements never crash and are deterministic", arguments: 0..<400)
+    func fuzz(seed: Int) {
+        let combinedSeed = UInt64(seed) &* 0x2545F4914F6CDD1D &+ 7
+        let source = Self.generate(seed: combinedSeed)
+        let doc = propertyFuzzDocument()
+        let cardId = doc.cards[0].id
+
+        guard let first = execPropertyHandler(source, document: doc, cardId: cardId) else { return }
+        guard let second = execPropertyHandler(source, document: doc, cardId: cardId) else {
+            Issue.record("seed \(seed): parsed then failed to parse on replay\n\(source)")
+            return
+        }
+        #expect(
+            first.errored == second.errored && first.value == second.value,
+            "Non-deterministic property dispatch for seed \(seed):\n\(source)\n→ run1=(\(first)) run2=(\(second))"
+        )
+    }
+
+    @Test("Pinned property-fuzz regression seeds stay green", arguments: PropertyStatementFuzzTests.regressionSeeds)
+    func regressions(seed: UInt64) {
+        let source = Self.generate(seed: seed)
+        let doc = propertyFuzzDocument()
+        let cardId = doc.cards[0].id
+        let a = execPropertyHandler(source, document: doc, cardId: cardId)
+        let b = execPropertyHandler(source, document: doc, cardId: cardId)
+        #expect(a?.value == b?.value && a?.errored == b?.errored, "regression seed \(seed):\n\(source)")
+    }
+}

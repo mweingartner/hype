@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "paths": [
+    "Sources/Hype/Views/PropertyInspector.swift",
+    "Sources/HypeCore/Script/Interpreter.swift",
+    "Sources/HypeCore/AI/HypeToolExecutor.swift",
+    "Sources/HypeCore/AI/HypeTools.swift",
+    "Sources/HypeCore/AI/HypeTalkGuide.swift",
+    "Sources/HypeCore/Models/HypeStack.swift",
+    "HypeTalk-LLM-Context.md",
+    "Tests/HypeCoreTests/PartPropertyRegistryConformanceTests.swift",
+    "Tests/HypeCoreTests/PartPropertyDispatchTests.swift",
+    "Tests/HypeCoreTests/PartDisplayNamesTests.swift",
+    "Tests/HypeCoreTests/PropertyInspectorLabelSpecTests.swift",
+    "Tests/HypeCoreTests/PropertyAuditTests.swift",
+    "Tests/HypeCoreTests/HypeTalkGuideTests.swift",
+    "Tests/HypeCoreTests/InterpreterFuzzTests.swift",
+    "Tests/HypeCoreTests/SecurityRegressionTests.swift",
+    "Sources/HypeCore/Models/PartPropertyRegistry.swift",
+    "Sources/HypeCore/Models/HexColor.swift",
+    "Sources/HypeCore/Models/PartDisplayNames.swift"
+  ],
+  "shared_paths": [
+    "Sources/HypeCore/Models/Part.swift"
+  ]
+}
