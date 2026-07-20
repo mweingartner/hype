@@ -19,7 +19,27 @@ public enum HypeMCPToolBridge {
         "hype_preview_transaction",
         "hype_apply_transaction",
         "hype_rollback_transaction",
-        "hype_create_test_stack"
+        "hype_create_test_stack",
+        "hype_list_windows",
+        "hype_focus_window",
+        "hype_wait_for_window",
+        "hype_list_menu_commands",
+        "hype_trigger_menu_command",
+        "hype_get_script_debugger_state",
+        "hype_set_script_tracing",
+        "hype_clear_script_trace",
+        "hype_open_script_trace_source",
+        "hype_add_script_breakpoint",
+        "hype_remove_script_breakpoint",
+        "hype_add_script_watchpoint",
+        "hype_remove_script_watchpoint",
+        "hype_resume_script_execution",
+        "hype_step_into_script_execution",
+        "hype_step_over_script_execution",
+        "hype_wait_for_debugger_pause",
+        "hype_step_script_execution_and_wait",
+        "hype_get_script_editor_state",
+        "hype_toggle_script_editor_breakpoint"
     ]
 
     public static var allTools: [HypeMCPTool] {
@@ -214,6 +234,158 @@ public enum HypeMCPToolBridge {
                     "name": ("string", "Stack name", false),
                     "target_platforms": ("string", "Optional comma-separated target platforms: macOS, iPhone, iPad, tvOS. Defaults to macOS.", false),
                     "primary_target_platform": ("string", "Optional primary target platform. Defaults to the first selected target.", false)
+                ]
+            ),
+            tool(
+                "hype_list_windows",
+                "List Hype NSWindow state from inside the live app, without macOS Accessibility permissions.",
+                [:]
+            ),
+            tool(
+                "hype_focus_window",
+                "Focus a Hype window by window_number, title, or kind. Kinds include script_debugger, script_editor, document, and other.",
+                [
+                    "window_number": ("number", "NSWindow windowNumber from hype_list_windows.", false),
+                    "title": ("string", "Exact or case-insensitive substring title match.", false),
+                    "kind": ("string", "Window kind: script_debugger, script_editor, document, or other.", false)
+                ]
+            ),
+            tool(
+                "hype_wait_for_window",
+                "Poll live Hype NSWindow state until a matching window exists, and optionally until it is key.",
+                [
+                    "window_number": ("number", "Optional NSWindow windowNumber from hype_list_windows.", false),
+                    "title": ("string", "Optional exact or case-insensitive substring title match.", false),
+                    "kind": ("string", "Optional window kind: script_debugger, script_editor, document, or other.", false),
+                    "key": ("boolean", "Optional true to wait until the window is key.", false),
+                    "timeout_ms": ("number", "Timeout in milliseconds. Defaults to 5000.", false)
+                ]
+            ),
+            tool(
+                "hype_list_menu_commands",
+                "List debug-server menu automation commands that can be triggered without macOS Accessibility permissions.",
+                [:]
+            ),
+            tool(
+                "hype_trigger_menu_command",
+                "Trigger one Hype menu command through the same app notification path used by the menu item. Use hype_list_menu_commands for stable command ids.",
+                [
+                    "command": ("string", "Stable command id or visible label, e.g. script_debugger, show_console, next_card, select_tool:button.", true),
+                    "argument": ("string", "Optional command argument. Used by select_tool and set_target_emulation.", false),
+                    "scope": ("string", "Optional true/false. Defaults to true for document-scoped commands.", false)
+                ]
+            ),
+            tool(
+                "hype_get_script_debugger_state",
+                "Return script debugger trace entries, breakpoints, watchpoints, scoped variables, globals, and runtime budget pressure.",
+                [
+                    "max_entries": ("number", "Maximum newest trace entries to return. Defaults to 200.", false),
+                    "frame_budget_ms": ("number", "Frame budget in milliseconds for pressure summaries. Defaults to 16.67.", false),
+                    "include_diagnostics": ("boolean", "Include detailed statement/expression/property counters. Defaults to true.", false)
+                ]
+            ),
+            tool(
+                "hype_set_script_tracing",
+                "Enable or pause live HypeTalk script tracing.",
+                [
+                    "enabled": ("boolean", "Whether tracing should be enabled.", true)
+                ]
+            ),
+            tool(
+                "hype_clear_script_trace",
+                "Clear recorded script trace entries and reset watchpoint baselines.",
+                [:]
+            ),
+            tool(
+                "hype_open_script_trace_source",
+                "Open the script editor for a trace source.",
+                [
+                    "source_kind": ("string", "Trace source kind: part, card, background, stack, or hype.", true),
+                    "object_id": ("string", "Source object UUID. Required for part/card/background.", false)
+                ]
+            ),
+            tool(
+                "hype_add_script_breakpoint",
+                "Add a debugger-session breakpoint matched against source kind, object id, handler, and optional line.",
+                [
+                    "source_kind": ("string", "Trace source kind: part, card, background, stack, or hype.", false),
+                    "object_id": ("string", "Optional source object UUID.", false),
+                    "handler": ("string", "Optional handler name.", false),
+                    "line": ("number", "Optional handler line number.", false)
+                ]
+            ),
+            tool(
+                "hype_remove_script_breakpoint",
+                "Remove a script debugger breakpoint by UUID.",
+                [
+                    "id": ("string", "Breakpoint UUID.", true)
+                ]
+            ),
+            tool(
+                "hype_add_script_watchpoint",
+                "Add a debugger-session watchpoint for a local, global, special, or auto-scoped variable name.",
+                [
+                    "scope": ("string", "auto, local, global, or special. Defaults to auto.", false),
+                    "name": ("string", "Variable name to watch.", true)
+                ]
+            ),
+            tool(
+                "hype_remove_script_watchpoint",
+                "Remove a script debugger watchpoint by UUID.",
+                [
+                    "id": ("string", "Watchpoint UUID.", true)
+                ]
+            ),
+            tool(
+                "hype_resume_script_execution",
+                "Resume the currently halted HypeTalk handler, if a breakpoint has paused execution.",
+                [:]
+            ),
+            tool(
+                "hype_step_into_script_execution",
+                "Resume the currently halted HypeTalk handler and halt again at the next handler entry.",
+                [:]
+            ),
+            tool(
+                "hype_step_over_script_execution",
+                "Resume the currently halted HypeTalk handler and halt again at the next handler entry. Statement-level stepping is not yet available.",
+                [:]
+            ),
+            tool(
+                "hype_wait_for_debugger_pause",
+                "Poll until script execution is halted in the debugger, optionally matching reason, handler, source kind, or line.",
+                [
+                    "reason": ("string", "Optional pause reason to match, e.g. breakpoint, stepInto, or stepOver.", false),
+                    "handler": ("string", "Optional handler name to match.", false),
+                    "source_kind": ("string", "Optional source kind to match.", false),
+                    "line": ("number", "Optional source line to match.", false),
+                    "timeout_ms": ("number", "Timeout in milliseconds. Defaults to 5000.", false)
+                ]
+            ),
+            tool(
+                "hype_step_script_execution_and_wait",
+                "Step into or over from a halted script and wait for the next debugger pause.",
+                [
+                    "step": ("string", "Step mode: into or over.", false),
+                    "timeout_ms": ("number", "Timeout in milliseconds. Defaults to 5000.", false)
+                ]
+            ),
+            tool(
+                "hype_get_script_editor_state",
+                "Return resolved script-editor target metadata and debugger breakpoints for a stack, card, background, or part.",
+                [
+                    "object_type": ("string", "Object type: stack, card, background, or part.", true),
+                    "id_or_name": ("string", "UUID or case-insensitive name. Omit only for stack.", false)
+                ]
+            ),
+            tool(
+                "hype_toggle_script_editor_breakpoint",
+                "Set, clear, or toggle a debugger breakpoint for the script-editor target line.",
+                [
+                    "object_type": ("string", "Object type: stack, card, background, or part.", true),
+                    "id_or_name": ("string", "UUID or case-insensitive name. Omit only for stack.", false),
+                    "line": ("number", "One-based script line number.", true),
+                    "action": ("string", "toggle, add, or remove. Defaults to toggle.", false)
                 ]
             )
         ]

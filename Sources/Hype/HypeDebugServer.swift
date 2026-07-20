@@ -282,6 +282,102 @@ struct HypeDebugServerStatus: Equatable {
     }
 }
 
+private struct HypeDebugMenuAutomationCommand {
+    var id: String
+    var menu: String
+    var title: String
+    var notification: Notification.Name
+    var object: Any?
+    var userInfo: [AnyHashable: Any]
+    var isDocumentScoped: Bool
+    var requiresArgument: Bool
+    var argumentDescription: String?
+    var aliases: [String]
+
+    init(
+        id: String,
+        menu: String,
+        title: String,
+        notification: Notification.Name,
+        object: Any? = nil,
+        userInfo: [AnyHashable: Any] = [:],
+        isDocumentScoped: Bool = true,
+        requiresArgument: Bool = false,
+        argumentDescription: String? = nil,
+        aliases: [String] = []
+    ) {
+        self.id = id
+        self.menu = menu
+        self.title = title
+        self.notification = notification
+        self.object = object
+        self.userInfo = userInfo
+        self.isDocumentScoped = isDocumentScoped
+        self.requiresArgument = requiresArgument
+        self.argumentDescription = argumentDescription
+        self.aliases = aliases
+    }
+}
+
+private enum HypeDebugMenuAutomation {
+    static let stackIdOverrideArgument = "stack_id"
+
+    static func commands(argument: String? = nil) -> [HypeDebugMenuAutomationCommand] {
+        let tool = argument.flatMap(ToolName.init(rawValue:))
+        let profileId = argument ?? ""
+        return [
+            .init(id: "first_card", menu: "Go", title: "First Card", notification: .navigateCard, object: NavigationDirection.first, aliases: ["First Card"]),
+            .init(id: "previous_card", menu: "Go", title: "Previous Card", notification: .navigateCard, object: NavigationDirection.previous, aliases: ["Previous Card"]),
+            .init(id: "next_card", menu: "Go", title: "Next Card", notification: .navigateCard, object: NavigationDirection.next, aliases: ["Next Card"]),
+            .init(id: "last_card", menu: "Go", title: "Last Card", notification: .navigateCard, object: NavigationDirection.last, aliases: ["Last Card"]),
+            .init(id: "new_card", menu: "Go", title: "New Card", notification: .addNewCard, aliases: ["New Card"]),
+            .init(id: "delete_current_card", menu: "Go", title: "Delete Current Card", notification: .deleteCurrentCard, aliases: ["Delete Current Card"]),
+            .init(id: "edit_card", menu: "Go", title: "Edit Card", notification: .toggleEditBackground, object: false, aliases: ["Edit Card"]),
+            .init(id: "edit_background", menu: "Go", title: "Edit Background", notification: .toggleEditBackground, object: true, aliases: ["Edit Background"]),
+            .init(id: "new_background", menu: "Go", title: "New Background", notification: .addNewBackground, aliases: ["New Background", "New Background..."]),
+            .init(id: "select_tool", menu: "Tools", title: "Select Tool", notification: .selectTool, object: tool, requiresArgument: true, argumentDescription: "ToolName raw value, e.g. browse, select, button, field, image, spriteArea.", aliases: ["Select Tool"]),
+            .init(id: "browse_tool", menu: "Tools", title: "Browse", notification: .selectTool, object: ToolName.browse, aliases: ["Browse"]),
+            .init(id: "select_pointer_tool", menu: "Tools", title: "Select", notification: .selectTool, object: ToolName.select, aliases: ["Select"]),
+            .init(id: "switch_runtime_edit_mode", menu: "View", title: "Switch Runtime/Edit Mode", notification: .toggleRuntimeMode, aliases: ["Switch Runtime/Edit Mode"]),
+            .init(id: "toggle_objects_panel", menu: "View", title: "Show/Hide Objects Panel", notification: .toggleObjectsPanel, isDocumentScoped: false, aliases: ["Show Objects Panel", "Hide Objects Panel"]),
+            .init(id: "target_platforms", menu: "View", title: "Target Platforms", notification: .showTargetPlatforms, aliases: ["Target Platforms"]),
+            .init(id: "export_runtime_packages", menu: "View", title: "Export Runtime Packages", notification: .exportRuntimePackages, aliases: ["Export Runtime Packages"]),
+            .init(id: "test_stack_in_simulator", menu: "View", title: "Test Stack in Simulator", notification: .testStackInSimulator, aliases: ["Test Stack in Simulator"]),
+            .init(id: "set_target_emulation", menu: "View", title: "Set Target Emulation", notification: .setTargetEmulation, userInfo: ["profileId": profileId], requiresArgument: true, argumentDescription: "Device profile id, or empty string to disable emulation.", aliases: ["Emulate Target Device"]),
+            .init(id: "show_ai_assistant", menu: "View", title: "Show AI Assistant", notification: .toggleAI, aliases: ["Show AI Assistant"]),
+            .init(id: "show_console", menu: "View", title: "Show Console", notification: .showConsole, isDocumentScoped: false, aliases: ["Show Console"]),
+            .init(id: "script_debugger", menu: "View", title: "Script Debugger", notification: .openScriptDebugger, isDocumentScoped: false, aliases: ["Script Debugger"]),
+            .init(id: "asset_repository", menu: "Window", title: "Asset Repository", notification: .openAssetRepository, aliases: ["Asset Repository"]),
+            .init(id: "ai_context_library", menu: "Window", title: "AI Context Library", notification: .openAIContextLibrary, aliases: ["AI Context Library"]),
+            .init(id: "theme_designer", menu: "Window", title: "Theme Designer", notification: .openThemeDesigner, aliases: ["Theme Designer"]),
+            .init(id: "halt_ai", menu: "AI", title: "Halt Current Run", notification: .haltAIChat, isDocumentScoped: false, aliases: ["Halt Current Run"]),
+            .init(id: "cancel_running_scripts", menu: "AI", title: "Cancel Running Scripts", notification: .cancelRunningScripts, isDocumentScoped: false),
+        ]
+    }
+
+    static func resolve(command rawCommand: String, argument: String?) -> HypeDebugMenuAutomationCommand? {
+        let normalized = normalize(rawCommand)
+        if normalized.hasPrefix("selecttool"),
+           normalized.count > "selecttool".count,
+           let separatorIndex = rawCommand.firstIndex(where: { $0 == ":" || $0 == "=" }) {
+            let tool = String(rawCommand[rawCommand.index(after: separatorIndex)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return commands(argument: tool).first { $0.id == "select_tool" }
+        }
+        return commands(argument: argument).first { command in
+            normalize(command.id) == normalized
+                || normalize(command.title) == normalized
+                || command.aliases.contains { normalize($0) == normalized }
+        }
+    }
+
+    static func normalize(_ text: String) -> String {
+        text
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
+    }
+}
+
 final class HypeDebugServer: @unchecked Sendable {
     @MainActor
     static let shared = HypeDebugServer()
@@ -1489,8 +1585,504 @@ final class HypeDebugServer: @unchecked Sendable {
                 name: arguments["name"]?.flattenedString.nonEmpty ?? "MCP Test Stack",
                 deploymentTargets: automationDeploymentTargets(from: arguments)
             )
+        case "hype_list_windows", "hype_focus_window":
+            return callWindowAutomationControlTool(name: name, arguments: arguments)
+        case "hype_wait_for_window":
+            return await callWindowWaitControlTool(name: name, arguments: arguments)
+        case "hype_list_menu_commands":
+            return callMenuAutomationControlTool(name: name, arguments: arguments)
+        case "hype_trigger_menu_command":
+            return callMenuAutomationControlTool(name: name, arguments: arguments)
+        case "hype_get_script_debugger_state",
+             "hype_set_script_tracing",
+             "hype_clear_script_trace",
+             "hype_open_script_trace_source",
+             "hype_add_script_breakpoint",
+             "hype_remove_script_breakpoint",
+             "hype_add_script_watchpoint",
+             "hype_remove_script_watchpoint",
+             "hype_resume_script_execution",
+             "hype_step_into_script_execution",
+             "hype_step_over_script_execution":
+            return callScriptDebuggerControlTool(name: name, arguments: arguments)
+        case "hype_wait_for_debugger_pause":
+            return await callDebuggerWaitControlTool(name: name, arguments: arguments)
+        case "hype_step_script_execution_and_wait":
+            return await callDebuggerWaitControlTool(name: name, arguments: arguments)
+        case "hype_get_script_editor_state", "hype_toggle_script_editor_breakpoint":
+            return callScriptEditorAutomationControlTool(name: name, arguments: arguments)
         default:
             return ("Unknown MCP control tool \(name)", true)
+        }
+    }
+
+    @MainActor
+    func callWindowAutomationControlTool(
+        name: String,
+        arguments: [String: HypeMCPJSONValue]
+    ) -> (text: String, isError: Bool) {
+        switch name {
+        case "hype_list_windows":
+            return (debugJSONText([
+                "isActive": NSApp.isActive,
+                "keyWindowNumber": NSApp.keyWindow.map { $0.windowNumber } ?? NSNull(),
+                "mainWindowNumber": NSApp.mainWindow.map { $0.windowNumber } ?? NSNull(),
+                "windows": debugWindowsJSON(),
+            ] as [String: Any]), false)
+        case "hype_focus_window":
+            guard let window = resolveDebugWindow(arguments: arguments) else {
+                return (debugJSONText([
+                    "error": "No Hype window matched the requested selector.",
+                    "windows": debugWindowsJSON(),
+                ] as [String: Any]), true)
+            }
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
+            return (debugJSONText([
+                "result": "Window focused.",
+                "window": debugWindowJSON(window),
+                "isActive": NSApp.isActive,
+                "keyWindowNumber": NSApp.keyWindow.map { $0.windowNumber } ?? NSNull(),
+            ] as [String: Any]), false)
+        default:
+            return ("Unknown window automation control tool \(name)", true)
+        }
+    }
+
+    @MainActor
+    private func waitForWindow(arguments: [String: HypeMCPJSONValue]) async -> (text: String, isError: Bool) {
+        let timeoutMilliseconds = max(0, arguments["timeout_ms"]?.intValue ?? arguments["timeoutMs"]?.intValue ?? 5_000)
+        let deadline = Date().addingTimeInterval(Double(timeoutMilliseconds) / 1_000)
+        let requiresKey = arguments["key"]?.boolValue ?? arguments["is_key"]?.boolValue ?? false
+
+        while true {
+            if let window = resolveDebugWindow(arguments: arguments),
+               !requiresKey || window.isKeyWindow {
+                return (debugJSONText([
+                    "result": "Window matched.",
+                    "matched": true,
+                    "window": debugWindowJSON(window),
+                    "isActive": NSApp.isActive,
+                ] as [String: Any]), false)
+            }
+            if Date() >= deadline {
+                return (debugJSONText([
+                    "error": "Timed out waiting for matching Hype window.",
+                    "matched": false,
+                    "timeoutMilliseconds": timeoutMilliseconds,
+                    "windows": debugWindowsJSON(),
+                ] as [String: Any]), true)
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
+    @MainActor
+    func callWindowWaitControlTool(
+        name: String,
+        arguments: [String: HypeMCPJSONValue]
+    ) async -> (text: String, isError: Bool) {
+        switch name {
+        case "hype_wait_for_window":
+            return await waitForWindow(arguments: arguments)
+        default:
+            return ("Unknown window wait control tool \(name)", true)
+        }
+    }
+
+    @MainActor
+    private func debugWindowsJSON() -> [[String: Any]] {
+        NSApp.windows.map(debugWindowJSON)
+    }
+
+    @MainActor
+    private func debugWindowJSON(_ window: NSWindow) -> [String: Any] {
+        [
+            "windowNumber": window.windowNumber,
+            "title": window.title,
+            "kind": debugWindowKind(window),
+            "isKey": window.isKeyWindow,
+            "isMain": window.isMainWindow,
+            "isVisible": window.isVisible,
+            "isMiniaturized": window.isMiniaturized,
+            "canBecomeKey": window.canBecomeKey,
+            "frame": [
+                "x": window.frame.origin.x,
+                "y": window.frame.origin.y,
+                "width": window.frame.width,
+                "height": window.frame.height,
+            ],
+        ]
+    }
+
+    @MainActor
+    private func resolveDebugWindow(arguments: [String: HypeMCPJSONValue]) -> NSWindow? {
+        let windows = NSApp.windows
+        if let number = arguments["window_number"]?.intValue ?? arguments["windowNumber"]?.intValue {
+            return windows.first { $0.windowNumber == number }
+        }
+        if let title = arguments["title"]?.flattenedString.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty {
+            if let exact = windows.first(where: { $0.title == title }) {
+                return exact
+            }
+            return windows.first { $0.title.localizedCaseInsensitiveContains(title) }
+        }
+        if let kind = arguments["kind"]?.flattenedString.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty {
+            return windows.first { debugWindowKind($0) == kind }
+        }
+        return NSApp.keyWindow ?? NSApp.mainWindow ?? windows.first
+    }
+
+    @MainActor
+    private func debugWindowKind(_ window: NSWindow) -> String {
+        let title = window.title.lowercased()
+        if title.contains("script debugger") {
+            return "script_debugger"
+        }
+        if title.contains("script editor") {
+            return "script_editor"
+        }
+        if window.contentViewController != nil || window.contentView != nil {
+            return title.isEmpty ? "other" : "document"
+        }
+        return "other"
+    }
+
+    @MainActor
+    func callMenuAutomationControlTool(
+        name: String,
+        arguments: [String: HypeMCPJSONValue]
+    ) -> (text: String, isError: Bool) {
+        switch name {
+        case "hype_list_menu_commands":
+            return (debugJSONText([
+                "commands": HypeDebugMenuAutomation.commands().map(menuCommandJSON)
+            ] as [String: Any]), false)
+        case "hype_trigger_menu_command":
+            let rawCommand = arguments["command"]?.flattenedString.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !rawCommand.isEmpty else {
+                return (debugJSONText(["error": "hype_trigger_menu_command requires command."]), true)
+            }
+            let argument = arguments["argument"]?.flattenedString.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let command = HypeDebugMenuAutomation.resolve(command: rawCommand, argument: argument) else {
+                return (debugJSONText([
+                    "error": "Unknown menu automation command '\(rawCommand)'.",
+                    "availableCommands": HypeDebugMenuAutomation.commands().map(\.id),
+                ] as [String: Any]), true)
+            }
+            if command.requiresArgument, menuCommandArgumentWasMissing(command) {
+                return (debugJSONText([
+                    "error": "Menu command \(command.id) requires argument.",
+                    "argumentDescription": command.argumentDescription ?? NSNull(),
+                ] as [String: Any]), true)
+            }
+            let result = triggerMenuAutomationCommand(command, arguments: arguments)
+            return (debugJSONText(result), result["error"] != nil)
+        default:
+            return ("Unknown menu automation control tool \(name)", true)
+        }
+    }
+
+    @MainActor
+    private func triggerMenuAutomationCommand(
+        _ command: HypeDebugMenuAutomationCommand,
+        arguments: [String: HypeMCPJSONValue]
+    ) -> [String: Any] {
+        var userInfo = command.userInfo
+        let shouldScope = debugBool(arguments["scope"]) ?? command.isDocumentScoped
+        if shouldScope, command.isDocumentScoped {
+            if let stackId = explicitStackId(arguments) ?? activeDebugDocument()?.stack.id {
+                userInfo[MenuCommandScoping.stackIdKey] = stackId
+            }
+        }
+
+        NotificationCenter.default.post(
+            name: command.notification,
+            object: command.object,
+            userInfo: userInfo.isEmpty ? nil : userInfo
+        )
+
+        if command.id == "halt_ai" {
+            NotificationCenter.default.post(name: .cancelRunningScripts, object: nil)
+        }
+
+        return [
+            "result": "Menu command triggered.",
+            "command": menuCommandJSON(command),
+            "notificationName": command.notification.rawValue,
+            "isDocumentScoped": command.isDocumentScoped,
+            "postedStackId": (userInfo[MenuCommandScoping.stackIdKey] as? UUID)?.uuidString ?? NSNull(),
+            "postedUserInfo": debugUserInfoJSON(userInfo),
+        ]
+    }
+
+    private func explicitStackId(_ arguments: [String: HypeMCPJSONValue]) -> UUID? {
+        let raw = arguments["stack_id"]?.flattenedString
+            ?? arguments["stackId"]?.flattenedString
+        return raw.flatMap(UUID.init(uuidString:))
+    }
+
+    private func menuCommandArgumentWasMissing(_ command: HypeDebugMenuAutomationCommand) -> Bool {
+        switch command.id {
+        case "select_tool":
+            return command.object == nil
+        case "set_target_emulation":
+            return command.userInfo["profileId"] == nil
+        default:
+            return false
+        }
+    }
+
+    private func debugBool(_ value: HypeMCPJSONValue?) -> Bool? {
+        switch value {
+        case .bool(let bool):
+            return bool
+        case .number(let number):
+            return number != 0
+        case .string(let text):
+            switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "yes", "1", "enabled", "on":
+                return true
+            case "false", "no", "0", "disabled", "off":
+                return false
+            default:
+                return nil
+            }
+        default:
+            return nil
+        }
+    }
+
+    private func menuCommandJSON(_ command: HypeDebugMenuAutomationCommand) -> [String: Any] {
+        [
+            "id": command.id,
+            "menu": command.menu,
+            "title": command.title,
+            "aliases": command.aliases,
+            "isDocumentScoped": command.isDocumentScoped,
+            "requiresArgument": command.requiresArgument,
+            "argumentDescription": command.argumentDescription ?? NSNull(),
+        ]
+    }
+
+    private func debugUserInfoJSON(_ userInfo: [AnyHashable: Any]) -> [String: Any] {
+        var result: [String: Any] = [:]
+        for (key, value) in userInfo {
+            let keyText = String(describing: key)
+            switch value {
+            case let id as UUID:
+                result[keyText] = id.uuidString
+            case let string as String:
+                result[keyText] = string
+            case let bool as Bool:
+                result[keyText] = bool
+            case let number as NSNumber:
+                result[keyText] = number
+            default:
+                result[keyText] = String(describing: value)
+            }
+        }
+        return result
+    }
+
+    @MainActor
+    func callScriptDebuggerControlTool(
+        name: String,
+        arguments: [String: HypeMCPJSONValue]
+    ) -> (text: String, isError: Bool) {
+        switch name {
+        case "hype_get_script_debugger_state":
+            return (debugJSONText(scriptDebuggerState(arguments: arguments)), false)
+        case "hype_set_script_tracing":
+            let enabled = arguments["enabled"]?.boolValue ?? false
+            HypeTalkScriptTraceRecorder.shared.setEnabled(enabled)
+            return (debugJSONText([
+                "result": enabled ? "Script tracing enabled." : "Script tracing paused.",
+                "isEnabled": enabled,
+            ] as [String: Any]), false)
+        case "hype_clear_script_trace":
+            HypeTalkScriptTraceRecorder.shared.clear()
+            return (debugJSONText([
+                "result": "Script trace cleared.",
+                "entryCount": HypeTalkScriptTraceRecorder.shared.snapshot().entries.count,
+            ] as [String: Any]), false)
+        case "hype_open_script_trace_source":
+            let result = openScriptTraceSource(arguments: arguments)
+            return (debugJSONText(result), result["error"] != nil)
+        case "hype_add_script_breakpoint":
+            let breakpoint = HypeTalkScriptBreakpoint(
+                sourceKind: arguments["source_kind"]?.flattenedString
+                    ?? arguments["sourceKind"]?.flattenedString
+                    ?? "",
+                objectId: (arguments["object_id"] ?? arguments["objectId"])
+                    .flatMap { UUID(uuidString: $0.flattenedString) },
+                handler: arguments["handler"]?.flattenedString.nonEmpty,
+                line: arguments["line"]?.intValue
+            )
+            _ = HypeTalkScriptTraceRecorder.shared.addBreakpoint(breakpoint)
+            return (debugJSONText([
+                "result": "Breakpoint added.",
+                "breakpoint": breakpointJSON(breakpoint),
+            ] as [String: Any]), false)
+        case "hype_remove_script_breakpoint":
+            guard let id = UUID(uuidString: arguments["id"]?.flattenedString ?? "") else {
+                return (debugJSONText(["error": "hype_remove_script_breakpoint requires a breakpoint UUID id."]), true)
+            }
+            HypeTalkScriptTraceRecorder.shared.removeBreakpoint(id: id)
+            return (debugJSONText(["result": "Breakpoint removed.", "id": id.uuidString]), false)
+        case "hype_add_script_watchpoint":
+            guard let name = arguments["name"]?.flattenedString.nonEmpty else {
+                return (debugJSONText(["error": "hype_add_script_watchpoint requires a variable name."]), true)
+            }
+            let watchpoint = HypeTalkScriptWatchpoint(
+                scope: arguments["scope"]?.flattenedString.nonEmpty ?? "auto",
+                name: name
+            )
+            _ = HypeTalkScriptTraceRecorder.shared.addWatchpoint(watchpoint)
+            return (debugJSONText([
+                "result": "Watchpoint added.",
+                "watchpoint": watchpointJSON(watchpoint),
+            ] as [String: Any]), false)
+        case "hype_remove_script_watchpoint":
+            guard let id = UUID(uuidString: arguments["id"]?.flattenedString ?? "") else {
+                return (debugJSONText(["error": "hype_remove_script_watchpoint requires a watchpoint UUID id."]), true)
+            }
+            HypeTalkScriptTraceRecorder.shared.removeWatchpoint(id: id)
+            return (debugJSONText(["result": "Watchpoint removed.", "id": id.uuidString]), false)
+        case "hype_resume_script_execution":
+            let resumed = HypeTalkScriptTraceRecorder.shared.resumePausedExecution()
+            return (debugJSONText([
+                "result": resumed ? "Script execution resumed." : "No halted script execution.",
+                "resumed": resumed,
+            ] as [String: Any]), false)
+        case "hype_step_into_script_execution":
+            let resumed = HypeTalkScriptTraceRecorder.shared.stepIntoPausedExecution()
+            return (debugJSONText([
+                "result": resumed ? "Script execution stepped into." : "No halted script execution.",
+                "resumed": resumed,
+            ] as [String: Any]), false)
+        case "hype_step_over_script_execution":
+            let resumed = HypeTalkScriptTraceRecorder.shared.stepOverPausedExecution()
+            return (debugJSONText([
+                "result": resumed ? "Script execution stepped over." : "No halted script execution.",
+                "resumed": resumed,
+            ] as [String: Any]), false)
+        default:
+            return ("Unknown script debugger control tool \(name)", true)
+        }
+    }
+
+    @MainActor
+    func callDebuggerWaitControlTool(
+        name: String,
+        arguments: [String: HypeMCPJSONValue]
+    ) async -> (text: String, isError: Bool) {
+        switch name {
+        case "hype_wait_for_debugger_pause":
+            return await waitForDebuggerPause(arguments: arguments)
+        case "hype_step_script_execution_and_wait":
+            return await stepScriptExecutionAndWait(arguments: arguments)
+        default:
+            return ("Unknown debugger wait control tool \(name)", true)
+        }
+    }
+
+    @MainActor
+    private func waitForDebuggerPause(arguments: [String: HypeMCPJSONValue]) async -> (text: String, isError: Bool) {
+        let timeoutMilliseconds = max(0, arguments["timeout_ms"]?.intValue ?? arguments["timeoutMs"]?.intValue ?? 5_000)
+        let deadline = Date().addingTimeInterval(Double(timeoutMilliseconds) / 1_000)
+
+        while true {
+            let snapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+            if let pause = snapshot.pausedState, debuggerPauseMatches(pause, arguments: arguments) {
+                return (debugJSONText([
+                    "result": "Debugger pause matched.",
+                    "matched": true,
+                    "pausedState": pausedStateJSON(pause),
+                ] as [String: Any]), false)
+            }
+            if Date() >= deadline {
+                return (debugJSONText([
+                    "error": "Timed out waiting for debugger pause.",
+                    "matched": false,
+                    "timeoutMilliseconds": timeoutMilliseconds,
+                    "pausedState": snapshot.pausedState.map(pausedStateJSON) ?? NSNull(),
+                ] as [String: Any]), true)
+            }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
+    @MainActor
+    private func stepScriptExecutionAndWait(arguments: [String: HypeMCPJSONValue]) async -> (text: String, isError: Bool) {
+        let step = arguments["step"]?.flattenedString.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "into"
+        let resumed: Bool
+        switch step {
+        case "into", "step_into", "stepinto":
+            resumed = HypeTalkScriptTraceRecorder.shared.stepIntoPausedExecution()
+        case "over", "step_over", "stepover":
+            resumed = HypeTalkScriptTraceRecorder.shared.stepOverPausedExecution()
+        default:
+            return (debugJSONText(["error": "Unsupported step mode '\(step)'. Use into or over."]), true)
+        }
+        guard resumed else {
+            return (debugJSONText([
+                "error": "No halted script execution.",
+                "resumed": false,
+            ] as [String: Any]), true)
+        }
+
+        let waited = await waitForDebuggerPause(arguments: arguments)
+        guard !waited.isError else {
+            return (waited.text, true)
+        }
+        guard var payload = debugJSONObject(from: waited.text) else {
+            return waited
+        }
+        payload["result"] = "Script execution stepped \(step) and halted again."
+        payload["resumed"] = true
+        payload["step"] = step
+        return (debugJSONText(payload), false)
+    }
+
+    private func debuggerPauseMatches(
+        _ pause: HypeTalkScriptPauseState,
+        arguments: [String: HypeMCPJSONValue]
+    ) -> Bool {
+        if let reason = arguments["reason"]?.flattenedString.nonEmpty,
+           pause.reason.caseInsensitiveCompare(reason) != .orderedSame {
+            return false
+        }
+        if let handler = arguments["handler"]?.flattenedString.nonEmpty,
+           pause.context.handler.caseInsensitiveCompare(handler) != .orderedSame {
+            return false
+        }
+        if let sourceKind = (arguments["source_kind"] ?? arguments["sourceKind"])?.flattenedString.nonEmpty,
+           pause.context.source.kind.caseInsensitiveCompare(sourceKind) != .orderedSame {
+            return false
+        }
+        if let line = arguments["line"]?.intValue,
+           pause.context.line != line {
+            return false
+        }
+        return true
+    }
+
+    @MainActor
+    func callScriptEditorAutomationControlTool(
+        name: String,
+        arguments: [String: HypeMCPJSONValue]
+    ) -> (text: String, isError: Bool) {
+        switch name {
+        case "hype_get_script_editor_state":
+            let result = scriptEditorState(arguments: arguments)
+            return (debugJSONText(result), result["error"] != nil)
+        case "hype_toggle_script_editor_breakpoint":
+            let result = toggleScriptEditorBreakpoint(arguments: arguments)
+            return (debugJSONText(result), result["error"] != nil)
+        default:
+            return ("Unknown script editor automation control tool \(name)", true)
         }
     }
 
@@ -1672,6 +2264,444 @@ final class HypeDebugServer: @unchecked Sendable {
             ],
         ]
         return (debugJSONText(payload), result.error != nil)
+    }
+
+    @MainActor
+    private func scriptDebuggerState(arguments: [String: HypeMCPJSONValue]) -> [String: Any] {
+        let snapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+        let maxEntries = max(0, arguments["max_entries"]?.intValue ?? arguments["maxEntries"]?.intValue ?? 200)
+        let frameBudget = arguments["frame_budget_ms"]?.doubleValue
+            ?? arguments["frameBudgetMs"]?.doubleValue
+            ?? HypeTalkRuntimeBudgetSummary.defaultFrameBudgetMilliseconds
+        let includeDiagnostics = arguments["include_diagnostics"]?.boolValue
+            ?? arguments["includeDiagnostics"]?.boolValue
+            ?? true
+        let returnedEntries = Array(snapshot.entries.suffix(maxEntries).reversed())
+        let returnedDiagnostics = returnedEntries.reduce(into: HypeTalkExecutionDiagnostics()) { partial, entry in
+            partial.merge(entry.diagnostics)
+        }
+        let totalDuration = returnedEntries.reduce(0) { $0 + $1.durationMilliseconds }
+        let averageDuration = returnedEntries.isEmpty ? 0 : totalDuration / Double(returnedEntries.count)
+
+        var payload: [String: Any] = [
+            "isEnabled": snapshot.isEnabled,
+            "entryCount": snapshot.entries.count,
+            "returnedEntryCount": returnedEntries.count,
+            "maxEntries": maxEntries,
+            "frameBudgetMilliseconds": frameBudget,
+            "averageBudgetPressure": budgetJSON(
+                HypeTalkRuntimeBudgetSummary(
+                    durationMilliseconds: averageDuration,
+                    budgetMilliseconds: frameBudget
+                )
+            ),
+            "totals": diagnosticsJSON(returnedDiagnostics, includeDetails: includeDiagnostics),
+            "breakpoints": snapshot.breakpoints.map(breakpointJSON),
+            "watchpoints": snapshot.watchpoints.map(watchpointJSON),
+            "pausedState": snapshot.pausedState.map(pausedStateJSON) ?? NSNull(),
+            "entries": returnedEntries.map { entry in
+                traceEntryJSON(entry, frameBudgetMilliseconds: frameBudget, includeDiagnostics: includeDiagnostics)
+            },
+        ]
+
+        if let document = activeDebugDocument() {
+            payload["globals"] = Dictionary(uniqueKeysWithValues: document.scriptGlobals.sorted { $0.key < $1.key })
+            if let card = HypeDocumentMutationCoordinator.shared.activeCardId.flatMap({ id in
+                document.cards.first { $0.id == id }
+            }) ?? document.sortedCards.first {
+                payload["runtime"] = debugRuntimeSummary(document: document, cardId: card.id)
+                payload["activeCardId"] = card.id.uuidString
+                payload["activeCardName"] = card.name
+            }
+            payload["stackId"] = document.stack.id.uuidString
+            payload["stackName"] = document.stack.name
+        } else {
+            payload["globals"] = [:] as [String: String]
+            payload["runtime"] = NSNull()
+        }
+
+        return payload
+    }
+
+    @MainActor
+    private func scriptEditorState(arguments: [String: HypeMCPJSONValue]) -> [String: Any] {
+        guard let document = activeDebugDocument() else {
+            return ["error": "No active Hype document."]
+        }
+        let type = arguments.objectTypeArgument
+        let identifier = arguments.identifierArgument
+        guard let target = resolveScriptTarget(type: type, identifier: identifier, document: document) else {
+            return ["error": "No \(type) matched '\(identifier)'."]
+        }
+        guard let source = traceSource(for: target) else {
+            return ["error": "Breakpoints are not supported for \(scriptTargetDescription(target))."]
+        }
+        let script = scriptText(for: target, document: document) ?? ""
+        let breakpoints = scriptEditorBreakpoints(source: source)
+
+        return [
+            "target": scriptTargetJSON(target, document: document),
+            "source": traceSourceJSON(source),
+            "scriptLength": script.count,
+            "scriptLineCount": script.isEmpty ? 0 : script.split(separator: "\n", omittingEmptySubsequences: false).count,
+            "breakpointLines": breakpoints.compactMap(\.line).sorted(),
+            "breakpoints": breakpoints.map(breakpointJSON),
+            "window": scriptEditorWindowJSON(for: target),
+        ]
+    }
+
+    @MainActor
+    private func toggleScriptEditorBreakpoint(arguments: [String: HypeMCPJSONValue]) -> [String: Any] {
+        guard let line = arguments["line"]?.intValue, line > 0 else {
+            return ["error": "hype_toggle_script_editor_breakpoint requires a positive line."]
+        }
+        guard let document = activeDebugDocument() else {
+            return ["error": "No active Hype document."]
+        }
+        let type = arguments.objectTypeArgument
+        let identifier = arguments.identifierArgument
+        guard let target = resolveScriptTarget(type: type, identifier: identifier, document: document) else {
+            return ["error": "No \(type) matched '\(identifier)'."]
+        }
+        guard let source = traceSource(for: target) else {
+            return ["error": "Breakpoints are not supported for \(scriptTargetDescription(target))."]
+        }
+        let script = scriptText(for: target, document: document) ?? ""
+
+        let action = arguments["action"]?.flattenedString.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "toggle"
+        let existing = scriptEditorBreakpoints(source: source).first { $0.line == line }
+        if existing == nil, action != "remove", action != "clear" {
+            let handlerLines = handlerDeclarationLines(in: script)
+            guard handlerLines.contains(line) else {
+                return [
+                    "error": handlerLines.isEmpty
+                        ? "Breakpoints currently halt at handler entries. No handler declarations were found."
+                        : "Breakpoints currently halt at handler entries. Supported lines: \(handlerLines.sorted().map(String.init).joined(separator: ", ")).",
+                    "line": line,
+                    "supportedLines": handlerLines.sorted(),
+                    "target": scriptTargetJSON(target, document: document),
+                    "source": traceSourceJSON(source),
+                ]
+            }
+        }
+        var changed = false
+        var activeBreakpoint = existing
+
+        switch action {
+        case "toggle":
+            if let existing {
+                HypeTalkScriptTraceRecorder.shared.removeBreakpoint(id: existing.id)
+                activeBreakpoint = nil
+                changed = true
+            } else {
+                let breakpoint = HypeTalkScriptBreakpoint(sourceKind: source.kind, objectId: source.objectId, line: line)
+                _ = HypeTalkScriptTraceRecorder.shared.addBreakpoint(breakpoint)
+                activeBreakpoint = breakpoint
+                changed = true
+            }
+        case "add", "set":
+            if existing == nil {
+                let breakpoint = HypeTalkScriptBreakpoint(sourceKind: source.kind, objectId: source.objectId, line: line)
+                _ = HypeTalkScriptTraceRecorder.shared.addBreakpoint(breakpoint)
+                activeBreakpoint = breakpoint
+                changed = true
+            }
+        case "remove", "clear":
+            if let existing {
+                HypeTalkScriptTraceRecorder.shared.removeBreakpoint(id: existing.id)
+                activeBreakpoint = nil
+                changed = true
+            }
+        default:
+            return ["error": "Unsupported breakpoint action '\(action)'. Use toggle, add, or remove."]
+        }
+
+        let breakpoints = scriptEditorBreakpoints(source: source)
+        return [
+            "result": "Script editor breakpoint \(action) applied.",
+            "changed": changed,
+            "line": line,
+            "isSet": activeBreakpoint != nil,
+            "breakpoint": activeBreakpoint.map(breakpointJSON) ?? NSNull(),
+            "breakpointLines": breakpoints.compactMap(\.line).sorted(),
+            "target": scriptTargetJSON(target, document: document),
+            "source": traceSourceJSON(source),
+        ]
+    }
+
+    private func handlerDeclarationLines(in script: String) -> Set<Int> {
+        let lines = script.components(separatedBy: .newlines)
+        return Set(lines.enumerated().compactMap { offset, line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard trimmed.hasPrefix("on ") || trimmed.hasPrefix("function ") else { return nil }
+            return offset + 1
+        })
+    }
+
+    @MainActor
+    private func scriptEditorBreakpoints(source: HypeTalkScriptTraceSource) -> [HypeTalkScriptBreakpoint] {
+        HypeTalkScriptTraceRecorder.shared.snapshot().breakpoints.filter { breakpoint in
+            breakpoint.isEnabled
+                && breakpoint.sourceKind.caseInsensitiveCompare(source.kind) == .orderedSame
+                && breakpoint.objectId == source.objectId
+                && breakpoint.line != nil
+        }
+    }
+
+    @MainActor
+    private func scriptText(for target: ScriptTarget, document: HypeDocument) -> String? {
+        switch target {
+        case .part(let id):
+            return document.parts.first { $0.id == id }?.script
+        case .card(let id):
+            return document.cards.first { $0.id == id }?.script
+        case .background(let id):
+            return document.backgrounds.first { $0.id == id }?.script
+        case .stack:
+            return document.stack.script
+        case .hype:
+            return UserDefaults.standard.string(forKey: "hypeAppScript") ?? ""
+        case .scene, .node:
+            return nil
+        }
+    }
+
+    @MainActor
+    private func traceSource(for target: ScriptTarget) -> HypeTalkScriptTraceSource? {
+        switch target {
+        case .part(let id):
+            return HypeTalkScriptTraceSource(kind: "part", objectId: id)
+        case .card(let id):
+            return HypeTalkScriptTraceSource(kind: "card", objectId: id)
+        case .background(let id):
+            return HypeTalkScriptTraceSource(kind: "background", objectId: id)
+        case .stack:
+            return HypeTalkScriptTraceSource(kind: "stack")
+        case .hype:
+            return HypeTalkScriptTraceSource(kind: "hype")
+        case .scene, .node:
+            return nil
+        }
+    }
+
+    @MainActor
+    private func scriptTargetJSON(_ target: ScriptTarget, document: HypeDocument) -> [String: Any] {
+        var payload: [String: Any] = [
+            "description": scriptTargetDescription(target),
+            "identityKey": target.identityKey,
+        ]
+        switch target {
+        case .part(let id):
+            payload["kind"] = "part"
+            payload["objectId"] = id.uuidString
+            payload["name"] = document.parts.first { $0.id == id }?.name ?? NSNull()
+        case .card(let id):
+            payload["kind"] = "card"
+            payload["objectId"] = id.uuidString
+            payload["name"] = document.cards.first { $0.id == id }?.name ?? NSNull()
+        case .background(let id):
+            payload["kind"] = "background"
+            payload["objectId"] = id.uuidString
+            payload["name"] = document.backgrounds.first { $0.id == id }?.name ?? NSNull()
+        case .stack:
+            payload["kind"] = "stack"
+            payload["objectId"] = document.stack.id.uuidString
+            payload["name"] = document.stack.name
+        case .hype:
+            payload["kind"] = "hype"
+            payload["objectId"] = NSNull()
+            payload["name"] = "Hype App"
+        case .scene(let partId, let sceneId):
+            payload["kind"] = "scene"
+            payload["partId"] = partId.uuidString
+            payload["objectId"] = sceneId.uuidString
+        case .node(let partId, let nodeId):
+            payload["kind"] = "node"
+            payload["partId"] = partId.uuidString
+            payload["objectId"] = nodeId.uuidString
+        }
+        return payload
+    }
+
+    @MainActor
+    private func scriptEditorWindowJSON(for target: ScriptTarget) -> Any {
+        let identityKey = target.identityKey
+        guard let window = NSApp.windows.first(where: { window in
+            debugWindowKind(window) == "script_editor"
+                && window.title.localizedCaseInsensitiveContains("script editor")
+        }) else {
+            return NSNull()
+        }
+        var payload = debugWindowJSON(window)
+        payload["requestedIdentityKey"] = identityKey
+        return payload
+    }
+
+    private func traceEntryJSON(
+        _ entry: HypeTalkScriptTraceEntry,
+        frameBudgetMilliseconds: Double,
+        includeDiagnostics: Bool
+    ) -> [String: Any] {
+        var payload: [String: Any] = [
+            "id": entry.id.uuidString,
+            "timestamp": ISO8601DateFormatter().string(from: entry.timestamp),
+            "message": entry.message,
+            "handler": entry.handler,
+            "ownerDescription": entry.ownerDescription,
+            "source": traceSourceJSON(entry.source),
+            "line": entry.line,
+            "status": entry.status,
+            "durationMilliseconds": entry.durationMilliseconds,
+            "budget": budgetJSON(
+                HypeTalkRuntimeBudgetSummary(
+                    durationMilliseconds: entry.durationMilliseconds,
+                    budgetMilliseconds: frameBudgetMilliseconds
+                )
+            ),
+            "variables": variablesJSON(entry.variables),
+            "breakpointHits": entry.breakpointHits.map(\.uuidString),
+            "watchpointHits": entry.watchpointHits.map(watchpointHitJSON),
+        ]
+        if includeDiagnostics {
+            payload["diagnostics"] = diagnosticsJSON(entry.diagnostics, includeDetails: true)
+        }
+        return payload
+    }
+
+    private func variablesJSON(_ variables: HypeTalkVariableScopeSnapshot) -> [String: Any] {
+        [
+            "locals": variables.locals,
+            "globals": variables.globals,
+            "special": [
+                "it": variables.it,
+                "result": variables.result,
+            ],
+        ]
+    }
+
+    private func breakpointJSON(_ breakpoint: HypeTalkScriptBreakpoint) -> [String: Any] {
+        [
+            "id": breakpoint.id.uuidString,
+            "sourceKind": breakpoint.sourceKind,
+            "objectId": breakpoint.objectId?.uuidString ?? NSNull(),
+            "handler": breakpoint.handler ?? NSNull(),
+            "line": breakpoint.line ?? NSNull(),
+            "isEnabled": breakpoint.isEnabled,
+        ]
+    }
+
+    private func watchpointJSON(_ watchpoint: HypeTalkScriptWatchpoint) -> [String: Any] {
+        [
+            "id": watchpoint.id.uuidString,
+            "scope": watchpoint.scope,
+            "name": watchpoint.name,
+            "isEnabled": watchpoint.isEnabled,
+        ]
+    }
+
+    private func watchpointHitJSON(_ hit: HypeTalkScriptWatchpointHit) -> [String: Any] {
+        [
+            "watchpointId": hit.watchpointId.uuidString,
+            "scope": hit.scope,
+            "name": hit.name,
+            "oldValue": hit.oldValue ?? NSNull(),
+            "newValue": hit.newValue,
+        ]
+    }
+
+    private func pausedStateJSON(_ pause: HypeTalkScriptPauseState) -> [String: Any] {
+        [
+            "id": pause.id.uuidString,
+            "timestamp": ISO8601DateFormatter().string(from: pause.timestamp),
+            "message": pause.context.message,
+            "handler": pause.context.handler,
+            "ownerDescription": pause.context.ownerDescription,
+            "source": traceSourceJSON(pause.context.source),
+            "line": pause.context.line,
+            "variables": variablesJSON(pause.variables),
+            "breakpointHits": pause.breakpointHits.map(\.uuidString),
+            "reason": pause.reason,
+        ]
+    }
+
+    private func traceSourceJSON(_ source: HypeTalkScriptTraceSource) -> [String: Any] {
+        [
+            "kind": source.kind,
+            "objectId": source.objectId?.uuidString ?? NSNull(),
+        ]
+    }
+
+    private func budgetJSON(_ budget: HypeTalkRuntimeBudgetSummary) -> [String: Any] {
+        [
+            "durationMilliseconds": budget.durationMilliseconds,
+            "budgetMilliseconds": budget.budgetMilliseconds,
+            "budgetPercent": budget.budgetPercent,
+            "frameEquivalents": budget.frameEquivalents,
+            "pressure": budget.pressure,
+        ]
+    }
+
+    private func diagnosticsJSON(_ diagnostics: HypeTalkExecutionDiagnostics, includeDetails: Bool) -> [String: Any] {
+        var payload: [String: Any] = [
+            "handlerInvocations": diagnostics.handlerInvocations,
+            "statements": diagnostics.statements,
+            "expressions": diagnostics.expressions,
+            "propertyReads": diagnostics.propertyReads,
+            "propertyWrites": diagnostics.propertyWrites,
+            "loopIterations": diagnostics.loopIterations,
+            "callbackRequests": diagnostics.callbackRequests,
+        ]
+        if includeDetails {
+            payload["statementKinds"] = diagnostics.statementKinds
+            payload["expressionKinds"] = diagnostics.expressionKinds
+            payload["propertyReadKinds"] = diagnostics.propertyReadKinds
+            payload["propertyWriteKinds"] = diagnostics.propertyWriteKinds
+            payload["callbackKinds"] = diagnostics.callbackKinds
+        }
+        return payload
+    }
+
+    @MainActor
+    private func openScriptTraceSource(arguments: [String: HypeMCPJSONValue]) -> [String: Any] {
+        let sourceKind = arguments["source_kind"]?.flattenedString
+            ?? arguments["sourceKind"]?.flattenedString
+            ?? ""
+        let objectId = (arguments["object_id"] ?? arguments["objectId"])
+            .flatMap { UUID(uuidString: $0.flattenedString) }
+
+        guard let target = scriptTarget(for: HypeTalkScriptTraceSource(kind: sourceKind, objectId: objectId)) else {
+            return ["error": "Unsupported trace source kind or missing object_id for \(sourceKind)."]
+        }
+        guard activeDebugDocument() != nil else {
+            return ["error": "No active Hype document."]
+        }
+
+        var userInfo: [AnyHashable: Any] = ["target": target]
+        if case .part(let partId) = target {
+            userInfo["partId"] = partId
+        }
+        NotificationCenter.default.post(name: .openPartScriptEditor, object: nil, userInfo: userInfo)
+        return [
+            "result": "Posted script editor request.",
+            "target": scriptTargetDescription(target),
+        ]
+    }
+
+    private func scriptTarget(for source: HypeTalkScriptTraceSource) -> ScriptTarget? {
+        switch source.kind {
+        case "part":
+            return source.objectId.map { .part($0) }
+        case "card":
+            return source.objectId.map { .card($0) }
+        case "background":
+            return source.objectId.map { .background($0) }
+        case "stack":
+            return .stack
+        case "hype":
+            return .hype
+        default:
+            return nil
+        }
     }
 
     @MainActor
@@ -2431,6 +3461,30 @@ private extension HypeMCPJSONValue {
             return nil
         }
     }
+
+    var intValue: Int? {
+        doubleValue.map(Int.init)
+    }
+
+    var boolValue: Bool? {
+        switch self {
+        case .bool(let value):
+            return value
+        case .number(let value):
+            return value != 0
+        case .string(let text):
+            switch text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "true", "yes", "1", "enabled", "on":
+                return true
+            case "false", "no", "0", "disabled", "off":
+                return false
+            default:
+                return nil
+            }
+        default:
+            return nil
+        }
+    }
 }
 
 private extension Dictionary where Key == String, Value == HypeMCPJSONValue {
@@ -2457,6 +3511,14 @@ private func debugJSONText(_ value: Any) -> String {
         return String(describing: value)
     }
     return text
+}
+
+private func debugJSONObject(from text: String) -> [String: Any]? {
+    guard let data = text.data(using: .utf8),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return nil
+    }
+    return object
 }
 
 private extension String {

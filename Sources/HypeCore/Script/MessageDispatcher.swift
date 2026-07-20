@@ -80,7 +80,11 @@ public struct MessageDispatcher: Sendable {
     /// Sentinel UUID representing the app-level ("Hype") script — the final link in the message chain.
     public static let hypeScriptSentinel = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
 
-    public init() {}
+    private let scriptTraceRecorder: HypeTalkScriptTraceRecorder
+
+    public init(scriptTraceRecorder: HypeTalkScriptTraceRecorder = .shared) {
+        self.scriptTraceRecorder = scriptTraceRecorder
+    }
 
     /// Returns true when the message hierarchy contains a handler for `message`.
     ///
@@ -342,6 +346,23 @@ public struct MessageDispatcher: Sendable {
             // advances up the pass-up hierarchy, `targetId` changes to reflect
             // the current handler's owner while `originalTargetId` stays fixed.
             // This is what `the target` returns per the HyperTalk reference.
+            let traceEnabled = scriptTraceRecorder.isEnabled
+            let traceProfiler = traceEnabled ? HypeTalkExecutionProfiler() : nil
+            let traceContext = HypeTalkScriptTraceContext(
+                message: message,
+                handler: handler.name,
+                ownerDescription: Self.describeObject(
+                    objectId: objectId,
+                    document: currentDocument,
+                    scriptContext: scriptContext
+                ),
+                source: HypeTalkScriptTraceSource(
+                    kind: Self.traceSourceKind(objectId: objectId, document: currentDocument),
+                    objectId: objectId
+                ),
+                line: handler.line
+            )
+            let traceStart = Date()
             let context = ExecutionContext(
                 targetId: objectId,
                 currentCardId: currentCardId,
@@ -358,11 +379,29 @@ public struct MessageDispatcher: Sendable {
                 mouseY: mouseY,
                 appScript: appScript,
                 nestedSendDepth: nestedSendDepth,
+                profiler: traceProfiler,
+                debugTraceContext: traceEnabled ? traceContext : nil,
+                debugTraceRecorder: scriptTraceRecorder,
                 fileProvider: fileProvider,
                 originalTargetId: targetId
             )
             let interpreter = Interpreter()
             var result = await interpreter.executeAsync(handler: handler, params: params, context: context)
+            if traceEnabled {
+                scriptTraceRecorder.record(
+                    HypeTalkScriptTraceEntry(
+                        message: message,
+                        handler: handler.name,
+                        ownerDescription: traceContext.ownerDescription,
+                        source: traceContext.source,
+                        line: handler.line,
+                        status: Self.traceStatus(for: result.status),
+                        durationMilliseconds: max(0, Date().timeIntervalSince(traceStart) * 1000 - result.debugPausedMilliseconds),
+                        diagnostics: traceProfiler?.snapshot() ?? HypeTalkExecutionDiagnostics(),
+                        variables: result.debugVariables
+                    )
+                )
+            }
             if let modifiedDocument = result.modifiedDocument {
                 currentDocument = modifiedDocument
                 latestModifiedDocument = modifiedDocument
@@ -582,6 +621,25 @@ public struct MessageDispatcher: Sendable {
             return "Hype (app-level script)"
         }
         return "object id \(objectId)"
+    }
+
+    private static func traceSourceKind(objectId: UUID, document: HypeDocument) -> String {
+        if document.parts.contains(where: { $0.id == objectId }) { return "part" }
+        if document.cards.contains(where: { $0.id == objectId }) { return "card" }
+        if document.backgrounds.contains(where: { $0.id == objectId }) { return "background" }
+        if document.stack.id == objectId { return "stack" }
+        if document.stackLibrary.entries.contains(where: { $0.id == objectId }) { return "usedStack" }
+        if objectId == Self.hypeScriptSentinel { return "app" }
+        return "object"
+    }
+
+    private static func traceStatus(for status: ExecutionStatus) -> String {
+        switch status {
+        case .completed: return "completed"
+        case .passed: return "passed"
+        case .error: return "error"
+        case .cancelled: return "cancelled"
+        }
     }
 
     /// Extract a leading "Line N: ..." prefix from a ParseError

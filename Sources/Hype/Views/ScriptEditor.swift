@@ -328,6 +328,9 @@ struct ScriptEditor: View {
     /// set, `HypeTalkTextView` draws a red background on that line and
     /// scrolls it into view. Cleared when the user edits the script.
     @State private var errorHighlightLine: Int? = nil
+    @State private var debuggerSnapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+
+    private let debuggerRefreshTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     private var resolvedTarget: ScriptTarget? {
         scriptEditorResolvedTarget(in: document.document, target: target, partId: partId)
@@ -335,6 +338,18 @@ struct ScriptEditor: View {
 
     private var partNames: [String] {
         document.document.parts.map { $0.name }.filter { !$0.isEmpty }
+    }
+
+    private var editorBreakpointLines: Set<Int> {
+        guard let source = traceSource(for: resolvedTarget) else { return [] }
+        return Set(debuggerSnapshot.breakpoints.compactMap { breakpoint in
+            guard breakpoint.isEnabled,
+                  breakpoint.sourceKind.lowercased() == source.kind.lowercased(),
+                  breakpoint.objectId == source.objectId,
+                  let line = breakpoint.line,
+                  line > 0 else { return nil }
+            return line
+        })
     }
 
     var body: some View {
@@ -352,6 +367,15 @@ struct ScriptEditor: View {
                     Text("Script Editor")
                         .font(.headline)
                     Spacer()
+                    ScriptDebuggerStepControls(
+                        isPaused: debuggerSnapshot.pausedState != nil,
+                        showsLabels: false,
+                        controlSize: .small
+                    ) {
+                        debuggerSnapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+                    }
+                    Divider()
+                        .frame(height: 18)
                     Button("Comment") { toggleComment() }
                         .accessibilityIdentifier(HypeAccessibilityID.toolbar("script.comment"))
                     Button("Check Syntax") { checkSyntax() }
@@ -371,6 +395,8 @@ struct ScriptEditor: View {
                     selectedRange: $selectedRange,
                     partNames: partNames,
                     errorHighlightLine: $errorHighlightLine,
+                    breakpointLines: editorBreakpointLines,
+                    onToggleBreakpoint: toggleBreakpoint,
                     accessibilityIdentifier: HypeAccessibilityID.scriptEditorText,
                     scriptTheme: hypeTheme.scriptTheme
                 )
@@ -440,6 +466,9 @@ struct ScriptEditor: View {
             if let msg = info["message"] as? String, !msg.isEmpty {
                 errorMessage = msg
             }
+        }
+        .onReceive(debuggerRefreshTimer) { _ in
+            debuggerSnapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
         }
         .onDisappear { applyScript() }
         // Outer surface — paint the chrome with the inspector
@@ -738,6 +767,63 @@ struct ScriptEditor: View {
             document.document.stack.script = scriptText
         case .hype:
             hypeAppScript = scriptText
+        }
+    }
+
+    private func toggleBreakpoint(line: Int) {
+        guard line > 0, let source = traceSource(for: resolvedTarget) else { return }
+        guard handlerDeclarationLines(in: scriptText).contains(line) else {
+            let supportedLines = handlerDeclarationLines(in: scriptText).sorted()
+            let supportedLineList = supportedLines.map(String.init).joined(separator: ", ")
+            errorMessage = supportedLines.isEmpty
+                ? "Breakpoints currently halt at handler entries. Add a handler before setting a breakpoint."
+                : "Breakpoints currently halt at handler entries. Supported lines: \(supportedLineList)."
+            return
+        }
+        let existing = debuggerSnapshot.breakpoints.first { breakpoint in
+            breakpoint.sourceKind.lowercased() == source.kind.lowercased()
+                && breakpoint.objectId == source.objectId
+                && breakpoint.line == line
+        }
+        if let existing {
+            HypeTalkScriptTraceRecorder.shared.removeBreakpoint(id: existing.id)
+        } else {
+            _ = HypeTalkScriptTraceRecorder.shared.addBreakpoint(
+                HypeTalkScriptBreakpoint(
+                    sourceKind: source.kind,
+                    objectId: source.objectId,
+                    line: line
+                )
+            )
+        }
+        debuggerSnapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+        errorMessage = nil
+    }
+
+    private func handlerDeclarationLines(in script: String) -> Set<Int> {
+        let lines = script.components(separatedBy: .newlines)
+        return Set(lines.enumerated().compactMap { offset, line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard trimmed.hasPrefix("on ") || trimmed.hasPrefix("function ") else { return nil }
+            return offset + 1
+        })
+    }
+
+    private func traceSource(for target: ScriptTarget?) -> HypeTalkScriptTraceSource? {
+        guard let target else { return nil }
+        switch target {
+        case .part(let id):
+            return HypeTalkScriptTraceSource(kind: "part", objectId: id)
+        case .card(let id):
+            return HypeTalkScriptTraceSource(kind: "card", objectId: id)
+        case .background(let id):
+            return HypeTalkScriptTraceSource(kind: "background", objectId: id)
+        case .stack:
+            return HypeTalkScriptTraceSource(kind: "stack")
+        case .hype:
+            return HypeTalkScriptTraceSource(kind: "hype")
+        case .scene, .node:
+            return nil
         }
     }
 }

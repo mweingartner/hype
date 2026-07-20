@@ -221,6 +221,8 @@ public struct ExecutionContext: Sendable {
     public var appScript: String
     public var nestedSendDepth: Int
     public var profiler: HypeTalkExecutionProfiler?
+    public var debugTraceContext: HypeTalkScriptTraceContext?
+    public var debugTraceRecorder: HypeTalkScriptTraceRecorder
     /// Provider for sandboxed `read from file` / `write to file` operations.
     /// `StubFileAccessProvider` (deny-by-default) is used when file access is disabled.
     public var fileProvider: any FileAccessProvider
@@ -251,6 +253,8 @@ public struct ExecutionContext: Sendable {
                 appScript: String = "",
                 nestedSendDepth: Int = 0,
                 profiler: HypeTalkExecutionProfiler? = nil,
+                debugTraceContext: HypeTalkScriptTraceContext? = nil,
+                debugTraceRecorder: HypeTalkScriptTraceRecorder = .shared,
                 fileProvider: any FileAccessProvider = StubFileAccessProvider(),
                 nestedEvalDepth: Int = 0,
                 originalTargetId: UUID? = nil) {
@@ -274,6 +278,8 @@ public struct ExecutionContext: Sendable {
         self.appScript = appScript
         self.nestedSendDepth = nestedSendDepth
         self.profiler = profiler
+        self.debugTraceContext = debugTraceContext
+        self.debugTraceRecorder = debugTraceRecorder
         self.fileProvider = fileProvider
         self.nestedEvalDepth = nestedEvalDepth
     }
@@ -293,6 +299,10 @@ public struct ExecutionResult: Sendable {
     /// Duration in seconds for the visual effect transition.
     /// `nil` means use the default (1.0 seconds).
     public var visualEffectDuration: Double?
+    /// Final handler variable frame captured for debugger inspection.
+    public var debugVariables: HypeTalkVariableScopeSnapshot
+    /// Wall-clock time spent halted in the debugger, in milliseconds.
+    public var debugPausedMilliseconds: Double
 
     public init(
         status: ExecutionStatus,
@@ -303,7 +313,9 @@ public struct ExecutionResult: Sendable {
         projectNavigationTarget: ProjectNavigationTarget? = nil,
         showAllCards: Bool = false,
         visualEffect: String? = nil,
-        visualEffectDuration: Double? = nil
+        visualEffectDuration: Double? = nil,
+        debugVariables: HypeTalkVariableScopeSnapshot = HypeTalkVariableScopeSnapshot(),
+        debugPausedMilliseconds: Double = 0
     ) {
         self.status = status
         self.returnValue = returnValue
@@ -314,6 +326,8 @@ public struct ExecutionResult: Sendable {
         self.showAllCards = showAllCards
         self.visualEffect = visualEffect
         self.visualEffectDuration = visualEffectDuration
+        self.debugVariables = debugVariables
+        self.debugPausedMilliseconds = debugPausedMilliseconds
     }
 }
 
@@ -428,6 +442,15 @@ private struct Environment {
 
     var joinedHandlerParams: Value {
         handlerParams.joined(separator: "\r")
+    }
+
+    var debugSnapshot: HypeTalkVariableScopeSnapshot {
+        HypeTalkVariableScopeSnapshot(
+            locals: locals,
+            globals: globals,
+            it: it,
+            result: result
+        )
     }
 }
 
@@ -618,6 +641,7 @@ public struct Interpreter: Sendable {
         var navigationTarget: UUID? = nil
         var projectNavigationTarget: ProjectNavigationTarget? = nil
         var visualEffect: String? = nil
+        var debugPausedMilliseconds: Double = 0
 
         // Bind parameters.
         for (i, paramName) in handler.params.enumerated() {
@@ -682,6 +706,13 @@ public struct Interpreter: Sendable {
 
         do {
             try Task.checkCancellation()
+            if let debugTraceContext = context.debugTraceContext {
+                debugPausedMilliseconds += await context.debugTraceRecorder.pauseIfNeeded(
+                    context: debugTraceContext,
+                    variables: env.debugSnapshot
+                )
+                try Task.checkCancellation()
+            }
             for stmt in handler.body {
                 try await executeStatementAndPublish(
                     stmt,
@@ -707,7 +738,9 @@ public struct Interpreter: Sendable {
             return ExecutionResult(status: .passed, modifiedDocument: document,
                                    navigationTarget: navigationTarget,
                                    projectNavigationTarget: projectNavigationTarget,
-                                   visualEffect: visualEffect, visualEffectDuration: veDuration)
+                                   visualEffect: visualEffect, visualEffectDuration: veDuration,
+                                   debugVariables: env.debugSnapshot,
+                                   debugPausedMilliseconds: debugPausedMilliseconds)
         } catch ControlSignal.exitHandler(let returnVal) {
             spriteAreaMutationBatch.flush(to: &document)
             document.scriptGlobals = env.globals
@@ -716,21 +749,41 @@ public struct Interpreter: Sendable {
             return ExecutionResult(status: .completed, returnValue: returnVal,
                                    modifiedDocument: document, navigationTarget: navigationTarget,
                                    projectNavigationTarget: projectNavigationTarget,
-                                   visualEffect: visualEffect, visualEffectDuration: veDuration)
+                                   visualEffect: visualEffect, visualEffectDuration: veDuration,
+                                   debugVariables: env.debugSnapshot,
+                                   debugPausedMilliseconds: debugPausedMilliseconds)
         } catch ControlSignal.showAllCards {
             spriteAreaMutationBatch.flush(to: &document)
             document.scriptGlobals = env.globals
-            return ExecutionResult(status: .completed, modifiedDocument: document, showAllCards: true)
+            return ExecutionResult(
+                status: .completed,
+                modifiedDocument: document,
+                showAllCards: true,
+                debugVariables: env.debugSnapshot,
+                debugPausedMilliseconds: debugPausedMilliseconds
+            )
         } catch let error as ScriptError {
-            return ExecutionResult(status: .error, error: error)
+            return ExecutionResult(
+                status: .error,
+                error: error,
+                debugVariables: env.debugSnapshot,
+                debugPausedMilliseconds: debugPausedMilliseconds
+            )
         } catch is CancellationError {
             return ExecutionResult(
                 status: .cancelled,
-                modifiedDocument: document
+                modifiedDocument: document,
+                debugVariables: env.debugSnapshot,
+                debugPausedMilliseconds: debugPausedMilliseconds
             )
         } catch {
             let scriptError = ScriptError(message: error.localizedDescription, line: handler.line, handler: handler.name)
-            return ExecutionResult(status: .error, error: scriptError)
+            return ExecutionResult(
+                status: .error,
+                error: scriptError,
+                debugVariables: env.debugSnapshot,
+                debugPausedMilliseconds: debugPausedMilliseconds
+            )
         }
 
         // Normal completion: write accumulated globals back so the
@@ -743,7 +796,9 @@ public struct Interpreter: Sendable {
         return ExecutionResult(status: .completed, returnValue: env.it,
                                modifiedDocument: document, navigationTarget: navigationTarget,
                                projectNavigationTarget: projectNavigationTarget,
-                               visualEffect: visualEffect, visualEffectDuration: veDuration)
+                               visualEffect: visualEffect, visualEffectDuration: veDuration,
+                               debugVariables: env.debugSnapshot,
+                               debugPausedMilliseconds: debugPausedMilliseconds)
     }
 
     /// Returns `true` when a statement may produce a visible change on-screen

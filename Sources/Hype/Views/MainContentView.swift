@@ -1634,121 +1634,41 @@ private struct NavigationHandlers: ViewModifier {
     let isKeyDocument: Bool
 
     func body(content: Content) -> some View {
-        content
+        let routingHandlers = content
             .onReceive(NotificationCenter.default.publisher(for: .navigateCard)) { notification in
-                guard MenuCommandScoping.shouldHandle(
-                    notificationStackId: MenuCommandScoping.stackId(from: notification),
-                    documentStackId: document.document.stack.id,
-                    isKeyDocument: isKeyDocument
-                ) else { return }
-                guard let direction = notification.object as? NavigationDirection,
-                      let cardId = currentCardId else { return }
-                if let newId = CardNavigator.navigate(direction: direction, currentCardId: cardId, document: document.document) {
-                    navigateToCard(newId)
-                }
+                navigateCard(notification: notification)
             }
             .onReceive(NotificationCenter.default.publisher(for: .selectTool)) { notification in
-                guard MenuCommandScoping.shouldHandle(
-                    notificationStackId: MenuCommandScoping.stackId(from: notification),
-                    documentStackId: document.document.stack.id,
-                    isKeyDocument: isKeyDocument
-                ) else { return }
-                guard let tool = notification.object as? ToolName else { return }
-                let userLevel = document.document.stack.userLevel.hypeUserLevel
-                guard ObjectToolCatalog.isTool(tool, availableAt: userLevel) else { return }
-                if let partType = ObjectToolCatalog.createdPartType(for: tool),
-                   !PartAvailabilityCatalog.supports(partType, across: document.document.stack.deploymentTargets.selectedPlatforms) {
-                    return
-                }
-                currentTool = tool
-                let preserveSelection = notification.userInfo?[ToolSelectionNotification.preserveSelectionUserInfoKey] as? Bool ?? false
-                if !preserveSelection {
-                    selectedPartIds = []
-                }
+                selectTool(notification: notification)
             }
             .onReceive(NotificationCenter.default.publisher(for: .navigateToCard)) { notification in
-                // navigateToCard carries a specific UUID target — already
-                // identity-checked by the navigateToCard(cardId:) guard below.
-                // No additional scoping needed; wrong-document UUIDs are
-                // silently ignored by the `contains(where:)` guard.
-                guard let cardId = notification.object as? UUID else { return }
-                navigateToCard(cardId)
+                navigateToCard(notification: notification)
             }
             .onReceive(NotificationCenter.default.publisher(for: .navigateToProjectTarget)) { notification in
-                guard let target = notification.object as? ProjectNavigationTarget else { return }
-                ProjectNavigationRouter.route(target)
+                navigateToProjectTarget(notification: notification)
             }
+
+        let authoringHandlers = routingHandlers
             .onReceive(NotificationCenter.default.publisher(for: .addNewCard)) { note in
-                guard MenuCommandScoping.shouldHandle(
-                    notificationStackId: MenuCommandScoping.stackId(from: note),
-                    documentStackId: document.document.stack.id,
-                    isKeyDocument: isKeyDocument
-                ) else { return }
-                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
-                addNewCard()
+                addNewCard(notification: note)
             }
             .onReceive(NotificationCenter.default.publisher(for: .deleteCurrentCard)) { note in
-                guard MenuCommandScoping.shouldHandle(
-                    notificationStackId: MenuCommandScoping.stackId(from: note),
-                    documentStackId: document.document.stack.id,
-                    isKeyDocument: isKeyDocument
-                ) else { return }
-                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
-                deleteCurrentCard()
+                deleteCurrentCard(notification: note)
             }
             .onReceive(NotificationCenter.default.publisher(for: .addNewBackground)) { note in
-                guard MenuCommandScoping.shouldHandle(
-                    notificationStackId: MenuCommandScoping.stackId(from: note),
-                    documentStackId: document.document.stack.id,
-                    isKeyDocument: isKeyDocument
-                ) else { return }
-                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
-                addNewBackgroundFlow()
+                addNewBackground(notification: note)
             }
             .onReceive(NotificationCenter.default.publisher(for: .toggleEditBackground)) { notification in
-                guard MenuCommandScoping.shouldHandle(
-                    notificationStackId: MenuCommandScoping.stackId(from: notification),
-                    documentStackId: document.document.stack.id,
-                    isKeyDocument: isKeyDocument
-                ) else { return }
-                guard document.document.stack.userLevel.hypeUserLevel.canUsePaintTools else { return }
-                editingBackground = (notification.object as? Bool) ?? false
-                selectedPartIds = []
+                toggleEditBackground(notification: notification)
             }
             .onReceive(NotificationCenter.default.publisher(for: .editPartProperties)) { notification in
-                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
-                if let partId = notification.object as? UUID {
-                    // editPartProperties carries a specific part UUID — the
-                    // document's own parts are checked by expandedGroupSelection;
-                    // a UUID from another document's part will simply find no
-                    // match and leave selection unchanged. Already identity-checked.
-                    selectedPartIds = document.document.expandedGroupSelection([partId])
-                    currentTool = .select
-                }
+                editPartProperties(notification: notification)
             }
             .onReceive(NotificationCenter.default.publisher(for: .toggleAI)) { note in
-                guard MenuCommandScoping.shouldHandle(
-                    notificationStackId: MenuCommandScoping.stackId(from: note),
-                    documentStackId: document.document.stack.id,
-                    isKeyDocument: isKeyDocument
-                ) else { return }
-                guard document.document.stack.userLevel.hypeUserLevel.canEditScripts else { return }
-                showAI.toggle()
+                toggleAI(notification: note)
             }
             .onReceive(NotificationCenter.default.publisher(for: .openAssetRepository)) { note in
-                guard MenuCommandScoping.shouldHandle(
-                    notificationStackId: MenuCommandScoping.stackId(from: note),
-                    documentStackId: document.document.stack.id,
-                    isKeyDocument: isKeyDocument
-                ) else { return }
-                guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
-                // The menu/shortcut no longer toggles a sheet —
-                // it opens (or surfaces) the detached browser
-                // window. openAssetRepositoryWindow is idempotent:
-                // a second invocation re-orders the existing
-                // window to the front instead of creating a
-                // duplicate.
-                openAssetRepositoryWindow(document: $document)
+                openAssetRepository(notification: note)
             }
             .onReceive(NotificationCenter.default.publisher(for: .showAllCards)) { _ in
                 cycleAllCards()
@@ -1756,15 +1676,21 @@ private struct NavigationHandlers: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .revealSpriteNode)) { notification in
                 revealSpriteNode(notification: notification)
             }
+
+        let windowHandlers = authoringHandlers
             .onReceive(NotificationCenter.default.publisher(for: .hypeQuit)) { _ in
                 // hypeQuit is app-global — intentionally dispatched to every
                 // open document so all quit handlers run before termination.
-                if let cardId = currentCardId {
-                    dispatchLifecycle("quit", targetId: cardId, currentCardId: cardId)
-                }
+                dispatchQuitLifecycle()
             }
             .onReceive(NotificationCenter.default.publisher(for: .openPartScriptEditor)) { notification in
                 openPartScriptEditor(notification: notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openScriptDebugger)) { notification in
+                openScriptDebugger(notification: notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .scriptDebuggerDidPause)) { notification in
+                openScriptDebugger(notification: notification)
             }
             .onReceive(NotificationCenter.default.publisher(for: .showConsole)) { _ in
                 // showConsole opens a shared/global console window —
@@ -1772,7 +1698,97 @@ private struct NavigationHandlers: ViewModifier {
                 // of which document is focused.
                 openConsoleWindow()
             }
+
+        return windowHandlers
             .modifier(ThemeDesignerHandler(document: $document, isKeyDocument: isKeyDocument))
+    }
+
+    private func shouldHandleMenuCommand(_ notification: Notification) -> Bool {
+        MenuCommandScoping.shouldHandle(
+            notificationStackId: MenuCommandScoping.stackId(from: notification),
+            documentStackId: document.document.stack.id,
+            isKeyDocument: isKeyDocument
+        )
+    }
+
+    private func navigateToCard(notification: Notification) {
+        // navigateToCard carries a specific UUID target. The target is
+        // identity-checked by navigateToCard(cardId:), so wrong-document UUIDs
+        // are silently ignored by that guard.
+        guard let cardId = notification.object as? UUID else { return }
+        navigateToCard(cardId)
+    }
+
+    private func navigateToProjectTarget(notification: Notification) {
+        guard let target = notification.object as? ProjectNavigationTarget else { return }
+        ProjectNavigationRouter.route(target)
+    }
+
+    private func navigateCard(notification: Notification) {
+        guard shouldHandleMenuCommand(notification) else { return }
+        guard let direction = notification.object as? NavigationDirection,
+              let cardId = currentCardId else { return }
+        if let newId = CardNavigator.navigate(
+            direction: direction,
+            currentCardId: cardId,
+            document: document.document
+        ) {
+            navigateToCard(newId)
+        }
+    }
+
+    private func selectTool(notification: Notification) {
+        guard shouldHandleMenuCommand(notification) else { return }
+        guard let tool = notification.object as? ToolName else { return }
+        let userLevel = document.document.stack.userLevel.hypeUserLevel
+        guard ObjectToolCatalog.isTool(tool, availableAt: userLevel) else { return }
+        if let partType = ObjectToolCatalog.createdPartType(for: tool),
+           !PartAvailabilityCatalog.supports(
+               partType,
+               across: document.document.stack.deploymentTargets.selectedPlatforms
+           ) {
+            return
+        }
+        currentTool = tool
+        let preserveSelection = notification.userInfo?[ToolSelectionNotification.preserveSelectionUserInfoKey] as? Bool ?? false
+        if !preserveSelection {
+            selectedPartIds = []
+        }
+    }
+
+    private func addNewCard(notification: Notification) {
+        guard shouldHandleMenuCommand(notification) else { return }
+        guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
+        addNewCard()
+    }
+
+    private func deleteCurrentCard(notification: Notification) {
+        guard shouldHandleMenuCommand(notification) else { return }
+        guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
+        deleteCurrentCard()
+    }
+
+    private func addNewBackground(notification: Notification) {
+        guard shouldHandleMenuCommand(notification) else { return }
+        guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
+        addNewBackgroundFlow()
+    }
+
+    private func toggleEditBackground(notification: Notification) {
+        guard shouldHandleMenuCommand(notification) else { return }
+        guard document.document.stack.userLevel.hypeUserLevel.canUsePaintTools else { return }
+        editingBackground = (notification.object as? Bool) ?? false
+        selectedPartIds = []
+    }
+
+    private func editPartProperties(notification: Notification) {
+        guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
+        guard let partId = notification.object as? UUID else { return }
+        // editPartProperties carries a specific part UUID. The document's own
+        // parts are checked by expandedGroupSelection; a UUID from another
+        // document will simply find no match and leave selection unchanged.
+        selectedPartIds = document.document.expandedGroupSelection([partId])
+        currentTool = .select
     }
 
     /// Parse a `.showScriptError` notification payload and open the
@@ -1812,6 +1828,29 @@ private struct NavigationHandlers: ViewModifier {
             let target: ScriptTarget = .card(cardId)
             openScriptEditorWindow(document: $document, target: target)
         }
+    }
+
+    private func openAssetRepository(notification: Notification) {
+        guard MenuCommandScoping.shouldHandle(
+            notificationStackId: MenuCommandScoping.stackId(from: notification),
+            documentStackId: document.document.stack.id,
+            isKeyDocument: isKeyDocument
+        ) else { return }
+        guard document.document.stack.userLevel.hypeUserLevel.canAuthorObjects else { return }
+        // The menu/shortcut opens (or surfaces) the detached browser window.
+        // openAssetRepositoryWindow is idempotent: a second invocation re-orders
+        // the existing window to the front instead of creating a duplicate.
+        openAssetRepositoryWindow(document: $document)
+    }
+
+    private func toggleAI(notification: Notification) {
+        guard MenuCommandScoping.shouldHandle(
+            notificationStackId: MenuCommandScoping.stackId(from: notification),
+            documentStackId: document.document.stack.id,
+            isKeyDocument: isKeyDocument
+        ) else { return }
+        guard document.document.stack.userLevel.hypeUserLevel.canEditScripts else { return }
+        showAI.toggle()
     }
 
     private func resolvedScriptTarget(from info: [AnyHashable: Any]) -> ScriptTarget? {
@@ -1870,6 +1909,20 @@ private struct NavigationHandlers: ViewModifier {
                 userInfo: info
             )
         }
+    }
+
+    private func openScriptDebugger(notification: Notification) {
+        guard MenuCommandScoping.shouldHandle(
+            notificationStackId: MenuCommandScoping.stackId(from: notification),
+            documentStackId: document.document.stack.id,
+            isKeyDocument: isKeyDocument
+        ) else { return }
+        openScriptDebuggerWindow(document: $document)
+    }
+
+    private func dispatchQuitLifecycle() {
+        guard let cardId = currentCardId else { return }
+        dispatchLifecycle("quit", targetId: cardId, currentCardId: cardId)
     }
 
     /// Dispatch a lifecycle / system HypeTalk message and apply any
@@ -2365,7 +2418,7 @@ private struct WindowAccessor: NSViewRepresentable {
         /// `onChange` is called whenever the window becomes key or resigns key
         /// so SwiftUI can recompute `isKeyDocument`. The closure does not need
         /// to capture the window — it just triggers a state re-read.
-        func observe(_ window: NSWindow, onChange: @escaping () -> Void) {
+        func observe(_ window: NSWindow, onChange: @escaping @Sendable () -> Void) {
             // Remove previous observers to avoid leaks when the window changes.
             observers.forEach { NotificationCenter.default.removeObserver($0) }
             observers.removeAll()
