@@ -392,6 +392,7 @@ private struct Environment {
     /// and yield calls are suppressed entirely; a single flush publish fires at
     /// `unlock screen`.
     var screenLocked: Bool = false
+    var debugPausedMilliseconds: Double = 0
 
     init(globals: [String: Value], handlerParams: [Value] = []) {
         self.globals = globals.reduce(into: [String: Value]()) { result, entry in
@@ -740,7 +741,7 @@ public struct Interpreter: Sendable {
                                    projectNavigationTarget: projectNavigationTarget,
                                    visualEffect: visualEffect, visualEffectDuration: veDuration,
                                    debugVariables: env.debugSnapshot,
-                                   debugPausedMilliseconds: debugPausedMilliseconds)
+                                   debugPausedMilliseconds: debugPausedMilliseconds + env.debugPausedMilliseconds)
         } catch ControlSignal.exitHandler(let returnVal) {
             spriteAreaMutationBatch.flush(to: &document)
             document.scriptGlobals = env.globals
@@ -751,7 +752,7 @@ public struct Interpreter: Sendable {
                                    projectNavigationTarget: projectNavigationTarget,
                                    visualEffect: visualEffect, visualEffectDuration: veDuration,
                                    debugVariables: env.debugSnapshot,
-                                   debugPausedMilliseconds: debugPausedMilliseconds)
+                                   debugPausedMilliseconds: debugPausedMilliseconds + env.debugPausedMilliseconds)
         } catch ControlSignal.showAllCards {
             spriteAreaMutationBatch.flush(to: &document)
             document.scriptGlobals = env.globals
@@ -760,21 +761,21 @@ public struct Interpreter: Sendable {
                 modifiedDocument: document,
                 showAllCards: true,
                 debugVariables: env.debugSnapshot,
-                debugPausedMilliseconds: debugPausedMilliseconds
+                debugPausedMilliseconds: debugPausedMilliseconds + env.debugPausedMilliseconds
             )
         } catch let error as ScriptError {
             return ExecutionResult(
                 status: .error,
                 error: error,
                 debugVariables: env.debugSnapshot,
-                debugPausedMilliseconds: debugPausedMilliseconds
+                debugPausedMilliseconds: debugPausedMilliseconds + env.debugPausedMilliseconds
             )
         } catch is CancellationError {
             return ExecutionResult(
                 status: .cancelled,
                 modifiedDocument: document,
                 debugVariables: env.debugSnapshot,
-                debugPausedMilliseconds: debugPausedMilliseconds
+                debugPausedMilliseconds: debugPausedMilliseconds + env.debugPausedMilliseconds
             )
         } catch {
             let scriptError = ScriptError(message: error.localizedDescription, line: handler.line, handler: handler.name)
@@ -782,7 +783,7 @@ public struct Interpreter: Sendable {
                 status: .error,
                 error: scriptError,
                 debugVariables: env.debugSnapshot,
-                debugPausedMilliseconds: debugPausedMilliseconds
+                debugPausedMilliseconds: debugPausedMilliseconds + env.debugPausedMilliseconds
             )
         }
 
@@ -798,7 +799,7 @@ public struct Interpreter: Sendable {
                                projectNavigationTarget: projectNavigationTarget,
                                visualEffect: visualEffect, visualEffectDuration: veDuration,
                                debugVariables: env.debugSnapshot,
-                               debugPausedMilliseconds: debugPausedMilliseconds)
+                               debugPausedMilliseconds: debugPausedMilliseconds + env.debugPausedMilliseconds)
     }
 
     /// Returns `true` when a statement may produce a visible change on-screen
@@ -821,6 +822,9 @@ public struct Interpreter: Sendable {
     /// `animate`, etc. — returns `true`.
     private func statementProducesVisibleEffect(_ stmt: Statement) -> Bool {
         switch stmt {
+        case .located(_, let inner):
+            return statementProducesVisibleEffect(inner)
+
         case .put(_, _, let target):
             // A put into a variable, `it`, or the message box has no visible
             // effect.  Puts into part refs, scoped refs, property accesses, or
@@ -1117,7 +1121,7 @@ public struct Interpreter: Sendable {
         projectNavigationTarget: inout ProjectNavigationTarget?,
         handler: Handler
     ) async throws -> Bool {
-        let dispatcher = MessageDispatcher()
+        let dispatcher = MessageDispatcher(scriptTraceRecorder: context.debugTraceRecorder)
         let activeCardId = env.currentCardId(fallback: context.currentCardId)
         guard dispatcher.hasHandler(
             message: name,
@@ -1152,7 +1156,8 @@ public struct Interpreter: Sendable {
             scriptContext: context.scriptContext,
             runtimeProvider: context.runtimeProvider,
             nestedSendDepth: context.nestedSendDepth + 1,
-            handlerType: .message
+            handlerType: .message,
+            debugExecutionId: context.debugTraceContext?.executionId
         )
         if let modifiedDocument = result.modifiedDocument {
             document = modifiedDocument
@@ -1200,7 +1205,7 @@ public struct Interpreter: Sendable {
         context: ExecutionContext,
         handler: Handler
     ) async throws -> Value? {
-        let dispatcher = MessageDispatcher()
+        let dispatcher = MessageDispatcher(scriptTraceRecorder: context.debugTraceRecorder)
         let functionCardId = env.currentCardId(fallback: context.currentCardId)
         guard dispatcher.hasHandler(
             message: name,
@@ -1236,7 +1241,8 @@ public struct Interpreter: Sendable {
             scriptContext: context.scriptContext,
             runtimeProvider: context.runtimeProvider,
             nestedSendDepth: context.nestedSendDepth + 1,
-            handlerType: .function
+            handlerType: .function,
+            debugExecutionId: context.debugTraceContext?.executionId
         )
         if let modifiedDocument = result.modifiedDocument {
             env.globals = modifiedDocument.scriptGlobals
@@ -1276,6 +1282,29 @@ public struct Interpreter: Sendable {
         handler: Handler
     ) async throws {
         try Task.checkCancellation()
+        if case .located(let line, let inner) = stmt {
+            if line > 0, let debugTraceContext = context.debugTraceContext {
+                var lineContext = debugTraceContext
+                lineContext.line = line
+                env.debugPausedMilliseconds += await context.debugTraceRecorder.pauseIfNeeded(
+                    context: lineContext,
+                    variables: env.debugSnapshot,
+                    lineBreakpointsOnly: true
+                )
+                try Task.checkCancellation()
+            }
+            try await executeStatement(
+                inner,
+                env: &env,
+                document: &document,
+                context: context,
+                instructionCount: &instructionCount,
+                navigationTarget: &navigationTarget,
+                projectNavigationTarget: &projectNavigationTarget,
+                handler: handler
+            )
+            return
+        }
         instructionCount += 1
         context.profiler?.recordStatement(statementKind(stmt))
         if instructionCount > context.instructionLimit {
@@ -1283,6 +1312,8 @@ public struct Interpreter: Sendable {
         }
 
         switch stmt {
+        case .located:
+            return
         case .put(let source, let prep, let target):
             let value = try await evaluate(source, env: &env, document: document, context: context)
             switch target {
@@ -2535,7 +2566,7 @@ public struct Interpreter: Sendable {
             }
             env.deferNextSelfSend = false
 
-            let result = await MessageDispatcher().dispatchAsync(
+            let result = await MessageDispatcher(scriptTraceRecorder: context.debugTraceRecorder).dispatchAsync(
                 message: message,
                 params: [],
                 targetId: targetID,
@@ -2553,7 +2584,8 @@ public struct Interpreter: Sendable {
                 scriptContext: context.scriptContext,
                 runtimeProvider: context.runtimeProvider,
                 nestedSendDepth: context.nestedSendDepth + 1,
-                fileProvider: context.fileProvider
+                fileProvider: context.fileProvider,
+                debugExecutionId: context.debugTraceContext?.executionId
             )
             if let modifiedDocument = result.modifiedDocument {
                 document = modifiedDocument
@@ -9314,6 +9346,7 @@ public struct Interpreter: Sendable {
 
     private func statementKind(_ stmt: Statement) -> String {
         switch stmt {
+        case .located(_, let inner): return statementKind(inner)
         case .put: return "put"
         case .get: return "get"
         case .set: return "set"

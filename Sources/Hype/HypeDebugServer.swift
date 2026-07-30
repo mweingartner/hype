@@ -2366,21 +2366,17 @@ final class HypeDebugServer: @unchecked Sendable {
         guard let source = traceSource(for: target) else {
             return ["error": "Breakpoints are not supported for \(scriptTargetDescription(target))."]
         }
-        let script = scriptText(for: target, document: document) ?? ""
-
         let action = arguments["action"]?.flattenedString.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "toggle"
         let existing = scriptEditorBreakpoints(source: source).first { $0.line == line }
-        if existing == nil, action != "remove", action != "clear" {
-            let handlerLines = handlerDeclarationLines(in: script)
-            guard handlerLines.contains(line) else {
+        let addsBreakpoint = (action == "toggle" && existing == nil)
+            || ((action == "add" || action == "set") && existing == nil)
+        if addsBreakpoint {
+            let script = scriptText(for: target, document: document) ?? ""
+            let supportedLines = scriptBreakpointLines(in: script)
+            guard supportedLines.contains(line) else {
                 return [
-                    "error": handlerLines.isEmpty
-                        ? "Breakpoints currently halt at handler entries. No handler declarations were found."
-                        : "Breakpoints currently halt at handler entries. Supported lines: \(handlerLines.sorted().map(String.init).joined(separator: ", ")).",
-                    "line": line,
-                    "supportedLines": handlerLines.sorted(),
-                    "target": scriptTargetJSON(target, document: document),
-                    "source": traceSourceJSON(source),
+                    "error": "Line \(line) is not a handler declaration or executable statement.",
+                    "supportedLines": supportedLines.sorted(),
                 ]
             }
         }
@@ -2429,13 +2425,11 @@ final class HypeDebugServer: @unchecked Sendable {
         ]
     }
 
-    private func handlerDeclarationLines(in script: String) -> Set<Int> {
-        let lines = script.components(separatedBy: .newlines)
-        return Set(lines.enumerated().compactMap { offset, line in
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard trimmed.hasPrefix("on ") || trimmed.hasPrefix("function ") else { return nil }
-            return offset + 1
-        })
+    private func scriptBreakpointLines(in script: String) -> Set<Int> {
+        var lexer = Lexer(source: script)
+        var parser = Parser(tokens: lexer.tokenize(), capturesStatementLocations: true)
+        guard let parsed = try? parser.parse() else { return [] }
+        return parser.capturedStatementLines.union(parsed.handlers.map(\.line))
     }
 
     @MainActor

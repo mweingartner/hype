@@ -56,6 +56,7 @@ struct HypeDebugServerAutomationToolTests {
             defer { resetRecorder() }
 
             let sourceId = UUID()
+            let executionId = UUID()
             _ = HypeTalkScriptTraceRecorder.shared.addBreakpoint(
                 HypeTalkScriptBreakpoint(sourceKind: "part", objectId: sourceId, handler: "mouseUp", line: 1)
             )
@@ -63,7 +64,12 @@ struct HypeDebugServerAutomationToolTests {
 
             let pauseTask = Task {
                 await HypeTalkScriptTraceRecorder.shared.pauseIfNeeded(
-                    context: traceContext(sourceId: sourceId, handler: "mouseUp", line: 1),
+                    context: traceContext(
+                        executionId: executionId,
+                        sourceId: sourceId,
+                        handler: "mouseUp",
+                        line: 1
+                    ),
                     variables: HypeTalkVariableScopeSnapshot(locals: ["phase": "initial"])
                 )
             }
@@ -95,6 +101,7 @@ struct HypeDebugServerAutomationToolTests {
             defer { resetRecorder() }
 
             let sourceId = UUID()
+            let executionId = UUID()
             _ = HypeTalkScriptTraceRecorder.shared.addBreakpoint(
                 HypeTalkScriptBreakpoint(sourceKind: "part", objectId: sourceId, handler: "mouseUp", line: 1)
             )
@@ -102,7 +109,12 @@ struct HypeDebugServerAutomationToolTests {
 
             let firstPause = Task {
                 await HypeTalkScriptTraceRecorder.shared.pauseIfNeeded(
-                    context: traceContext(sourceId: sourceId, handler: "mouseUp", line: 1),
+                    context: traceContext(
+                        executionId: executionId,
+                        sourceId: sourceId,
+                        handler: "mouseUp",
+                        line: 1
+                    ),
                     variables: HypeTalkVariableScopeSnapshot(locals: ["phase": "first"])
                 )
             }
@@ -122,7 +134,12 @@ struct HypeDebugServerAutomationToolTests {
 
             let secondPause = Task {
                 await HypeTalkScriptTraceRecorder.shared.pauseIfNeeded(
-                    context: traceContext(sourceId: sourceId, handler: "nextHandler", line: 2),
+                    context: traceContext(
+                        executionId: executionId,
+                        sourceId: sourceId,
+                        handler: "nextHandler",
+                        line: 2
+                    ),
                     variables: HypeTalkVariableScopeSnapshot(locals: ["phase": "second"])
                 )
             }
@@ -180,7 +197,7 @@ struct HypeDebugServerAutomationToolTests {
         #expect(state.text.contains("\"breakpointLines\""))
         #expect(state.text.contains("1"))
 
-        let unsupportedLine = HypeDebugServer.shared.callScriptEditorAutomationControlTool(
+        let addBodyLine = HypeDebugServer.shared.callScriptEditorAutomationControlTool(
             name: "hype_toggle_script_editor_breakpoint",
             arguments: [
                 "object_type": .string("part"),
@@ -190,8 +207,22 @@ struct HypeDebugServerAutomationToolTests {
             ]
         )
 
-        #expect(unsupportedLine.isError)
-        #expect(unsupportedLine.text.contains("handler entries"))
+        #expect(addBodyLine.isError == false)
+        #expect(addBodyLine.text.contains("\"isSet\" : true"))
+        #expect(addBodyLine.text.contains("2"))
+
+        let rejectBlankLine = HypeDebugServer.shared.callScriptEditorAutomationControlTool(
+            name: "hype_toggle_script_editor_breakpoint",
+            arguments: [
+                "object_type": .string("part"),
+                "id_or_name": .string("Run"),
+                "line": .number(3),
+                "action": .string("add"),
+            ]
+        )
+
+        #expect(rejectBlankLine.isError == true)
+        #expect(rejectBlankLine.text.contains("not a handler declaration or executable statement"))
 
         let remove = HypeDebugServer.shared.callScriptEditorAutomationControlTool(
             name: "hype_toggle_script_editor_breakpoint",
@@ -231,8 +262,14 @@ struct HypeDebugServerAutomationToolTests {
         HypeDocumentMutationCoordinator.shared.activeCardId = document.sortedCards.first?.id
     }
 
-    private func traceContext(sourceId: UUID, handler: String, line: Int) -> HypeTalkScriptTraceContext {
+    private func traceContext(
+        executionId: UUID = UUID(),
+        sourceId: UUID,
+        handler: String,
+        line: Int
+    ) -> HypeTalkScriptTraceContext {
         HypeTalkScriptTraceContext(
+            executionId: executionId,
             message: handler,
             handler: handler,
             ownerDescription: "button \"Run\"",

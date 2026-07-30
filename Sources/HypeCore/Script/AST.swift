@@ -170,6 +170,8 @@ public struct ObjectRefExpr: Sendable {
 
 /// A statement in the HypeTalk AST.
 public indirect enum Statement: Sendable {
+    /// Source-location wrapper used by debugger-aware parser callers.
+    case located(line: Int, Statement)
     case put(source: Expression, preposition: Preposition, target: Expression)
     case get(Expression)
     case set(property: String, of: Expression?, to: Expression)

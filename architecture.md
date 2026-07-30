@@ -2,7 +2,7 @@
 type: architecture
 title: Hype Architecture
 description: The product and runtime architecture — source of truth for subsystems, persistence, scripting, rendering, AI, and platform footprint.
-updated: 2026-07-12
+updated: 2026-07-30
 ---
 
 # Hype Architecture
@@ -2043,10 +2043,14 @@ and uses Up/Down arrow recall against the document-scoped prompt history.
 `HypeTalkScriptTraceRecorder`: it records handler-level execution traces,
 runtime budget/profiling counters, breakpoint/watchpoint hits, and handler
 variable frames split into locals, globals, `it`, and `the result`. Matching
-breakpoints halt at handler entry after parameters and implicit event locals
-are bound; the debugger or debug/MCP bridge can inspect that paused frame and
-resume the same dispatch. These debugger controls are process/session state
-only and are not persisted into `.hype` documents.
+breakpoints halt either at handler entry after parameters and implicit event
+locals are bound or immediately before an executable statement. The debugger
+or debug/MCP bridge can inspect that paused frame and resume the same dispatch.
+Step Into follows nested handler calls; Step Over skips them and stops at the
+next statement in the current/calling handler. Step and breakpoint-hit state is
+scoped to the active dispatch/handler execution so concurrent stack runtimes do
+not consume each other's debugger state. These debugger controls are
+process/session state only and are not persisted into `.hype` documents.
 
 A `MessageBoxView` REPL (Sources/Hype/Views/MessageBoxView.swift) lets the
 user evaluate HypeTalk expressions interactively against the live runtime

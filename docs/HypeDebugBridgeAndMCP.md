@@ -2,7 +2,7 @@
 type: guide
 title: Hype Debug Bridge And MCP Split
 description: How Hype.app exposes local debug automation over a Unix socket and how the MCP proxy forwards tools, resources, and prompts.
-updated: 2026-06-21
+updated: 2026-07-30
 ---
 
 # Hype Debug Bridge And MCP Split
@@ -116,10 +116,16 @@ control tools:
 These tools intentionally use in-process AppKit and debugger state rather than
 System Events or screen coordinates, so they work without macOS Accessibility
 permissions and return structured JSON that tests can assert on directly.
-Script editor line breakpoints currently halt at handler entry lines (`on ...`
-or `function ...`). Statement-level line breakpoints require parser/interpreter
-source-location metadata and are rejected with a structured error instead of
-creating breakpoints that cannot fire.
+Script editor breakpoints can target handler entry lines and executable
+statement lines. Handler-level breakpoints pause before the handler body starts;
+statement-level line breakpoints pause immediately before the matching
+statement executes, with current locals/globals available in the pause state.
+Blank, comment-only, and handler terminator lines are rejected because they
+have no executable location. Step Into pauses at the next statement or nested
+handler entry. Step Over skips nested handler execution and pauses at the next
+statement in the current or calling handler. Step requests and pending
+breakpoint-hit annotations are scoped to their dispatch and handler execution,
+so concurrent stack runtimes cannot consume each other's debugger state.
 
 ## MCP Server
 

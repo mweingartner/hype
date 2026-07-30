@@ -36,7 +36,7 @@ private final class HypeTalkScriptParseCache: @unchecked Sendable {
 
         var lexer = Lexer(source: source)
         let tokens = lexer.tokenize()
-        var parser = Parser(tokens: tokens)
+        var parser = Parser(tokens: tokens, capturesStatementLocations: true)
         let parsed = try parser.parse()
 
         lock.lock()
@@ -229,8 +229,10 @@ public struct MessageDispatcher: Sendable {
         runtimeProvider: (any ScriptRuntimeProviding)? = nil,
         nestedSendDepth: Int = 0,
         fileProvider: any FileAccessProvider = StubFileAccessProvider(),
-        handlerType: HandlerType? = nil
+        handlerType: HandlerType? = nil,
+        debugExecutionId: UUID? = nil
     ) async -> ExecutionResult {
+        let traceExecutionId = debugExecutionId ?? UUID()
         let chain = buildHierarchy(
             targetId: targetId,
             document: document,
@@ -348,7 +350,10 @@ public struct MessageDispatcher: Sendable {
             // This is what `the target` returns per the HyperTalk reference.
             let traceEnabled = scriptTraceRecorder.isEnabled
             let traceProfiler = traceEnabled ? HypeTalkExecutionProfiler() : nil
+            let handlerExecutionId = UUID()
             let traceContext = HypeTalkScriptTraceContext(
+                executionId: traceExecutionId,
+                handlerExecutionId: handlerExecutionId,
                 message: message,
                 handler: handler.name,
                 ownerDescription: Self.describeObject(
@@ -360,7 +365,8 @@ public struct MessageDispatcher: Sendable {
                     kind: Self.traceSourceKind(objectId: objectId, document: currentDocument),
                     objectId: objectId
                 ),
-                line: handler.line
+                line: handler.line,
+                callDepth: nestedSendDepth
             )
             let traceStart = Date()
             let context = ExecutionContext(
@@ -390,6 +396,8 @@ public struct MessageDispatcher: Sendable {
             if traceEnabled {
                 scriptTraceRecorder.record(
                     HypeTalkScriptTraceEntry(
+                        executionId: traceExecutionId,
+                        handlerExecutionId: handlerExecutionId,
                         message: message,
                         handler: handler.name,
                         ownerDescription: traceContext.ownerDescription,

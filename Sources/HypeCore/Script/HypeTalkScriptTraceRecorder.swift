@@ -11,24 +11,33 @@ public struct HypeTalkScriptTraceSource: Sendable, Codable, Equatable {
 }
 
 public struct HypeTalkScriptTraceContext: Sendable, Codable, Equatable {
+    public var executionId: UUID
+    public var handlerExecutionId: UUID
     public var message: String
     public var handler: String
     public var ownerDescription: String
     public var source: HypeTalkScriptTraceSource
     public var line: Int
+    public var callDepth: Int
 
     public init(
+        executionId: UUID = UUID(),
+        handlerExecutionId: UUID = UUID(),
         message: String,
         handler: String,
         ownerDescription: String,
         source: HypeTalkScriptTraceSource,
-        line: Int
+        line: Int,
+        callDepth: Int = 0
     ) {
+        self.executionId = executionId
+        self.handlerExecutionId = handlerExecutionId
         self.message = message
         self.handler = handler
         self.ownerDescription = ownerDescription
         self.source = source
         self.line = line
+        self.callDepth = callDepth
     }
 }
 
@@ -170,6 +179,8 @@ public struct HypeTalkScriptPauseState: Identifiable, Sendable, Codable, Equatab
 public struct HypeTalkScriptTraceEntry: Identifiable, Sendable, Codable, Equatable {
     public var id: UUID
     public var timestamp: Date
+    public var executionId: UUID?
+    public var handlerExecutionId: UUID?
     public var message: String
     public var handler: String
     public var ownerDescription: String
@@ -185,6 +196,8 @@ public struct HypeTalkScriptTraceEntry: Identifiable, Sendable, Codable, Equatab
     public init(
         id: UUID = UUID(),
         timestamp: Date = Date(),
+        executionId: UUID? = nil,
+        handlerExecutionId: UUID? = nil,
         message: String,
         handler: String,
         ownerDescription: String,
@@ -199,6 +212,8 @@ public struct HypeTalkScriptTraceEntry: Identifiable, Sendable, Codable, Equatab
     ) {
         self.id = id
         self.timestamp = timestamp
+        self.executionId = executionId
+        self.handlerExecutionId = handlerExecutionId
         self.message = message
         self.handler = handler
         self.ownerDescription = ownerDescription
@@ -274,7 +289,14 @@ public final class HypeTalkScriptTraceRecorder: @unchecked Sendable {
     private var lastWatchpointValues: [UUID: String] = [:]
     private var pausedState: HypeTalkScriptPauseState?
     private var pauseContinuation: CheckedContinuation<Void, Never>?
-    private var pendingStepReason: String?
+    private struct PendingStep {
+        var reason: String
+        var executionId: UUID
+        var callDepth: Int
+    }
+
+    private var pendingStep: PendingStep?
+    private var pendingTraceBreakpointHits: [UUID: [UUID]] = [:]
     private let maximumEntries = 2_000
 
     public init() {}
@@ -293,7 +315,8 @@ public final class HypeTalkScriptTraceRecorder: @unchecked Sendable {
                 continuation = pauseContinuation
                 pauseContinuation = nil
                 pausedState = nil
-                pendingStepReason = nil
+                pendingStep = nil
+                pendingTraceBreakpointHits.removeAll(keepingCapacity: true)
             }
         }
         continuation?.resume()
@@ -301,7 +324,8 @@ public final class HypeTalkScriptTraceRecorder: @unchecked Sendable {
 
     public func pauseIfNeeded(
         context: HypeTalkScriptTraceContext,
-        variables: HypeTalkVariableScopeSnapshot
+        variables: HypeTalkVariableScopeSnapshot,
+        lineBreakpointsOnly: Bool = false
     ) async -> Double {
         let started = Date()
         var didPause = false
@@ -324,14 +348,24 @@ public final class HypeTalkScriptTraceRecorder: @unchecked Sendable {
                     variables: variables
                 )
                 let breakpointHits = breakpoints
-                    .filter { $0.matches(probe) }
+                    .filter { breakpoint in
+                        if lineBreakpointsOnly, breakpoint.line == nil { return false }
+                        return breakpoint.matches(probe)
+                    }
                     .map(\.id)
-                let stepReason = pendingStepReason
-                pendingStepReason = nil
-                guard !breakpointHits.isEmpty || stepReason != nil else {
+                let stepMatches: Bool
+                if let pendingStep, pendingStep.executionId == context.executionId {
+                    stepMatches = pendingStep.reason == "stepInto"
+                        || context.callDepth <= pendingStep.callDepth
+                } else {
+                    stepMatches = false
+                }
+                guard !breakpointHits.isEmpty || stepMatches else {
                     shouldResumeImmediately = true
                     return
                 }
+                let stepReason = stepMatches ? pendingStep?.reason : nil
+                pendingStep = nil
                 didPause = true
                 pausedState = HypeTalkScriptPauseState(
                     context: context,
@@ -339,6 +373,10 @@ public final class HypeTalkScriptTraceRecorder: @unchecked Sendable {
                     breakpointHits: breakpointHits,
                     reason: breakpointHits.isEmpty ? (stepReason ?? "step") : "breakpoint"
                 )
+                if !breakpointHits.isEmpty {
+                    pendingTraceBreakpointHits[context.handlerExecutionId, default: []]
+                        .append(contentsOf: breakpointHits)
+                }
                 pauseContinuation = continuation
             }
             if didPause {
@@ -380,8 +418,12 @@ public final class HypeTalkScriptTraceRecorder: @unchecked Sendable {
         lock.withLock {
             continuation = pauseContinuation
             didResume = pauseContinuation != nil || pausedState != nil
-            if didResume {
-                pendingStepReason = stepReason
+            if didResume, let pausedState {
+                pendingStep = PendingStep(
+                    reason: stepReason,
+                    executionId: pausedState.context.executionId,
+                    callDepth: pausedState.context.callDepth
+                )
             }
             pauseContinuation = nil
             pausedState = nil
@@ -394,9 +436,13 @@ public final class HypeTalkScriptTraceRecorder: @unchecked Sendable {
         lock.withLock {
             guard enabled else { return }
             var annotatedEntry = entry
-            annotatedEntry.breakpointHits = breakpoints
+            let matchingBreakpointHits = breakpoints
                 .filter { $0.matches(entry) }
                 .map(\.id)
+            let pendingHits = entry.handlerExecutionId.flatMap {
+                pendingTraceBreakpointHits.removeValue(forKey: $0)
+            } ?? []
+            annotatedEntry.breakpointHits = stableUniqueBreakpointHits(pendingHits + matchingBreakpointHits)
             annotatedEntry.watchpointHits = watchpointHits(for: entry.variables)
             entries.append(annotatedEntry)
             if entries.count > maximumEntries {
@@ -413,7 +459,8 @@ public final class HypeTalkScriptTraceRecorder: @unchecked Sendable {
             continuation = pauseContinuation
             pauseContinuation = nil
             pausedState = nil
-            pendingStepReason = nil
+            pendingStep = nil
+            pendingTraceBreakpointHits.removeAll(keepingCapacity: true)
         }
         continuation?.resume()
     }
@@ -429,7 +476,8 @@ public final class HypeTalkScriptTraceRecorder: @unchecked Sendable {
             continuation = pauseContinuation
             pauseContinuation = nil
             pausedState = nil
-            pendingStepReason = nil
+            pendingStep = nil
+            pendingTraceBreakpointHits.removeAll(keepingCapacity: true)
         }
         continuation?.resume()
     }
@@ -451,6 +499,16 @@ public final class HypeTalkScriptTraceRecorder: @unchecked Sendable {
         lock.withLock {
             self.breakpoints = breakpoints
         }
+    }
+
+    private func stableUniqueBreakpointHits(_ ids: [UUID]) -> [UUID] {
+        var seen: Set<UUID> = []
+        var result: [UUID] = []
+        for id in ids where !seen.contains(id) {
+            seen.insert(id)
+            result.append(id)
+        }
+        return result
     }
 
     public func addWatchpoint(_ watchpoint: HypeTalkScriptWatchpoint) -> HypeTalkScriptWatchpoint {

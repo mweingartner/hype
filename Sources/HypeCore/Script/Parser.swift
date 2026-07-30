@@ -3,10 +3,13 @@ import Foundation
 /// Recursive descent parser for HypeTalk scripts.
 public struct Parser: Sendable {
     private let tokens: [Token]
+    private let capturesStatementLocations: Bool
     private var pos: Int = 0
+    public private(set) var capturedStatementLines: Set<Int> = []
 
-    public init(tokens: [Token]) {
+    public init(tokens: [Token], capturesStatementLocations: Bool = false) {
         self.tokens = tokens
+        self.capturesStatementLocations = capturesStatementLocations
     }
 
     // MARK: - Token helpers
@@ -229,6 +232,14 @@ public struct Parser: Sendable {
 
     private mutating func parseStatement() throws -> Statement {
         skipNewlines()
+        let line = current.line
+        let statement = try parseRawStatement()
+        guard capturesStatementLocations else { return statement }
+        capturedStatementLines.insert(line)
+        return .located(line: line, statement)
+    }
+
+    private mutating func parseRawStatement() throws -> Statement {
         switch current.type {
         case .put:      return try parsePutStatement()
         case .get:      return try parseGetStatement()

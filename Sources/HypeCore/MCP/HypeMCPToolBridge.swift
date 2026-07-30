@@ -343,12 +343,12 @@ public enum HypeMCPToolBridge {
             ),
             tool(
                 "hype_step_into_script_execution",
-                "Resume the currently halted HypeTalk handler and halt again at the next handler entry.",
+                "Resume the currently halted HypeTalk execution and halt at its next statement, including statements in a nested handler call.",
                 [:]
             ),
             tool(
                 "hype_step_over_script_execution",
-                "Resume the currently halted HypeTalk handler and halt again at the next handler entry. Statement-level stepping is not yet available.",
+                "Resume the currently halted HypeTalk execution and halt at its next statement without entering nested handler calls.",
                 [:]
             ),
             tool(

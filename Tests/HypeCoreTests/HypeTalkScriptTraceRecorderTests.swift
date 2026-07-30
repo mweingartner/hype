@@ -207,12 +207,169 @@ struct HypeTalkScriptTraceRecorderTests {
         #expect(entry.variables.globals["gflag"] == "after")
     }
 
-    @Test("step into resumes paused execution and halts at next handler entry")
+    @Test("line breakpoint halts dispatch before matching statement")
+    func lineBreakpointHaltsDispatchBeforeMatchingStatement() async throws {
+        let recorder = HypeTalkScriptTraceRecorder()
+        defer { _ = recorder.resumePausedExecution() }
+
+        var document = HypeDocument.newDocument()
+        document.scriptGlobals["gFlag"] = "before"
+        let cardId = try #require(document.sortedCards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "Run")
+        button.script = """
+        on mouseUp
+          global gFlag
+          put "after" into gFlag
+        end mouseUp
+        """
+        document.addPart(button)
+
+        _ = recorder.addBreakpoint(
+            HypeTalkScriptBreakpoint(
+                sourceKind: "part",
+                objectId: button.id,
+                handler: "mouseUp",
+                line: 3
+            )
+        )
+        recorder.setEnabled(true)
+
+        let dispatchTask = Task {
+            await MessageDispatcher(scriptTraceRecorder: recorder).dispatchAsync(
+                message: "mouseUp",
+                params: [],
+                targetId: button.id,
+                document: document,
+                currentCardId: cardId
+            )
+        }
+
+        let pause = try await waitForPause(recorder)
+        #expect(pause.context.handler == "mouseUp")
+        #expect(pause.context.line == 3)
+        #expect(pause.variables.globals["gflag"] == "before")
+        #expect(pause.breakpointHits.count == 1)
+        #expect(recorder.snapshot().entries.isEmpty)
+
+        #expect(recorder.resumePausedExecution())
+        let result = await dispatchTask.value
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.scriptGlobals["gflag"] == "after")
+
+        let entry = try #require(recorder.snapshot().entries.last)
+        #expect(entry.breakpointHits == pause.breakpointHits)
+        #expect(entry.variables.globals["gflag"] == "after")
+    }
+
+    @Test("parser reports handler and executable breakpoint lines without blank or comment lines")
+    func parserReportsExecutableBreakpointLines() throws {
+        let source = """
+        on mouseUp
+          -- comment
+
+          put "before" into phase
+          helper
+        end mouseUp
+        """
+        var lexer = Lexer(source: source)
+        var parser = Parser(tokens: lexer.tokenize(), capturesStatementLocations: true)
+        let script = try parser.parse()
+
+        let breakpointLines = parser.capturedStatementLines.union(script.handlers.map(\.line))
+        #expect(breakpointLines == [1, 4, 5])
+    }
+
+    @Test("step into enters a nested handler while step over stays in the caller")
+    func stepControlsRespectNestedHandlerDepth() async throws {
+        try await assertNestedStep(
+            action: { $0.stepIntoPausedExecution() },
+            expectedHandler: "helper",
+            expectedLine: 8,
+            expectedReason: "stepInto",
+            expectedDepth: 1
+        )
+        try await assertNestedStep(
+            action: { $0.stepOverPausedExecution() },
+            expectedHandler: "mouseUp",
+            expectedLine: 5,
+            expectedReason: "stepOver",
+            expectedDepth: 0
+        )
+    }
+
+    @Test("line breakpoint annotations stay with their handler execution")
+    func lineBreakpointAnnotationsAreExecutionScoped() async throws {
+        let recorder = HypeTalkScriptTraceRecorder()
+        defer { recorder.resetDebuggerState() }
+        let sourceId = UUID()
+        let breakpoint = recorder.addBreakpoint(
+            HypeTalkScriptBreakpoint(
+                sourceKind: "part",
+                objectId: sourceId,
+                handler: "mouseUp",
+                line: 3
+            )
+        )
+        recorder.setEnabled(true)
+
+        let context = HypeTalkScriptTraceContext(
+            message: "mouseUp",
+            handler: "mouseUp",
+            ownerDescription: "button \"Run\"",
+            source: HypeTalkScriptTraceSource(kind: "part", objectId: sourceId),
+            line: 3
+        )
+        let pauseTask = Task {
+            await recorder.pauseIfNeeded(
+                context: context,
+                variables: HypeTalkVariableScopeSnapshot(),
+                lineBreakpointsOnly: true
+            )
+        }
+        _ = try await waitForPause(recorder)
+        #expect(recorder.resumePausedExecution())
+        _ = await pauseTask.value
+
+        recorder.record(
+            HypeTalkScriptTraceEntry(
+                executionId: UUID(),
+                handlerExecutionId: UUID(),
+                message: "openCard",
+                handler: "openCard",
+                ownerDescription: "card \"Other\"",
+                source: HypeTalkScriptTraceSource(kind: "card", objectId: UUID()),
+                line: 1,
+                status: "completed",
+                durationMilliseconds: 1,
+                diagnostics: HypeTalkExecutionDiagnostics()
+            )
+        )
+        #expect(recorder.snapshot().entries.last?.breakpointHits.isEmpty == true)
+
+        recorder.record(
+            HypeTalkScriptTraceEntry(
+                executionId: context.executionId,
+                handlerExecutionId: context.handlerExecutionId,
+                message: "mouseUp",
+                handler: "mouseUp",
+                ownerDescription: "button \"Run\"",
+                source: context.source,
+                line: 1,
+                status: "completed",
+                durationMilliseconds: 1,
+                diagnostics: HypeTalkExecutionDiagnostics()
+            )
+        )
+        #expect(recorder.snapshot().entries.last?.breakpointHits == [breakpoint.id])
+    }
+
+    @Test("step into resumes paused execution and halts at the next execution point")
     func stepIntoResumesAndHaltsAtNextHandlerEntry() async throws {
         let recorder = HypeTalkScriptTraceRecorder()
         defer { _ = recorder.resumePausedExecution() }
 
         let sourceId = UUID()
+        let executionId = UUID()
         _ = recorder.addBreakpoint(
             HypeTalkScriptBreakpoint(sourceKind: "part", objectId: sourceId, handler: "mouseUp", line: 1)
         )
@@ -221,6 +378,7 @@ struct HypeTalkScriptTraceRecorderTests {
         let firstPause = Task {
             await recorder.pauseIfNeeded(
                 context: HypeTalkScriptTraceContext(
+                    executionId: executionId,
                     message: "mouseUp",
                     handler: "mouseUp",
                     ownerDescription: "button \"Run\"",
@@ -237,6 +395,7 @@ struct HypeTalkScriptTraceRecorderTests {
         let secondPause = Task {
             await recorder.pauseIfNeeded(
                 context: HypeTalkScriptTraceContext(
+                    executionId: executionId,
                     message: "openCard",
                     handler: "openCard",
                     ownerDescription: "card \"Next\"",
@@ -318,15 +477,16 @@ struct HypeTalkScriptTraceRecorderTests {
         #expect(recorder.snapshot().pausedState == nil)
     }
 
-    @Test("step into is one-shot and uses the next handler entry")
+    @Test("step into is one-shot and uses the next execution point")
     func stepIntoIsOneShot() async throws {
         let recorder = HypeTalkScriptTraceRecorder()
         recorder.setEnabled(true)
+        let executionId = UUID()
         _ = recorder.addBreakpoint(HypeTalkScriptBreakpoint(sourceKind: "part", handler: "mouseUp", line: 1))
 
         let firstPause = Task {
             await recorder.pauseIfNeeded(
-                context: traceContext(handler: "mouseUp", line: 1),
+                context: traceContext(executionId: executionId, handler: "mouseUp", line: 1),
                 variables: HypeTalkVariableScopeSnapshot()
             )
         }
@@ -336,7 +496,7 @@ struct HypeTalkScriptTraceRecorderTests {
 
         let secondPause = Task {
             await recorder.pauseIfNeeded(
-                context: traceContext(handler: "openCard", line: 2),
+                context: traceContext(executionId: executionId, handler: "openCard", line: 2),
                 variables: HypeTalkVariableScopeSnapshot(locals: ["phase": "stepped"])
             )
         }
@@ -359,11 +519,12 @@ struct HypeTalkScriptTraceRecorderTests {
     func stepOverReportsDistinctPauseReason() async throws {
         let recorder = HypeTalkScriptTraceRecorder()
         recorder.setEnabled(true)
+        let executionId = UUID()
         _ = recorder.addBreakpoint(HypeTalkScriptBreakpoint(sourceKind: "part", handler: "mouseUp", line: 1))
 
         let firstPause = Task {
             await recorder.pauseIfNeeded(
-                context: traceContext(handler: "mouseUp", line: 1),
+                context: traceContext(executionId: executionId, handler: "mouseUp", line: 1),
                 variables: HypeTalkVariableScopeSnapshot()
             )
         }
@@ -373,7 +534,7 @@ struct HypeTalkScriptTraceRecorderTests {
 
         let secondPause = Task {
             await recorder.pauseIfNeeded(
-                context: traceContext(handler: "openCard", line: 2),
+                context: traceContext(executionId: executionId, handler: "openCard", line: 2),
                 variables: HypeTalkVariableScopeSnapshot()
             )
         }
@@ -387,6 +548,7 @@ struct HypeTalkScriptTraceRecorderTests {
     func breakpointTakesPrecedenceOverPendingStepReason() async throws {
         let recorder = HypeTalkScriptTraceRecorder()
         recorder.setEnabled(true)
+        let executionId = UUID()
         _ = recorder.addBreakpoint(HypeTalkScriptBreakpoint(sourceKind: "part", handler: "mouseUp", line: 1))
         let secondBreakpoint = recorder.addBreakpoint(
             HypeTalkScriptBreakpoint(sourceKind: "part", handler: "openCard", line: 2)
@@ -394,7 +556,7 @@ struct HypeTalkScriptTraceRecorderTests {
 
         let firstPause = Task {
             await recorder.pauseIfNeeded(
-                context: traceContext(handler: "mouseUp", line: 1),
+                context: traceContext(executionId: executionId, handler: "mouseUp", line: 1),
                 variables: HypeTalkVariableScopeSnapshot()
             )
         }
@@ -404,7 +566,7 @@ struct HypeTalkScriptTraceRecorderTests {
 
         let secondPause = Task {
             await recorder.pauseIfNeeded(
-                context: traceContext(handler: "openCard", line: 2),
+                context: traceContext(executionId: executionId, handler: "openCard", line: 2),
                 variables: HypeTalkVariableScopeSnapshot()
             )
         }
@@ -478,12 +640,76 @@ struct HypeTalkScriptTraceRecorderTests {
         throw PauseWaitError.timedOut
     }
 
+    private func assertNestedStep(
+        action: @escaping @Sendable (HypeTalkScriptTraceRecorder) -> Bool,
+        expectedHandler: String,
+        expectedLine: Int,
+        expectedReason: String,
+        expectedDepth: Int
+    ) async throws {
+        let recorder = HypeTalkScriptTraceRecorder()
+        defer { recorder.resetDebuggerState() }
+
+        var document = HypeDocument.newDocument()
+        let cardId = try #require(document.sortedCards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "Run")
+        button.script = """
+        on mouseUp
+          global phase
+          put "before" into phase
+          helper
+          put "after" into phase
+        end mouseUp
+
+        on helper
+          put "nested" into phase
+        end helper
+        """
+        document.addPart(button)
+        _ = recorder.addBreakpoint(
+            HypeTalkScriptBreakpoint(
+                sourceKind: "part",
+                objectId: button.id,
+                handler: "mouseUp",
+                line: 4
+            )
+        )
+        recorder.setEnabled(true)
+
+        let dispatchTask = Task {
+            await MessageDispatcher(scriptTraceRecorder: recorder).dispatchAsync(
+                message: "mouseUp",
+                params: [],
+                targetId: button.id,
+                document: document,
+                currentCardId: cardId
+            )
+        }
+        let firstPause = try await waitForPause(recorder)
+        #expect(firstPause.context.handler == "mouseUp")
+        #expect(firstPause.context.line == 4)
+        #expect(action(recorder))
+
+        let steppedPause = try await waitForPause(recorder)
+        #expect(steppedPause.context.handler == expectedHandler)
+        #expect(steppedPause.context.line == expectedLine)
+        #expect(steppedPause.context.callDepth == expectedDepth)
+        #expect(steppedPause.reason == expectedReason)
+        #expect(recorder.resumePausedExecution())
+
+        let result = await dispatchTask.value
+        #expect(result.status == .completed)
+        #expect(result.modifiedDocument?.scriptGlobals["phase"] == "after")
+    }
+
     private func traceContext(
+        executionId: UUID = UUID(),
         sourceId: UUID = UUID(),
         handler: String,
         line: Int
     ) -> HypeTalkScriptTraceContext {
         HypeTalkScriptTraceContext(
+            executionId: executionId,
             message: handler,
             handler: handler,
             ownerDescription: "button \"Run\"",
