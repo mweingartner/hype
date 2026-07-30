@@ -356,34 +356,64 @@ struct ScriptEditor: View {
         HSplitView {
             // Left: Command palette
             commandPalette
-                .frame(width: 180)
+                .frame(minWidth: 210, idealWidth: 230, maxWidth: 280)
 
             // Right: Code editor
             VStack(spacing: 0) {
                 // Toolbar — themed so swapping themes also retints
                 // the script editor's top bar to match the rest of
                 // the chrome.
-                HStack {
+                HStack(spacing: 8) {
                     Text("Script Editor")
                         .font(.headline)
+                        .lineLimit(1)
                     Spacer()
-                    ScriptDebuggerStepControls(
-                        isPaused: debuggerSnapshot.pausedState != nil,
-                        showsLabels: false,
-                        controlSize: .small
-                    ) {
-                        debuggerSnapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+                    HStack(spacing: 3) {
+                        ScriptDebuggerStepControls(
+                            isPaused: debuggerSnapshot.pausedState != nil,
+                            showsLabels: false,
+                            controlSize: .small,
+                            foregroundColor: toolbarForeground
+                        ) {
+                            debuggerSnapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+                        }
                     }
+                    .opacity(debuggerSnapshot.pausedState == nil ? 0.42 : 1)
                     Divider()
                         .frame(height: 18)
-                    Button("Comment") { toggleComment() }
+                    toolbarIconButton(systemName: "text.badge.minus", help: "Comment selection") {
+                        toggleComment()
+                    }
                         .accessibilityIdentifier(HypeAccessibilityID.toolbar("script.comment"))
-                    Button("Check Syntax") { checkSyntax() }
+                    toolbarIconButton(systemName: "checkmark.circle", help: "Check syntax") {
+                        checkSyntax()
+                    }
                         .accessibilityIdentifier(HypeAccessibilityID.toolbar("script.checkSyntax"))
-                    Button("Format") { reformatScript() }
+                    toolbarIconButton(systemName: "text.alignleft", help: "Format script") {
+                        reformatScript()
+                    }
                         .accessibilityIdentifier(HypeAccessibilityID.toolbar("script.format"))
+                    if let onDone {
+                        Divider()
+                            .frame(height: 18)
+                        Button("Done") { onDone() }
+                            .keyboardShortcut(.defaultAction)
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .frame(minWidth: 64)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .accessibilityIdentifier(HypeAccessibilityID.toolbar("script.done"))
+                    }
                 }
-                .padding(8)
+                .padding(.horizontal, 10)
+                // HSplitView can otherwise give the representable-backed
+                // editor every available point and compress this row to
+                // zero height. Keep the toolbar aligned with the fixed
+                // headers in the command and AI sidebars.
+                .frame(height: 44)
+                .layoutPriority(1)
+                .zIndex(1)
+                .foregroundStyle(toolbarForeground)
                 .background(hypeTheme.toolbarBackground.swiftUIColor)
                 .environment(\.colorScheme, hypeTheme.toolbarColorScheme)
 
@@ -401,6 +431,7 @@ struct ScriptEditor: View {
                     scriptTheme: hypeTheme.scriptTheme
                 )
                     .frame(minHeight: 200)
+                    .zIndex(0)
 
                 // Error display — kept semantically red but pulls
                 // the tint from the active script theme so the
@@ -422,7 +453,7 @@ struct ScriptEditor: View {
                 selectedRange: $selectedRange,
                 target: resolvedTarget
             )
-            .frame(width: 300)
+            .frame(minWidth: 330, idealWidth: 360, maxWidth: 430)
             .accessibilityIdentifier(HypeAccessibilityID.scriptEditorAI)
         }
         .onAppear {
@@ -484,26 +515,48 @@ struct ScriptEditor: View {
 
     // MARK: - Command Palette
 
+    private func toolbarIconButton(
+        systemName: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 28, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(toolbarForeground)
+        .help(help)
+    }
+
+    private var toolbarForeground: Color {
+        hypeTheme.toolbarColorScheme == .dark ? .white : .black
+    }
+
     private var commandPalette: some View {
         VStack(spacing: 0) {
             Text("Commands")
-                .font(.system(size: 11, weight: .bold))
+                .font(.system(size: 13, weight: .semibold))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
+                .padding(.vertical, 9)
                 .background(hypeTheme.toolbarBackground.swiftUIColor)
                 .environment(\.colorScheme, hypeTheme.toolbarColorScheme)
 
             List {
                 ForEach(categoryOrder, id: \.self) { category in
-                    Section(header: Text(category).font(.system(size: 10, weight: .bold))) {
+                    Section(header: Text(category).font(.system(size: 11, weight: .semibold))) {
                         ForEach(templatesForCategory(category)) { template in
                             Button(action: { insertTemplate(template) }) {
                                 Text(template.name)
-                                    .font(.system(size: 11))
+                                    .font(.system(size: 13))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .buttonStyle(.plain)
-                            .padding(.vertical, 1)
+                            .padding(.vertical, 3)
                             .accessibilityIdentifier(HypeAccessibilityID.scriptTemplate(template.name))
                         }
                     }
@@ -772,12 +825,12 @@ struct ScriptEditor: View {
 
     private func toggleBreakpoint(line: Int) {
         guard line > 0, let source = traceSource(for: resolvedTarget) else { return }
-        guard handlerDeclarationLines(in: scriptText).contains(line) else {
-            let supportedLines = handlerDeclarationLines(in: scriptText).sorted()
-            let supportedLineList = supportedLines.map(String.init).joined(separator: ", ")
-            errorMessage = supportedLines.isEmpty
-                ? "Breakpoints currently halt at handler entries. Add a handler before setting a breakpoint."
-                : "Breakpoints currently halt at handler entries. Supported lines: \(supportedLineList)."
+        let supportedLines = breakpointLines(in: scriptText)
+        guard supportedLines.contains(line) else {
+            let nearest = supportedLines.min { abs($0 - line) < abs($1 - line) }
+            errorMessage = nearest.map {
+                "Breakpoints can only be set on handler declarations or executable statements. Nearest executable line: \($0)."
+            } ?? "Breakpoints require a handler with at least one executable statement."
             return
         }
         let existing = debuggerSnapshot.breakpoints.first { breakpoint in
@@ -800,13 +853,11 @@ struct ScriptEditor: View {
         errorMessage = nil
     }
 
-    private func handlerDeclarationLines(in script: String) -> Set<Int> {
-        let lines = script.components(separatedBy: .newlines)
-        return Set(lines.enumerated().compactMap { offset, line in
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            guard trimmed.hasPrefix("on ") || trimmed.hasPrefix("function ") else { return nil }
-            return offset + 1
-        })
+    private func breakpointLines(in script: String) -> Set<Int> {
+        var lexer = Lexer(source: script)
+        var parser = Parser(tokens: lexer.tokenize(), capturesStatementLocations: true)
+        guard let parsed = try? parser.parse() else { return [] }
+        return parser.capturedStatementLines.union(parsed.handlers.map(\.line))
     }
 
     private func traceSource(for target: ScriptTarget?) -> HypeTalkScriptTraceSource? {

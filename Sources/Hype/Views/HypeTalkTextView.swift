@@ -2,6 +2,10 @@ import SwiftUI
 import AppKit
 import HypeCore
 
+final class HypeTalkGlyphOverlayLayer: CALayer {
+    var renderedText = ""
+}
+
 /// NSTextView-based code editor with HypeTalk syntax highlighting.
 ///
 /// **Theming**: reads `\.hypeTheme` from the SwiftUI environment and
@@ -37,11 +41,15 @@ struct HypeTalkTextView: NSViewRepresentable {
     var scriptTheme: HypeScriptTheme = BuiltInThemes.system.scriptTheme
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = NSTextView.scrollableTextView()
+        guard let textView = scrollView.documentView as? NSTextView else {
+            return scrollView
+        }
+        let palette = Coordinator.resolvedPalette(for: scriptTheme)
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
-        scrollView.appearance = NSAppearance(named: .aqua)
+        scrollView.appearance = palette.appearance
         scrollView.hasVerticalRuler = true
         scrollView.rulersVisible = true
         let ruler = HypeTalkLineNumberRulerView(scrollView: scrollView)
@@ -50,7 +58,9 @@ struct HypeTalkTextView: NSViewRepresentable {
         }
         scrollView.verticalRulerView = ruler
 
-        let textView = NSTextView()
+        textView.appearance = palette.appearance
+        textView.wantsLayer = true
+        textView.layerContentsRedrawPolicy = .onSetNeedsDisplay
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
@@ -65,15 +75,22 @@ struct HypeTalkTextView: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 4, height: 8)
 
         // Apply the script theme's palette + font.
-        let bg = scriptTheme.background.nsColor
-        let fg = scriptTheme.foreground.nsColor
+        let bg = palette.background
+        let fg = palette.foreground
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = bg
         textView.backgroundColor = bg
+        textView.drawsBackground = true
         textView.insertionPointColor = fg
         let font = NSFont(name: "Menlo", size: CGFloat(scriptTheme.fontSize))
             ?? NSFont.monospacedSystemFont(ofSize: CGFloat(scriptTheme.fontSize), weight: .regular)
         textView.font = font
         textView.textColor = fg
         textView.typingAttributes = [.font: font, .foregroundColor: fg]
+        textView.selectedTextAttributes = [
+            .backgroundColor: palette.selection,
+            .foregroundColor: fg,
+        ]
         textView.delegate = context.coordinator
         textView.setAccessibilityElement(true)
         textView.setAccessibilityRole(.textArea)
@@ -81,18 +98,39 @@ struct HypeTalkTextView: NSViewRepresentable {
         textView.setAccessibilityIdentifier(accessibilityIdentifier)
 
         // Configure text container
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        textView.minSize = NSSize(width: 0, height: 0)
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(
+            width: max(1, scrollView.contentSize.width - 52),
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.frame = NSRect(
+            origin: .zero,
+            size: NSSize(
+                width: max(1, scrollView.contentSize.width),
+                height: max(1, scrollView.contentSize.height)
+            )
+        )
+        textView.minSize = NSSize(width: 0, height: max(1, scrollView.contentSize.height))
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
 
-        scrollView.documentView = textView
+        // Keep the gutter explicitly bound to the canonical text view.
+        // A nil client makes AppKit overlay the ruler without tracking
+        // the document view's layout or scrolling.
+        ruler.clientView = textView
+        scrollView.tile()
 
         context.coordinator.textView = textView
         textView.string = text
+        context.coordinator.applySyntaxHighlight(in: textView, scriptTheme: scriptTheme)
+        context.coordinator.installGlyphOverlay(
+            for: textView,
+            in: scrollView,
+            scriptTheme: scriptTheme
+        )
+        textView.needsDisplay = true
 
         // Make first responder after window is ready
         DispatchQueue.main.async {
@@ -105,6 +143,15 @@ struct HypeTalkTextView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         guard !context.coordinator.isUpdating else { return }
+        let palette = Coordinator.resolvedPalette(for: scriptTheme)
+        scrollView.appearance = palette.appearance
+        textView.appearance = palette.appearance
+        Coordinator.sizeDocumentView(textView, in: scrollView)
+        let scrollOrigin = scrollView.contentView.bounds.origin
+        if scrollOrigin.x != 0 {
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollOrigin.y))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
         if textView.string != text {
             context.coordinator.isUpdating = true
             textView.string = text
@@ -121,6 +168,9 @@ struct HypeTalkTextView: NSViewRepresentable {
             ruler.stringProvider = { textView.string }
             ruler.breakpointLines = breakpointLines
             ruler.font = textView.font ?? NSFont.monospacedSystemFont(ofSize: CGFloat(scriptTheme.fontSize), weight: .regular)
+            ruler.appearance = palette.appearance
+            ruler.backgroundColor = palette.background
+            ruler.lineNumberColor = palette.lineNumber
             ruler.needsDisplay = true
         }
 
@@ -128,11 +178,18 @@ struct HypeTalkTextView: NSViewRepresentable {
         // since this view was created. Cheap because NSTextView's
         // background/textColor setters compare-and-skip when the
         // value is unchanged.
-        let bg = scriptTheme.background.nsColor
-        let fg = scriptTheme.foreground.nsColor
+        let bg = palette.background
+        let fg = palette.foreground
+        if scrollView.backgroundColor != bg { scrollView.backgroundColor = bg }
+        if !scrollView.drawsBackground { scrollView.drawsBackground = true }
         if textView.backgroundColor != bg { textView.backgroundColor = bg }
+        if !textView.drawsBackground { textView.drawsBackground = true }
         if textView.textColor != fg { textView.textColor = fg }
         textView.insertionPointColor = fg
+        textView.selectedTextAttributes = [
+            .backgroundColor: palette.selection,
+            .foregroundColor: fg,
+        ]
         if let font = NSFont(name: "Menlo", size: CGFloat(scriptTheme.fontSize))
                   ?? .none {
             if textView.font != font { textView.font = font }
@@ -145,6 +202,12 @@ struct HypeTalkTextView: NSViewRepresentable {
         context.coordinator.applySyntaxHighlight(
             in: textView, scriptTheme: scriptTheme
         )
+        context.coordinator.updateGlyphOverlay(
+            for: textView,
+            in: scrollView,
+            scriptTheme: scriptTheme
+        )
+        textView.needsDisplay = true
 
         // Apply (or clear) the runtime-error line highlight. We do
         // this every update tick rather than only when the line
@@ -165,9 +228,23 @@ struct HypeTalkTextView: NSViewRepresentable {
 
     @MainActor
     class Coordinator: NSObject, NSTextViewDelegate {
+        struct ResolvedPalette {
+            var appearance: NSAppearance
+            var background: NSColor
+            var foreground: NSColor
+            var selection: NSColor
+            var lineNumber: NSColor
+        }
+
         var parent: HypeTalkTextView
         var textView: NSTextView?
         var isUpdating = false
+        // Keep a root-level copy of the attributed glyphs visible. In the
+        // script editor's SwiftUI split view, AppKit can composite the clip
+        // view's document subtree behind the scroll surface even though the
+        // NSTextView remains the canonical editable/accessibility view.
+        private let glyphLayer = HypeTalkGlyphOverlayLayer()
+        private nonisolated(unsafe) var scrollBoundsObserver: NSObjectProtocol?
         /// Last error line we painted, so we can diff against the
         /// incoming binding and avoid redundant layout-manager work
         /// on every text change. `nil` means no highlight is active.
@@ -175,6 +252,12 @@ struct HypeTalkTextView: NSViewRepresentable {
 
         init(parent: HypeTalkTextView) {
             self.parent = parent
+        }
+
+        deinit {
+            if let scrollBoundsObserver {
+                NotificationCenter.default.removeObserver(scrollBoundsObserver)
+            }
         }
 
         /// Paint (or clear) a red error-line background on the
@@ -267,6 +350,13 @@ struct HypeTalkTextView: NSViewRepresentable {
             // is a single linear scan) and NSTextStorage batching
             // collapses the layout-manager work into one pass.
             applySyntaxHighlight(in: tv, scriptTheme: parent.scriptTheme)
+            if let scrollView = tv.enclosingScrollView {
+                updateGlyphOverlay(
+                    for: tv,
+                    in: scrollView,
+                    scriptTheme: parent.scriptTheme
+                )
+            }
             parent.onTextChange?()
             isUpdating = false
         }
@@ -294,6 +384,16 @@ struct HypeTalkTextView: NSViewRepresentable {
             guard fullRange.length > 0 else { return }
 
             let tokens = highlighter.highlight(source)
+            let font = textView.font
+                ?? NSFont(name: "Menlo", size: CGFloat(scriptTheme.fontSize))
+                ?? NSFont.monospacedSystemFont(ofSize: CGFloat(scriptTheme.fontSize), weight: .regular)
+            let paragraph = NSMutableParagraphStyle()
+            let lineHeight = max(
+                font.boundingRectForFont.height + 3,
+                textView.layoutManager?.defaultLineHeight(for: font) ?? font.pointSize
+            )
+            paragraph.minimumLineHeight = lineHeight
+            paragraph.maximumLineHeight = lineHeight
 
             storage.beginEditing()
             // Reset to the theme's foreground first so any previously
@@ -309,17 +409,250 @@ struct HypeTalkTextView: NSViewRepresentable {
             } else {
                 baseFGRef = scriptTheme.foreground
             }
-            let baseFG = baseFGRef.nsColor
-            storage.removeAttribute(.foregroundColor, range: fullRange)
-            storage.addAttribute(.foregroundColor, value: baseFG, range: fullRange)
+            let palette = Self.resolvedPalette(for: scriptTheme)
+            let baseFG = Self.readableColor(
+                Self.resolvedColor(baseFGRef.nsColor, appearance: palette.appearance),
+                on: palette.background
+            )
+            storage.setAttributes(
+                [
+                    .font: font,
+                    .foregroundColor: baseFG,
+                    .paragraphStyle: paragraph,
+                ],
+                range: fullRange
+            )
 
             for token in tokens {
                 let nsRange = NSRange(token.range, in: source)
                 guard nsRange.location + nsRange.length <= nsSource.length else { continue }
-                let color = Self.color(for: token.category, theme: scriptTheme).nsColor
+                let color = Self.readableColor(
+                    Self.resolvedColor(
+                        Self.color(for: token.category, theme: scriptTheme).nsColor,
+                        appearance: palette.appearance
+                    ),
+                    on: palette.background
+                )
                 storage.addAttribute(.foregroundColor, value: color, range: nsRange)
             }
             storage.endEditing()
+        }
+
+        func installGlyphOverlay(
+            for textView: NSTextView,
+            in scrollView: NSScrollView,
+            scriptTheme: HypeScriptTheme
+        ) {
+            scrollView.wantsLayer = true
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            if scrollBoundsObserver == nil {
+                scrollBoundsObserver = NotificationCenter.default.addObserver(
+                    forName: NSView.boundsDidChangeNotification,
+                    object: scrollView.contentView,
+                    queue: .main
+                ) { [weak self, weak textView, weak scrollView] _ in
+                    MainActor.assumeIsolated {
+                        guard let self, let textView, let scrollView else { return }
+                        self.updateGlyphOverlay(
+                            for: textView,
+                            in: scrollView,
+                            scriptTheme: self.parent.scriptTheme
+                        )
+                    }
+                }
+            }
+            updateGlyphOverlay(
+                for: textView,
+                in: scrollView,
+                scriptTheme: scriptTheme
+            )
+        }
+
+        func updateGlyphOverlay(
+            for textView: NSTextView,
+            in scrollView: NSScrollView,
+            scriptTheme: HypeScriptTheme
+        ) {
+            guard let rootLayer = scrollView.layer,
+                  let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer else { return }
+            if glyphLayer.superlayer !== rootLayer {
+                glyphLayer.removeFromSuperlayer()
+                rootLayer.addSublayer(glyphLayer)
+            }
+
+            let scrollY = scrollView.contentView.bounds.origin.y
+            let contentsScale = scrollView.window?.backingScaleFactor
+                ?? NSScreen.main?.backingScaleFactor
+                ?? 2
+            glyphLayer.frame = CGRect(
+                x: 0,
+                y: 0,
+                width: max(0, scrollView.bounds.width),
+                height: max(0, scrollView.bounds.height)
+            )
+            glyphLayer.zPosition = 10
+            glyphLayer.contentsScale = contentsScale
+            glyphLayer.isGeometryFlipped = true
+            glyphLayer.backgroundColor = nil
+            glyphLayer.renderedText = textView.string
+            glyphLayer.sublayers?.forEach { $0.removeFromSuperlayer() }
+
+            let storage = textView.textStorage
+                ?? NSTextStorage(string: textView.string)
+            let selection = textView.selectedRange()
+            let selectionColor = Self.resolvedPalette(for: scriptTheme).selection
+            let textOrigin = textView.textContainerOrigin
+            let glyphRange = layoutManager.glyphRange(for: textContainer)
+            layoutManager.enumerateLineFragments(
+                forGlyphRange: glyphRange
+            ) { _, usedRect, _, fragmentGlyphRange, _ in
+                var characterRange = layoutManager.characterRange(
+                    forGlyphRange: fragmentGlyphRange,
+                    actualGlyphRange: nil
+                )
+                while characterRange.length > 0 {
+                    let last = NSMaxRange(characterRange) - 1
+                    let scalar = (textView.string as NSString).character(at: last)
+                    guard scalar == 0x0A || scalar == 0x0D else { break }
+                    characterRange.length -= 1
+                }
+                guard characterRange.length > 0 else { return }
+
+                let attributed = NSMutableAttributedString(
+                    attributedString: storage.attributedSubstring(from: characterRange)
+                )
+                let selectedCharacters = NSIntersectionRange(selection, characterRange)
+                if selectedCharacters.length > 0 {
+                    attributed.addAttribute(
+                        .backgroundColor,
+                        value: selectionColor,
+                        range: NSRange(
+                            location: selectedCharacters.location - characterRange.location,
+                            length: selectedCharacters.length
+                        )
+                    )
+                }
+
+                let lineLayer = CATextLayer()
+                lineLayer.frame = CGRect(
+                    x: 44 + textOrigin.x + usedRect.minX,
+                    y: self.glyphLayer.bounds.height
+                        - (textOrigin.y + usedRect.maxY - scrollY),
+                    width: max(1, scrollView.bounds.width - 48 - usedRect.minX),
+                    height: max(1, usedRect.height)
+                )
+                lineLayer.contentsScale = contentsScale
+                lineLayer.isGeometryFlipped = true
+                lineLayer.alignmentMode = .left
+                lineLayer.truncationMode = .none
+                lineLayer.string = attributed
+                self.glyphLayer.addSublayer(lineLayer)
+            }
+        }
+
+        static func resolvedPalette(for theme: HypeScriptTheme) -> ResolvedPalette {
+            let appearance = editorAppearance(for: theme)
+            let background = resolvedColor(theme.background.nsColor, appearance: appearance)
+            let foreground = readableColor(
+                resolvedColor(theme.foreground.nsColor, appearance: appearance),
+                on: background
+            )
+            return ResolvedPalette(
+                appearance: appearance,
+                background: background,
+                foreground: foreground,
+                selection: resolvedColor(theme.selection.nsColor, appearance: appearance),
+                lineNumber: resolvedColor(theme.lineNumber.nsColor, appearance: appearance)
+            )
+        }
+
+        static func sizeDocumentView(_ textView: NSTextView, in scrollView: NSScrollView) {
+            let contentSize = scrollView.contentSize
+            let width = max(1, contentSize.width)
+            let height = max(1, contentSize.height)
+            if textView.frame.width != width || textView.frame.height < height {
+                textView.setFrameSize(
+                    NSSize(width: width, height: max(height, textView.frame.height))
+                )
+            }
+            textView.minSize = NSSize(width: 0, height: height)
+            textView.textContainer?.containerSize = NSSize(
+                width: max(1, width - 52),
+                height: CGFloat.greatestFiniteMagnitude
+            )
+        }
+
+        static func editorAppearance(for theme: HypeScriptTheme) -> NSAppearance {
+            if case .systemKey = theme.background {
+                let current = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+                return NSAppearance(named: current == .darkAqua ? .darkAqua : .aqua)
+                    ?? NSAppearance(named: .aqua)!
+            }
+            let background = resolvedColor(
+                theme.background.nsColor,
+                appearance: NSAppearance(named: .aqua)!
+            )
+            let luminance = rgbComponents(background)?.luminance ?? 1
+            return NSAppearance(named: luminance > 0.5 ? .aqua : .darkAqua)
+                ?? NSAppearance(named: .aqua)!
+        }
+
+        static func resolvedColor(_ color: NSColor, appearance: NSAppearance) -> NSColor {
+            var resolved = color
+            appearance.performAsCurrentDrawingAppearance {
+                resolved = color.usingColorSpace(.sRGB)
+                    ?? color.usingColorSpace(.deviceRGB)
+                    ?? color
+            }
+            return resolved
+        }
+
+        static func readableColor(_ color: NSColor, on background: NSColor) -> NSColor {
+            guard let fg = rgbComponents(color), let bg = rgbComponents(background) else {
+                return color.withAlphaComponent(1)
+            }
+            if contrastRatio(fg, bg) >= 7.0 {
+                return color.withAlphaComponent(1)
+            }
+            return bg.luminance > 0.5 ? NSColor.black : NSColor.white
+        }
+
+        private static func rgbComponents(_ color: NSColor) -> (r: CGFloat, g: CGFloat, b: CGFloat, luminance: CGFloat)? {
+            let converted = color.usingColorSpace(.sRGB) ?? color.usingColorSpace(.deviceRGB)
+            guard let converted else { return nil }
+            let blended = blendAlpha(
+                (converted.redComponent, converted.greenComponent, converted.blueComponent),
+                alpha: converted.alphaComponent
+            )
+            let luminance = relativeLuminance(blended)
+            return (blended.0, blended.1, blended.2, luminance)
+        }
+
+        private static func blendAlpha(_ rgb: (CGFloat, CGFloat, CGFloat), alpha: CGFloat) -> (CGFloat, CGFloat, CGFloat) {
+            guard alpha < 1 else { return rgb }
+            let white: CGFloat = 1
+            return (
+                rgb.0 * alpha + white * (1 - alpha),
+                rgb.1 * alpha + white * (1 - alpha),
+                rgb.2 * alpha + white * (1 - alpha)
+            )
+        }
+
+        private static func contrastRatio(
+            _ a: (r: CGFloat, g: CGFloat, b: CGFloat, luminance: CGFloat),
+            _ b: (r: CGFloat, g: CGFloat, b: CGFloat, luminance: CGFloat)
+        ) -> CGFloat {
+            let lighter = max(a.luminance, b.luminance)
+            let darker = min(a.luminance, b.luminance)
+            return (lighter + 0.05) / (darker + 0.05)
+        }
+
+        private static func relativeLuminance(_ rgb: (CGFloat, CGFloat, CGFloat)) -> CGFloat {
+            func channel(_ value: CGFloat) -> CGFloat {
+                value <= 0.03928 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * channel(rgb.0) + 0.7152 * channel(rgb.1) + 0.0722 * channel(rgb.2)
         }
 
         /// Map a `HypeTalkHighlighter.TokenCategory` to a `ColorRef`
@@ -364,6 +697,13 @@ struct HypeTalkTextView: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard !isUpdating, let tv = textView else { return }
             parent.selectedRange = tv.selectedRange()
+            if let scrollView = tv.enclosingScrollView {
+                updateGlyphOverlay(
+                    for: tv,
+                    in: scrollView,
+                    scriptTheme: parent.scriptTheme
+                )
+            }
         }
 
         private var isInsertingText = false
@@ -410,6 +750,8 @@ private final class HypeTalkLineNumberRulerView: NSRulerView {
     var stringProvider: (() -> String)?
     var onToggleBreakpoint: ((Int) -> Void)?
     var font: NSFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    var backgroundColor: NSColor = .textBackgroundColor
+    var lineNumberColor: NSColor = .secondaryLabelColor
 
     private let gutterWidth: CGFloat = 44
 
@@ -426,7 +768,7 @@ private final class HypeTalkLineNumberRulerView: NSRulerView {
 
     override func drawHashMarksAndLabels(in rect: NSRect) {
         guard let textView = scrollView?.documentView as? NSTextView else { return }
-        NSColor.windowBackgroundColor.withAlphaComponent(0.92).setFill()
+        backgroundColor.setFill()
         rect.fill()
 
         let source = stringProvider?() ?? textView.string
@@ -441,7 +783,7 @@ private final class HypeTalkLineNumberRulerView: NSRulerView {
         paragraph.alignment = .right
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.secondaryLabelColor,
+            .foregroundColor: HypeTalkTextView.Coordinator.readableColor(lineNumberColor, on: backgroundColor),
             .paragraphStyle: paragraph,
         ]
         for line in firstLine...max(firstLine, lastLine) where line <= lineCount {
