@@ -8,7 +8,7 @@ import HypeCore
 /// to, rather than being split across Go and Objects.
 struct GoMenuCommands: Commands {
     @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
-    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument
+    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument: Binding<HypeDocumentWrapper>?
 
     private var canUsePaintTools: Bool {
         authoringCommands?.userLevel.canUsePaintTools ?? false
@@ -405,7 +405,7 @@ struct ToolsMenuCommands: Commands {
 struct ViewMenuCommands: Commands {
     @AppStorage("hypeObjectsPanelVisible") private var objectsPanelVisible: Bool = true
     @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
-    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument
+    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument: Binding<HypeDocumentWrapper>?
 
     private var canAuthorObjects: Bool {
         authoringCommands?.userLevel.canAuthorObjects ?? false
@@ -417,6 +417,14 @@ struct ViewMenuCommands: Commands {
 
     private var focusedStackId: UUID? {
         focusedDocument?.wrappedValue.document.stack.id
+    }
+
+    /// Auxiliary windows such as the detached script editor do not publish the
+    /// document scene's focused values. Keep document-scoped tools usable from
+    /// those windows by falling back to the last active document binding.
+    private var activeStackId: UUID? {
+        focusedStackId
+            ?? HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document.stack.id
     }
 
     var body: some Commands {
@@ -493,6 +501,15 @@ struct ViewMenuCommands: Commands {
                 NotificationCenter.default.post(name: .showConsole, object: nil)
             }
             .keyboardShortcut("j", modifiers: [.command, .shift])
+
+            Button("Script Debugger") {
+                NotificationCenter.default.post(
+                    name: .openScriptDebugger,
+                    object: nil,
+                    userInfo: MenuCommandScoping.userInfo(stackId: activeStackId)
+                )
+            }
+            .keyboardShortcut("d", modifiers: [.command, .option])
         }
     }
 
@@ -624,6 +641,8 @@ extension Notification.Name {
     /// Theme Designer window via `openThemeDesignerWindow`.
     static let openThemeDesigner = Notification.Name("hype.openThemeDesigner")
     static let cancelRunningScripts = Notification.Name("hype.cancelRunningScripts")
+    static let openScriptDebugger = Notification.Name("hype.openScriptDebugger")
+    static let scriptDebuggerDidPause = Notification.Name("hype.scriptDebuggerDidPause")
 }
 
 // MARK: - AI menu (chat panel + AI-specific actions)

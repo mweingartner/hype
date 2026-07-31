@@ -47,6 +47,19 @@ struct ScriptEditorAIView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
+                        if messages.isEmpty && !isProcessing {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("No messages")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(hypeTheme.toolbarBackground.swiftUIColor.opacity(0.45))
+                            )
+                        }
                         ForEach(messages) { message in
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(message.role.capitalized)
@@ -116,7 +129,11 @@ struct ScriptEditorAIView: View {
                 .frame(height: min(max(promptContentHeight + 16, 32), 320))
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.secondary.opacity(0.3))
+                        .fill(hypeTheme.toolbarBackground.swiftUIColor.opacity(0.55))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(isPromptFocused ? hypeTheme.accent.swiftUIColor.opacity(0.65) : Color.secondary.opacity(0.28), lineWidth: 1)
                 )
 
                 HStack(spacing: 4) {

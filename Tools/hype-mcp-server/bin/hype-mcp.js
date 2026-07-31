@@ -60,7 +60,7 @@ const connectionTools = [
     },
     {
         name: "hype_debug_click_button",
-        description: "Debugger-only click simulation for a named button on a card.",
+        description: "Start a debugger-only click simulation without blocking. Returns an operation id to poll with hype_poll_debug_operation.",
         inputSchema: {
             type: "object",
             properties: {
@@ -68,6 +68,20 @@ const connectionTools = [
                 card: { type: "string", description: "Optional card name, number, or id. Uses the active card when omitted." },
             },
             required: ["button"],
+        },
+    },
+    {
+        name: "hype_start_debug_operation",
+        description: "Start any debug-port request without blocking. Pass either a debug method plus params_json, or a Hype tool name plus arguments_json.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                method: { type: "string", description: "Debug JSON-RPC method, e.g. debug/runScript." },
+                params_json: { type: "string", description: "JSON object containing method parameters." },
+                tool_name: { type: "string", description: "Hype MCP tool name to run through debug/callTool." },
+                arguments_json: { type: "string", description: "JSON object containing Hype tool arguments." },
+            },
+            required: [],
         },
     },
     {
@@ -277,6 +291,14 @@ async function attachSession(args) {
 function stringArg(args, key) {
     const value = args[key];
     return typeof value === "string" ? value.trim() : "";
+}
+function parseJSONObject(text, label) {
+    if (!text)
+        return {};
+    const value = JSON.parse(text);
+    if (!value || Array.isArray(value) || typeof value !== "object")
+        throw new Error(`${label} must contain a JSON object.`);
+    return value;
 }
 class DebugConnection {
     socketPath;
@@ -664,7 +686,64 @@ async function callMCPTool(params) {
             if (!button)
                 return textContent("hype_debug_click_button requires button.", true);
             const card = stringArg(args, "card");
-            const result = await debugRPC(session.socketPath, "debug/clickButton", { button, card });
+            const result = await debugRPC(session.socketPath, "debug/startOperation", {
+                method: "debug/clickButton",
+                params: { button, card },
+            });
+            return textContent(JSON.stringify(result, null, 2), false);
+        }
+        case "hype_start_debug_operation": {
+            const session = await ensureAttached();
+            if (!session)
+                return textContent("No active Hype session attached.", true);
+            const toolName = stringArg(args, "tool_name");
+            let method = stringArg(args, "method");
+            let operationParams = {};
+            try {
+                if (toolName) {
+                    method = "debug/callTool";
+                    operationParams = {
+                        name: toolName,
+                        arguments: parseJSONObject(stringArg(args, "arguments_json"), "arguments_json"),
+                    };
+                }
+                else {
+                    if (!method.startsWith("debug/"))
+                        return textContent("hype_start_debug_operation requires method starting with debug/ or tool_name.", true);
+                    operationParams = parseJSONObject(stringArg(args, "params_json"), "params_json");
+                }
+            }
+            catch (error) {
+                return textContent(error instanceof Error ? error.message : "Invalid debug operation JSON.", true);
+            }
+            const result = await debugRPC(session.socketPath, "debug/startOperation", {
+                method,
+                params: operationParams,
+            });
+            return textContent(JSON.stringify(result, null, 2), false);
+        }
+        case "hype_poll_debug_operation": {
+            const session = await ensureAttached();
+            if (!session)
+                return textContent("No active Hype session attached.", true);
+            const operationId = stringArg(args, "operation_id") || stringArg(args, "operationId");
+            if (!operationId)
+                return textContent("hype_poll_debug_operation requires operation_id.", true);
+            const result = await debugRPC(session.socketPath, "debug/pollOperation", {
+                operationId,
+            });
+            return textContent(JSON.stringify(result, null, 2), false);
+        }
+        case "hype_forget_debug_operation": {
+            const session = await ensureAttached();
+            if (!session)
+                return textContent("No active Hype session attached.", true);
+            const operationId = stringArg(args, "operation_id") || stringArg(args, "operationId");
+            if (!operationId)
+                return textContent("hype_forget_debug_operation requires operation_id.", true);
+            const result = await debugRPC(session.socketPath, "debug/forgetOperation", {
+                operationId,
+            });
             return textContent(JSON.stringify(result, null, 2), false);
         }
         case "hype_debug_script_state": {
@@ -682,6 +761,13 @@ async function callMCPTool(params) {
             if (!session)
                 return textContent("No active Hype session attached. Launch Hype.app or call hype_attach_session.", true);
             try {
+                if (name === "hype_dispatch_message") {
+                    const operation = await debugRPC(session.socketPath, "debug/startOperation", {
+                        method: "debug/callTool",
+                        params: { name, arguments: args },
+                    });
+                    return textContent(JSON.stringify(operation, null, 2), false);
+                }
                 const result = (await debugRPC(session.socketPath, "debug/callTool", { name, arguments: args }));
                 return textContent(result.text ?? "", result.isError === true);
             }

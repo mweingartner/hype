@@ -328,6 +328,9 @@ struct ScriptEditor: View {
     /// set, `HypeTalkTextView` draws a red background on that line and
     /// scrolls it into view. Cleared when the user edits the script.
     @State private var errorHighlightLine: Int? = nil
+    @State private var debuggerSnapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+
+    private let debuggerRefreshTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     private var resolvedTarget: ScriptTarget? {
         scriptEditorResolvedTarget(in: document.document, target: target, partId: partId)
@@ -337,29 +340,107 @@ struct ScriptEditor: View {
         document.document.parts.map { $0.name }.filter { !$0.isEmpty }
     }
 
+    /// The script currently stored on the resolved document target.
+    ///
+    /// `scriptText` is local editor state so typing remains responsive, but the
+    /// document can also change through the live debug/MCP bridge while this
+    /// window is open. Keeping the stored value as an observable projection
+    /// lets the editor adopt those external mutations instead of continuing to
+    /// show stale text and potentially writing it back over the newer script.
+    private var storedScriptText: String {
+        guard let target = resolvedTarget else { return "" }
+        switch target {
+        case .part(let id):
+            return document.document.parts.first(where: { $0.id == id })?.script ?? ""
+        case .card(let id):
+            return document.document.cards.first(where: { $0.id == id })?.script ?? ""
+        case .background(let id):
+            return document.document.backgrounds.first(where: { $0.id == id })?.script ?? ""
+        case .scene(let partId, let sceneId):
+            return sceneScript(partId: partId, sceneId: sceneId)
+        case .node(let partId, let nodeId):
+            return nodeScript(partId: partId, nodeId: nodeId)
+        case .stack:
+            return document.document.stack.script
+        case .hype:
+            return hypeAppScript
+        }
+    }
+
+    private var editorBreakpointLines: Set<Int> {
+        guard let source = traceSource(for: resolvedTarget) else { return [] }
+        return Set(debuggerSnapshot.breakpoints.compactMap { breakpoint in
+            guard breakpoint.isEnabled,
+                  breakpoint.sourceKind.lowercased() == source.kind.lowercased(),
+                  breakpoint.objectId == source.objectId,
+                  let line = breakpoint.line,
+                  line > 0 else { return nil }
+            return line
+        })
+    }
+
     var body: some View {
         HSplitView {
             // Left: Command palette
             commandPalette
-                .frame(width: 180)
+                .frame(minWidth: 210, idealWidth: 230, maxWidth: 280)
 
             // Right: Code editor
             VStack(spacing: 0) {
                 // Toolbar — themed so swapping themes also retints
                 // the script editor's top bar to match the rest of
                 // the chrome.
-                HStack {
+                HStack(spacing: 8) {
                     Text("Script Editor")
                         .font(.headline)
+                        .lineLimit(1)
                     Spacer()
-                    Button("Comment") { toggleComment() }
+                    HStack(spacing: 3) {
+                        ScriptDebuggerStepControls(
+                            isPaused: debuggerSnapshot.pausedState != nil,
+                            showsLabels: false,
+                            controlSize: .small,
+                            foregroundColor: toolbarForeground
+                        ) {
+                            debuggerSnapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+                        }
+                    }
+                    .opacity(debuggerSnapshot.pausedState == nil ? 0.42 : 1)
+                    Divider()
+                        .frame(height: 18)
+                    toolbarIconButton(systemName: "text.badge.minus", help: "Comment selection") {
+                        toggleComment()
+                    }
                         .accessibilityIdentifier(HypeAccessibilityID.toolbar("script.comment"))
-                    Button("Check Syntax") { checkSyntax() }
+                    toolbarIconButton(systemName: "checkmark.circle", help: "Check syntax") {
+                        checkSyntax()
+                    }
                         .accessibilityIdentifier(HypeAccessibilityID.toolbar("script.checkSyntax"))
-                    Button("Format") { reformatScript() }
+                    toolbarIconButton(systemName: "text.alignleft", help: "Format script") {
+                        reformatScript()
+                    }
                         .accessibilityIdentifier(HypeAccessibilityID.toolbar("script.format"))
+                    if let onDone {
+                        Divider()
+                            .frame(height: 18)
+                        Button("Done") { onDone() }
+                            .keyboardShortcut(.defaultAction)
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .frame(minWidth: 64)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .accessibilityIdentifier(HypeAccessibilityID.toolbar("script.done"))
+                    }
                 }
-                .padding(8)
+                .padding(.horizontal, 10)
+                // HSplitView can otherwise give the representable-backed
+                // editor every available point and compress this row to
+                // zero height. Keep the toolbar aligned with the fixed
+                // headers in the command and AI sidebars.
+                .frame(height: 44)
+                .layoutPriority(1)
+                .zIndex(1)
+                .foregroundStyle(toolbarForeground)
                 .background(hypeTheme.toolbarBackground.swiftUIColor)
                 .environment(\.colorScheme, hypeTheme.toolbarColorScheme)
 
@@ -371,10 +452,13 @@ struct ScriptEditor: View {
                     selectedRange: $selectedRange,
                     partNames: partNames,
                     errorHighlightLine: $errorHighlightLine,
+                    breakpointLines: editorBreakpointLines,
+                    onToggleBreakpoint: toggleBreakpoint,
                     accessibilityIdentifier: HypeAccessibilityID.scriptEditorText,
                     scriptTheme: hypeTheme.scriptTheme
                 )
                     .frame(minHeight: 200)
+                    .zIndex(0)
 
                 // Error display — kept semantically red but pulls
                 // the tint from the active script theme so the
@@ -396,7 +480,7 @@ struct ScriptEditor: View {
                 selectedRange: $selectedRange,
                 target: resolvedTarget
             )
-            .frame(width: 300)
+            .frame(minWidth: 330, idealWidth: 360, maxWidth: 430)
             .accessibilityIdentifier(HypeAccessibilityID.scriptEditorAI)
         }
         .onAppear {
@@ -414,6 +498,7 @@ struct ScriptEditor: View {
         }
         .onChange(of: partId) { _, _ in loadScript() }
         .onChange(of: resolvedTarget?.identityKey) { _, _ in loadScript() }
+        .onChange(of: storedScriptText) { _, _ in adoptStoredScriptIfNeeded() }
         .onChange(of: scriptText) { _, _ in
             // Once the user starts editing, the runtime error
             // location is no longer reliable — clear the highlight
@@ -441,6 +526,15 @@ struct ScriptEditor: View {
                 errorMessage = msg
             }
         }
+        .onReceive(debuggerRefreshTimer) { _ in
+            debuggerSnapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+            // This editor is hosted in its own NSHostingView, outside the
+            // document scene's SwiftUI hierarchy. An external MCP/debug
+            // mutation updates the binding but does not invalidate this root
+            // view, so sample the live binding on the refresh tick that already
+            // drives debugger controls.
+            adoptStoredScriptIfNeeded()
+        }
         .onDisappear { applyScript() }
         // Outer surface — paint the chrome with the inspector
         // background token so the whole editor window picks up
@@ -455,26 +549,52 @@ struct ScriptEditor: View {
 
     // MARK: - Command Palette
 
+    private func toolbarIconButton(
+        systemName: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 28, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(toolbarForeground)
+        .help(help)
+    }
+
+    private var toolbarForeground: Color {
+        hypeTheme.toolbarColorScheme == .dark ? .white : .black
+    }
+
     private var commandPalette: some View {
         VStack(spacing: 0) {
             Text("Commands")
-                .font(.system(size: 11, weight: .bold))
+                .font(.system(size: 13, weight: .semibold))
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
+                .padding(.vertical, 9)
                 .background(hypeTheme.toolbarBackground.swiftUIColor)
                 .environment(\.colorScheme, hypeTheme.toolbarColorScheme)
 
             List {
                 ForEach(categoryOrder, id: \.self) { category in
-                    Section(header: Text(category).font(.system(size: 10, weight: .bold))) {
+                    Section(
+                        header: Text(category)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(toolbarForeground.opacity(0.76))
+                    ) {
                         ForEach(templatesForCategory(category)) { template in
                             Button(action: { insertTemplate(template) }) {
                                 Text(template.name)
-                                    .font(.system(size: 11))
+                                    .font(.system(size: 13))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .buttonStyle(.plain)
-                            .padding(.vertical, 1)
+                            .padding(.vertical, 3)
                             .accessibilityIdentifier(HypeAccessibilityID.scriptTemplate(template.name))
                         }
                     }
@@ -569,24 +689,14 @@ struct ScriptEditor: View {
     }
 
     private func loadScript() {
-        guard let t = resolvedTarget else { scriptText = ""; return }
-        switch t {
-        case .part(let id):
-            scriptText = document.document.parts.first(where: { $0.id == id })?.script ?? ""
-        case .card(let id):
-            scriptText = document.document.cards.first(where: { $0.id == id })?.script ?? ""
-        case .background(let id):
-            scriptText = document.document.backgrounds.first(where: { $0.id == id })?.script ?? ""
-        case .scene(let partId, let sceneId):
-            scriptText = sceneScript(partId: partId, sceneId: sceneId)
-        case .node(let partId, let nodeId):
-            scriptText = nodeScript(partId: partId, nodeId: nodeId)
-        case .stack:
-            scriptText = document.document.stack.script
-        case .hype:
-            scriptText = hypeAppScript
+        scriptText = scriptEditorDisplayedScriptText(storedScript: storedScriptText)
+    }
+
+    private func adoptStoredScriptIfNeeded() {
+        let displayedScript = scriptEditorDisplayedScriptText(storedScript: storedScriptText)
+        if scriptText != displayedScript {
+            scriptText = displayedScript
         }
-        scriptText = scriptEditorDisplayedScriptText(storedScript: scriptText)
     }
 
     private func toggleComment() {
@@ -738,6 +848,61 @@ struct ScriptEditor: View {
             document.document.stack.script = scriptText
         case .hype:
             hypeAppScript = scriptText
+        }
+    }
+
+    private func toggleBreakpoint(line: Int) {
+        guard line > 0, let source = traceSource(for: resolvedTarget) else { return }
+        let supportedLines = breakpointLines(in: scriptText)
+        guard supportedLines.contains(line) else {
+            let nearest = supportedLines.min { abs($0 - line) < abs($1 - line) }
+            errorMessage = nearest.map {
+                "Breakpoints can only be set on handler declarations or executable statements. Nearest executable line: \($0)."
+            } ?? "Breakpoints require a handler with at least one executable statement."
+            return
+        }
+        let existing = debuggerSnapshot.breakpoints.first { breakpoint in
+            breakpoint.sourceKind.lowercased() == source.kind.lowercased()
+                && breakpoint.objectId == source.objectId
+                && breakpoint.line == line
+        }
+        if let existing {
+            HypeTalkScriptTraceRecorder.shared.removeBreakpoint(id: existing.id)
+        } else {
+            _ = HypeTalkScriptTraceRecorder.shared.addBreakpoint(
+                HypeTalkScriptBreakpoint(
+                    sourceKind: source.kind,
+                    objectId: source.objectId,
+                    line: line
+                )
+            )
+        }
+        debuggerSnapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+        errorMessage = nil
+    }
+
+    private func breakpointLines(in script: String) -> Set<Int> {
+        var lexer = Lexer(source: script)
+        var parser = Parser(tokens: lexer.tokenize(), capturesStatementLocations: true)
+        guard let parsed = try? parser.parse() else { return [] }
+        return parser.capturedStatementLines.union(parsed.handlers.map(\.line))
+    }
+
+    private func traceSource(for target: ScriptTarget?) -> HypeTalkScriptTraceSource? {
+        guard let target else { return nil }
+        switch target {
+        case .part(let id):
+            return HypeTalkScriptTraceSource(kind: "part", objectId: id)
+        case .card(let id):
+            return HypeTalkScriptTraceSource(kind: "card", objectId: id)
+        case .background(let id):
+            return HypeTalkScriptTraceSource(kind: "background", objectId: id)
+        case .stack:
+            return HypeTalkScriptTraceSource(kind: "stack")
+        case .hype:
+            return HypeTalkScriptTraceSource(kind: "hype")
+        case .scene, .node:
+            return nil
         }
     }
 }

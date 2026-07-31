@@ -5479,17 +5479,9 @@ struct ScriptEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScriptEditor(document: $document, partId: partId, target: target, onDone: { dismiss() })
-            HStack {
-                Spacer()
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.return)
-            }
-            .padding(8)
-        }
-        .frame(minWidth: 500, idealWidth: 650, maxWidth: .infinity,
-               minHeight: 400, idealHeight: 500, maxHeight: .infinity)
+        ScriptEditor(document: $document, partId: partId, target: target, onDone: { dismiss() })
+        .frame(minWidth: 920, idealWidth: 1100, maxWidth: .infinity,
+               minHeight: 520, idealHeight: 680, maxHeight: .infinity)
     }
 }
 
@@ -5521,10 +5513,19 @@ private var activeScriptWindows: [String: NSWindow] = [:]
 /// UUID for opens that have no resolvable target. Used by
 /// `openScriptEditorWindow` to find or create the window slot.
 @MainActor
-private func scriptWindowKey(for target: ScriptTarget?, partId: UUID?) -> String {
-    if let target = target { return target.identityKey }
-    if let partId = partId { return "part:\(partId.uuidString)" }
-    return "unkeyed:\(UUID().uuidString)"
+func scriptEditorWindowIdentityKey(stackId: UUID, target: ScriptTarget) -> String {
+    "\(stackId.uuidString):\(target.identityKey)"
+}
+
+@MainActor
+private func scriptWindowKey(
+    stackId: UUID,
+    target: ScriptTarget?,
+    partId: UUID?
+) -> String {
+    if let target { return scriptEditorWindowIdentityKey(stackId: stackId, target: target) }
+    if let partId { return "\(stackId.uuidString):part:\(partId.uuidString)" }
+    return "\(stackId.uuidString):unkeyed:\(UUID().uuidString)"
 }
 
 /// Resolve the script editor target without changing script ownership.
@@ -5565,7 +5566,7 @@ func openScriptEditorWindow(
 ) {
     let doc = document.wrappedValue.document
     let resolvedTarget = effectiveScriptTarget(in: doc, target: target, partId: partId)
-    let key = scriptWindowKey(for: resolvedTarget, partId: nil)
+    let key = scriptWindowKey(stackId: doc.stack.id, target: resolvedTarget, partId: nil)
 
     // If a window for this target is already open, reuse it.
     // Bring it forward, refresh the error highlight, and return
@@ -5589,8 +5590,8 @@ func openScriptEditorWindow(
 
     let savedWidth = UserDefaults.standard.double(forKey: "scriptEditorWidth")
     let savedHeight = UserDefaults.standard.double(forKey: "scriptEditorHeight")
-    let width = savedWidth > 0 ? savedWidth : 650
-    let height = savedHeight > 0 ? savedHeight : 500
+    let width = max(savedWidth > 0 ? savedWidth : 1100, 920)
+    let height = max(savedHeight > 0 ? savedHeight : 680, 520)
 
     let window = NSWindow(
         contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -5646,7 +5647,8 @@ func openScriptEditorWindow(
         windowTitle = "Script Editor"
     }
     window.title = windowTitle
-    window.minSize = NSSize(width: 450, height: 350)
+    window.identifier = NSUserInterfaceItemIdentifier(key)
+    window.minSize = NSSize(width: 920, height: 520)
     window.isReleasedWhenClosed = false
     // Previously: `window.appearance = NSAppearance(named: .aqua)`
     // — a legacy force-light from when the script editor was a
@@ -5657,23 +5659,15 @@ func openScriptEditorWindow(
 
     // Build the editor view; theme + system appearance now cascade naturally.
     let closeAction: () -> Void = { [weak window] in window?.close() }
-    let editorView = VStack(spacing: 0) {
-        ScriptEditor(
-            document: document,
-            partId: partId,
-            target: resolvedTarget,
-            initialErrorLine: initialErrorLine,
-            initialErrorMessage: initialErrorMessage,
-            identityKey: key,
-            onDone: closeAction
-        )
-        HStack {
-            Spacer()
-            Button("Done") { closeAction() }
-                .keyboardShortcut(.return)
-        }
-        .padding(8)
-    }
+    let editorView = ScriptEditor(
+        document: document,
+        partId: partId,
+        target: resolvedTarget,
+        initialErrorLine: initialErrorLine,
+        initialErrorMessage: initialErrorMessage,
+        identityKey: key,
+        onDone: closeAction
+    )
     // Previously forced .light at three levels (environment +
     // colorScheme + preferredColorScheme) plus an aqua appearance
     // on the hosting view. The Script Editor's internal chrome

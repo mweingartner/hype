@@ -1,3 +1,10 @@
+---
+type: guide
+title: Hype Debug Bridge And MCP Split
+description: How Hype.app exposes local debug automation over a Unix socket and how the MCP proxy forwards tools, resources, and prompts.
+updated: 2026-07-30
+---
+
 # Hype Debug Bridge And MCP Split
 
 Hype.app does not expose MCP directly. The app owns a local debug bridge, and a
@@ -68,6 +75,9 @@ Methods:
 - `debug/listPrompts`
 - `debug/getPrompt`
 - `debug/callTool`
+- `debug/startOperation`
+- `debug/pollOperation`
+- `debug/forgetOperation`
 - `debug/runScript`
 - `debug/clickButton`
 
@@ -86,6 +96,71 @@ is false, both methods return a refusal response without executing. This brings
 these two methods into parity with `debug/callTool` and the rest of the
 mutation surface.
 
+Requests that can suspend at a script breakpoint should be submitted through
+`debug/startOperation`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "start-click",
+  "method": "debug/startOperation",
+  "params": {
+    "method": "debug/clickButton",
+    "params": { "button": "Run", "card": "Card 1" }
+  }
+}
+```
+
+The start response is immediate and includes `operationId`, `status`, and
+`pollAfterMilliseconds`. Call `debug/pollOperation` with that UUID until the
+status becomes `completed` or `failed`; the terminal payload is returned as
+`result` or `error`. `debug/forgetOperation` releases a terminal result early.
+Completed and failed results otherwise expire after five minutes. The registry
+is process-local, bounded to 128 operations, and never persists into a `.hype`
+document. Pending operations are retained because a script may remain
+intentionally halted until an external debugger resumes it.
+
+Menu automation is exposed through `debug/callTool` control tools:
+
+- `hype_list_menu_commands`
+- `hype_trigger_menu_command`
+
+`hype_trigger_menu_command` posts the same in-app notifications used by Hype's
+SwiftUI menus, so automation can open auxiliary windows such as Script Debugger
+without using macOS Accessibility keystroke permissions. Commands accept stable
+ids such as `script_debugger`, `show_console`, `next_card`, and
+`select_tool` with an `argument` like `button`.
+
+Automatic UI and debugger testing is exposed through additional live-app
+control tools:
+
+- Window state: `hype_list_windows`, `hype_focus_window`, `hype_wait_for_window`
+- Modal alerts: `hype_list_alerts`, `hype_dismiss_alert`
+- Async debugger operations: `hype_wait_for_debugger_pause`,
+  `hype_step_script_execution_and_wait`, `hype_poll_debug_operation`,
+  `hype_forget_debug_operation`
+- Script editor breakpoints: `hype_get_script_editor_state`,
+  `hype_toggle_script_editor_breakpoint`
+
+These tools intentionally use in-process AppKit and debugger state rather than
+System Events or screen coordinates, so they work without macOS Accessibility
+permissions and return structured JSON that tests can assert on directly.
+Script editor breakpoints can target handler entry lines and executable
+statement lines. Handler-level breakpoints pause before the handler body starts;
+statement-level line breakpoints pause immediately before the matching
+statement executes, with current locals/globals available in the pause state.
+Blank, comment-only, and handler terminator lines are rejected because they
+have no executable location. Step Into pauses at the next statement or nested
+handler entry. Step Over skips nested handler execution and pauses at the next
+statement in the current or calling handler. Step requests and pending
+breakpoint-hit annotations are scoped to their dispatch and handler execution,
+so concurrent stack runtimes cannot consume each other's debugger state.
+The two historically named wait tools now start operations and return
+immediately; callers poll the returned UUID instead of occupying an MCP or
+debug-socket request. The stdio bridge also starts `hype_debug_click_button` and
+`hype_dispatch_message` through `debug/startOperation`, so a breakpoint reached
+inside the dispatched script cannot block the MCP caller.
+
 ## MCP Server
 
 The repo-local MCP server is a TypeScript project in `Tools/hype-mcp-server`.
@@ -96,6 +171,7 @@ It implements stdio MCP framing and always exposes connection-management tools:
 - `hype_detach_session`
 - `hype_active_session`
 - `hype_ping`
+- `hype_start_debug_operation`
 
 When attached to a Hype process, the MCP server keeps one Unix-socket debug
 connection open, sends periodic `debug/keepalive` requests, and reuses that
