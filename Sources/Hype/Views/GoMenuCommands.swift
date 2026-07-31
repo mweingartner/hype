@@ -419,6 +419,14 @@ struct ViewMenuCommands: Commands {
         focusedDocument?.wrappedValue.document.stack.id
     }
 
+    /// Auxiliary windows such as the detached script editor do not publish the
+    /// document scene's focused values. Keep document-scoped tools usable from
+    /// those windows by falling back to the last active document binding.
+    private var activeStackId: UUID? {
+        focusedStackId
+            ?? HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document.stack.id
+    }
+
     var body: some Commands {
         CommandGroup(after: .toolbar) {
             Divider()
@@ -495,7 +503,11 @@ struct ViewMenuCommands: Commands {
             .keyboardShortcut("j", modifiers: [.command, .shift])
 
             Button("Script Debugger") {
-                NotificationCenter.default.post(name: .openScriptDebugger, object: nil)
+                NotificationCenter.default.post(
+                    name: .openScriptDebugger,
+                    object: nil,
+                    userInfo: MenuCommandScoping.userInfo(stackId: activeStackId)
+                )
             }
             .keyboardShortcut("d", modifiers: [.command, .option])
         }

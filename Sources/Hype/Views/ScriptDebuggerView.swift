@@ -119,10 +119,20 @@ private struct ScriptDebuggerView: View {
             Divider()
             HSplitView {
                 inspectorPane
-                    .frame(minWidth: 280, idealWidth: 340)
+                    .frame(
+                        minWidth: 280,
+                        idealWidth: 340,
+                        maxHeight: .infinity,
+                        alignment: .topLeading
+                    )
                 tracePane
-                    .frame(minWidth: 520)
+                    .frame(
+                        minWidth: 520,
+                        maxHeight: .infinity,
+                        alignment: .topLeading
+                    )
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .onReceive(refreshTimer) { _ in
             snapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
@@ -719,7 +729,10 @@ private struct ScriptDebuggerView: View {
 
     private func openSource(for entry: HypeTalkScriptTraceEntry) {
         guard let target = scriptTarget(for: entry.source) else { return }
-        var info: [AnyHashable: Any] = ["target": target]
+        var info: [AnyHashable: Any] = [
+            "target": target,
+            MenuCommandScoping.stackIdKey: document.document.stack.id,
+        ]
         if case .part(let partId) = target {
             info["partId"] = partId
         }

@@ -6,11 +6,176 @@ import HypeCore
 private let hypeDebugMaxRequestBytes = 1_048_576
 private let hypeDebugSocketTimeoutSeconds = 300
 
+enum HypeDebugOpenedDocumentIdentity {
+    static func expectedStackName(at url: URL) -> String? {
+        // Package filenames are user-controlled and frequently differ from the
+        // stack name stored in the document. Resolve the internal name first so
+        // a successful displayed open is not mistaken for a focus failure and
+        // replaced with a detached debug-only document.
+        if url.pathExtension.caseInsensitiveCompare("hype") == .orderedSame,
+           let document = try? HypeSQLiteStackStore().load(fromPackageAt: url),
+           !document.stack.name.isEmpty {
+            return document.stack.name
+        }
+        let name = url.deletingPathExtension().lastPathComponent
+        if name.hasSuffix("-debug-imported") {
+            return String(name.dropLast("-debug-imported".count))
+        }
+        if name.hasSuffix("-imported") {
+            return String(name.dropLast("-imported".count))
+        }
+        return name.isEmpty ? nil : name
+    }
+}
+
 private final class HypeDebugResponseBox: @unchecked Sendable {
     var response: [String: Any]
 
     init(_ response: [String: Any]) {
         self.response = response
+    }
+}
+
+private final class HypeDebugModalResponseBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didBegin = false
+    private var response: [String: Any] = [
+        "text": "Modal alert request timed out",
+        "isError": true,
+    ]
+
+    func beginOnce() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didBegin else { return false }
+        didBegin = true
+        return true
+    }
+
+    func complete(with response: [String: Any]) {
+        lock.lock()
+        defer { lock.unlock() }
+        self.response = response
+    }
+
+    func snapshot() -> [String: Any] {
+        lock.lock()
+        defer { lock.unlock() }
+        return response
+    }
+}
+
+private final class HypeDebugOperationStore: @unchecked Sendable {
+    private struct Operation {
+        var id: UUID
+        var method: String
+        var status: String
+        var createdAt: Date
+        var completedAt: Date?
+        var result: Any?
+        var error: [String: Any]?
+    }
+
+    private let lock = NSLock()
+    private var operations: [UUID: Operation] = [:]
+    private let maximumOperationCount = 128
+    private let completedRetentionSeconds: TimeInterval = 300
+
+    func start(method: String) -> [String: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        pruneLocked(now: Date())
+        guard operations.count < maximumOperationCount else { return nil }
+
+        let operation = Operation(
+            id: UUID(),
+            method: method,
+            status: "pending",
+            createdAt: Date(),
+            completedAt: nil,
+            result: nil,
+            error: nil
+        )
+        operations[operation.id] = operation
+        return jsonLocked(operation)
+    }
+
+    func complete(id: UUID, result: Any) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard var operation = operations[id], operation.status == "pending" else { return }
+        operation.status = "completed"
+        operation.completedAt = Date()
+        operation.result = result
+        operations[id] = operation
+    }
+
+    func fail(id: UUID, error: [String: Any]) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard var operation = operations[id], operation.status == "pending" else { return }
+        operation.status = "failed"
+        operation.completedAt = Date()
+        operation.error = error
+        operations[id] = operation
+    }
+
+    func poll(id: UUID) -> [String: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        pruneLocked(now: Date())
+        guard let operation = operations[id] else { return nil }
+        return jsonLocked(operation)
+    }
+
+    func forget(id: UUID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let operation = operations[id], operation.status != "pending" else { return false }
+        operations.removeValue(forKey: id)
+        return true
+    }
+
+    func resetForTesting() {
+        lock.lock()
+        defer { lock.unlock() }
+        operations.removeAll()
+    }
+
+    private func pruneLocked(now: Date) {
+        operations = operations.filter { _, operation in
+            guard let completedAt = operation.completedAt else { return true }
+            return now.timeIntervalSince(completedAt) < completedRetentionSeconds
+        }
+        guard operations.count >= maximumOperationCount else { return }
+        let terminal = operations.values
+            .filter { $0.status != "pending" }
+            .sorted {
+                ($0.completedAt ?? $0.createdAt) < ($1.completedAt ?? $1.createdAt)
+            }
+        for operation in terminal where operations.count >= maximumOperationCount {
+            operations.removeValue(forKey: operation.id)
+        }
+    }
+
+    private func jsonLocked(_ operation: Operation) -> [String: Any] {
+        var result: [String: Any] = [
+            "operationId": operation.id.uuidString,
+            "method": operation.method,
+            "status": operation.status,
+            "createdAt": ISO8601DateFormatter().string(from: operation.createdAt),
+            "pollAfterMilliseconds": operation.status == "pending" ? 25 : 0,
+        ]
+        result["completedAt"] = operation.completedAt
+            .map { ISO8601DateFormatter().string(from: $0) }
+            ?? NSNull()
+        if let operationResult = operation.result {
+            result["result"] = operationResult
+        }
+        if let error = operation.error {
+            result["error"] = error
+        }
+        return result
     }
 }
 
@@ -346,7 +511,7 @@ private enum HypeDebugMenuAutomation {
             .init(id: "set_target_emulation", menu: "View", title: "Set Target Emulation", notification: .setTargetEmulation, userInfo: ["profileId": profileId], requiresArgument: true, argumentDescription: "Device profile id, or empty string to disable emulation.", aliases: ["Emulate Target Device"]),
             .init(id: "show_ai_assistant", menu: "View", title: "Show AI Assistant", notification: .toggleAI, aliases: ["Show AI Assistant"]),
             .init(id: "show_console", menu: "View", title: "Show Console", notification: .showConsole, isDocumentScoped: false, aliases: ["Show Console"]),
-            .init(id: "script_debugger", menu: "View", title: "Script Debugger", notification: .openScriptDebugger, isDocumentScoped: false, aliases: ["Script Debugger"]),
+            .init(id: "script_debugger", menu: "View", title: "Script Debugger", notification: .openScriptDebugger, aliases: ["Script Debugger"]),
             .init(id: "asset_repository", menu: "Window", title: "Asset Repository", notification: .openAssetRepository, aliases: ["Asset Repository"]),
             .init(id: "ai_context_library", menu: "Window", title: "AI Context Library", notification: .openAIContextLibrary, aliases: ["AI Context Library"]),
             .init(id: "theme_designer", menu: "Window", title: "Theme Designer", notification: .openThemeDesigner, aliases: ["Theme Designer"]),
@@ -384,6 +549,7 @@ final class HypeDebugServer: @unchecked Sendable {
 
     private let instanceId = UUID().uuidString
     private let queue = DispatchQueue(label: "hype.debug.server")
+    private let operationStore = HypeDebugOperationStore()
     private let webAssetSession = WebAssetSession()
     private let startedAt = Date()
     private let startedAtString: String
@@ -630,18 +796,172 @@ final class HypeDebugServer: @unchecked Sendable {
     private nonisolated func handleDedicatedServerRequest(_ data: Data) -> [String: Any]? {
         guard let object = try? JSONSerialization.jsonObject(with: data),
               let request = object as? [String: Any],
-              let method = request["method"] as? String,
-              method == "debug/keepalive" else {
+              let method = request["method"] as? String else {
             return nil
         }
 
-        return jsonRPCResult(id: request["id"], result: [
-            "ok": true,
-            "pid": Int(getpid()),
-            "instanceId": instanceId,
-            "socketPath": socketPath,
-            "startedAt": startedAtString,
+        if method == "debug/keepalive" {
+            return jsonRPCResult(id: request["id"], result: [
+                "ok": true,
+                "pid": Int(getpid()),
+                "instanceId": instanceId,
+                "socketPath": socketPath,
+                "startedAt": startedAtString,
+            ])
+        }
+
+        if method == "debug/startOperation" {
+            return startDedicatedDebugOperation(request: request)
+        }
+
+        if method == "debug/pollOperation" {
+            return pollDedicatedDebugOperation(request: request)
+        }
+
+        if method == "debug/forgetOperation" {
+            return forgetDedicatedDebugOperation(request: request)
+        }
+
+        // Swift concurrency's main-actor jobs do not advance while AppKit is
+        // inside some framework-owned modal event loops (notably document-open
+        // failure alerts). Keep alert observation and dismissal reachable from
+        // the dedicated socket path, then use a short main-dispatch block that
+        // AppKit's modal loop continues servicing.
+        guard method == "debug/callTool",
+              let params = request["params"] as? [String: Any],
+              let name = params["name"] as? String,
+              name == "hype_list_alerts" || name == "hype_dismiss_alert" else {
+            return nil
+        }
+
+        let rawArguments = params["arguments"] as? [String: Any] ?? [:]
+        let arguments = mcpArguments(from: rawArguments)
+        let responseBox = HypeDebugModalResponseBox()
+        let semaphore = DispatchSemaphore(value: 0)
+        let performAlertRequest: @Sendable () -> Void = {
+            guard responseBox.beginOnce() else { return }
+            MainActor.assumeIsolated {
+                let result = self.callWindowAutomationControlTool(
+                    name: name,
+                    arguments: arguments
+                )
+                responseBox.complete(with: [
+                    "text": result.text,
+                    "isError": result.isError,
+                ])
+                semaphore.signal()
+            }
+        }
+        let mainRunLoop = CFRunLoopGetMain()
+        CFRunLoopPerformBlock(mainRunLoop, RunLoop.Mode.default.rawValue as CFString, performAlertRequest)
+        CFRunLoopPerformBlock(mainRunLoop, RunLoop.Mode.modalPanel.rawValue as CFString, performAlertRequest)
+        CFRunLoopWakeUp(mainRunLoop)
+        _ = semaphore.wait(timeout: .now() + .seconds(5))
+        return jsonRPCResult(id: request["id"], result: responseBox.snapshot())
+    }
+
+    private nonisolated func startDedicatedDebugOperation(request: [String: Any]) -> [String: Any] {
+        let id = request["id"]
+        let params = request["params"] as? [String: Any] ?? [:]
+        guard let operationMethod = params["method"] as? String,
+              operationMethod.hasPrefix("debug/"),
+              ![
+                "debug/startOperation",
+                "debug/pollOperation",
+                "debug/forgetOperation",
+                "debug/keepalive",
+              ].contains(operationMethod) else {
+            return jsonRPCError(
+                id: id,
+                code: -32602,
+                message: "debug/startOperation requires a non-operation debug method."
+            )
+        }
+        let operationParams = params["params"] as? [String: Any] ?? [:]
+        guard let operation = operationStore.start(method: operationMethod),
+              let operationIdText = operation["operationId"] as? String,
+              let operationId = UUID(uuidString: operationIdText) else {
+            return jsonRPCError(
+                id: id,
+                code: -32010,
+                message: "The debug operation queue is full. Poll or forget completed operations before retrying."
+            )
+        }
+
+        let nestedRequest: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": operationId.uuidString,
+            "method": operationMethod,
+            "params": operationParams,
+        ]
+        guard let nestedData = try? JSONSerialization.data(withJSONObject: nestedRequest) else {
+            operationStore.fail(id: operationId, error: [
+                "code": -32602,
+                "message": "The nested debug operation request could not be encoded.",
+            ])
+            return jsonRPCResult(id: id, result: operationStore.poll(id: operationId) ?? operation)
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let response = await self.handleRequest(nestedData)
+            if let error = response["error"] as? [String: Any] {
+                self.operationStore.fail(id: operationId, error: error)
+            } else if let result = response["result"] {
+                self.operationStore.complete(id: operationId, result: result)
+            } else {
+                self.operationStore.fail(id: operationId, error: [
+                    "code": -32603,
+                    "message": "The debug operation completed without a result.",
+                ])
+            }
+        }
+
+        return jsonRPCResult(id: id, result: operation)
+    }
+
+    private nonisolated func pollDedicatedDebugOperation(request: [String: Any]) -> [String: Any] {
+        let id = request["id"]
+        let params = request["params"] as? [String: Any] ?? [:]
+        guard let operationId = debugOperationId(from: params) else {
+            return jsonRPCError(
+                id: id,
+                code: -32602,
+                message: "debug/pollOperation requires params.operationId."
+            )
+        }
+        guard let operation = operationStore.poll(id: operationId) else {
+            return jsonRPCError(id: id, code: -32011, message: "Unknown or expired debug operation.")
+        }
+        return jsonRPCResult(id: id, result: operation)
+    }
+
+    private nonisolated func forgetDedicatedDebugOperation(request: [String: Any]) -> [String: Any] {
+        let id = request["id"]
+        let params = request["params"] as? [String: Any] ?? [:]
+        guard let operationId = debugOperationId(from: params) else {
+            return jsonRPCError(
+                id: id,
+                code: -32602,
+                message: "debug/forgetOperation requires params.operationId."
+            )
+        }
+        guard operationStore.forget(id: operationId) else {
+            return jsonRPCError(
+                id: id,
+                code: -32012,
+                message: "Only a known terminal debug operation can be forgotten."
+            )
+        }
+        return jsonRPCResult(id: id, result: [
+            "operationId": operationId.uuidString,
+            "forgotten": true,
         ])
+    }
+
+    private nonisolated func debugOperationId(from params: [String: Any]) -> UUID? {
+        let value = params["operationId"] ?? params["operation_id"]
+        return (value as? String).flatMap(UUID.init(uuidString:))
     }
 
     private nonisolated func noteClientConnected() {
@@ -932,6 +1252,14 @@ final class HypeDebugServer: @unchecked Sendable {
         }
         return await withCheckedContinuation { continuation in
             NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { document, _, error in
+                // Debug calls arrive outside the normal Launch Services open
+                // event. SwiftUI's document adapter can therefore return an
+                // NSDocument before attaching a window controller. Build the
+                // controller explicitly so `display: true` is observable and
+                // subsequent UI automation targets the displayed document.
+                if document?.windowControllers.isEmpty == true {
+                    document?.makeWindowControllers()
+                }
                 document?.showWindows()
                 document?.windowControllers.forEach { controller in
                     controller.window?.makeKeyAndOrderFront(nil)
@@ -995,14 +1323,7 @@ final class HypeDebugServer: @unchecked Sendable {
     }
 
     private func expectedStackName(forOpenedDocumentAt url: URL) -> String? {
-        let name = url.deletingPathExtension().lastPathComponent
-        if name.hasSuffix("-debug-imported") {
-            return String(name.dropLast("-debug-imported".count))
-        }
-        if name.hasSuffix("-imported") {
-            return String(name.dropLast("-imported".count))
-        }
-        return name.isEmpty ? nil : name
+        HypeDebugOpenedDocumentIdentity.expectedStackName(at: url)
     }
 
     @MainActor
@@ -1585,7 +1906,8 @@ final class HypeDebugServer: @unchecked Sendable {
                 name: arguments["name"]?.flattenedString.nonEmpty ?? "MCP Test Stack",
                 deploymentTargets: automationDeploymentTargets(from: arguments)
             )
-        case "hype_list_windows", "hype_focus_window":
+        case "hype_list_windows", "hype_focus_window",
+             "hype_list_alerts", "hype_dismiss_alert":
             return callWindowAutomationControlTool(name: name, arguments: arguments)
         case "hype_wait_for_window":
             return await callWindowWaitControlTool(name: name, arguments: arguments)
@@ -1609,6 +1931,8 @@ final class HypeDebugServer: @unchecked Sendable {
             return await callDebuggerWaitControlTool(name: name, arguments: arguments)
         case "hype_step_script_execution_and_wait":
             return await callDebuggerWaitControlTool(name: name, arguments: arguments)
+        case "hype_poll_debug_operation", "hype_forget_debug_operation":
+            return callDebugOperationControlTool(name: name, arguments: arguments)
         case "hype_get_script_editor_state", "hype_toggle_script_editor_breakpoint":
             return callScriptEditorAutomationControlTool(name: name, arguments: arguments)
         default:
@@ -1644,6 +1968,46 @@ final class HypeDebugServer: @unchecked Sendable {
                 "window": debugWindowJSON(window),
                 "isActive": NSApp.isActive,
                 "keyWindowNumber": NSApp.keyWindow.map { $0.windowNumber } ?? NSNull(),
+            ] as [String: Any]), false)
+        case "hype_list_alerts":
+            return (debugJSONText([
+                "alerts": debugAlertsJSON(),
+                "count": debugAlertWindows().count,
+            ] as [String: Any]), false)
+        case "hype_dismiss_alert":
+            guard let alertWindow = resolveDebugAlert(arguments: arguments) else {
+                return (debugJSONText([
+                    "error": "No visible Hype modal alert matched the requested selector.",
+                    "alerts": debugAlertsJSON(),
+                ] as [String: Any]), true)
+            }
+            let before = debugAlertJSON(alertWindow)
+            let requestedButton = arguments["button"]?.flattenedString
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .nonEmpty
+            let buttons = debugAlertButtons(in: alertWindow)
+            let button = resolveDebugAlertButton(requestedButton, in: buttons)
+            if requestedButton != nil, button == nil {
+                return (debugJSONText([
+                    "error": "No alert button matched '\(requestedButton!)'.",
+                    "alert": before,
+                ] as [String: Any]), true)
+            }
+
+            if let button {
+                button.performClick(nil)
+            } else if let parent = alertWindow.sheetParent {
+                parent.endSheet(alertWindow, returnCode: .cancel)
+            } else {
+                if NSApp.modalWindow === alertWindow {
+                    NSApp.abortModal()
+                }
+                alertWindow.orderOut(nil)
+            }
+            return (debugJSONText([
+                "result": "Alert dismissed.",
+                "pressedButton": button?.title ?? NSNull(),
+                "alert": before,
             ] as [String: Any]), false)
         default:
             return ("Unknown window automation control tool \(name)", true)
@@ -1694,6 +2058,133 @@ final class HypeDebugServer: @unchecked Sendable {
     @MainActor
     private func debugWindowsJSON() -> [[String: Any]] {
         NSApp.windows.map(debugWindowJSON)
+    }
+
+    @MainActor
+    private func debugAlertWindows() -> [NSWindow] {
+        var result: [NSWindow] = []
+        var seen: Set<ObjectIdentifier> = []
+
+        func append(_ window: NSWindow?) {
+            guard let window, window.isVisible else { return }
+            let identifier = ObjectIdentifier(window)
+            guard seen.insert(identifier).inserted else { return }
+            result.append(window)
+        }
+
+        for window in NSApp.windows {
+            if window.sheetParent != nil
+                || window.styleMask.contains(.docModalWindow)
+                || NSApp.modalWindow === window
+                || (window is NSPanel
+                    && !debugAlertButtons(in: window).isEmpty
+                    && !debugAlertTextFields(in: window).isEmpty) {
+                append(window)
+            }
+            var sheet = window.attachedSheet
+            while let current = sheet {
+                append(current)
+                sheet = current.attachedSheet
+            }
+        }
+        append(NSApp.modalWindow)
+        return result
+    }
+
+    @MainActor
+    private func debugAlertsJSON() -> [[String: Any]] {
+        debugAlertWindows().map(debugAlertJSON)
+    }
+
+    @MainActor
+    private func debugAlertJSON(_ window: NSWindow) -> [String: Any] {
+        let texts = debugAlertTextFields(in: window).map(\.stringValue)
+        let message = texts.first ?? window.title
+        let informativeText = texts.dropFirst().joined(separator: "\n")
+        return [
+            "windowNumber": window.windowNumber,
+            "message": message,
+            "informativeText": informativeText,
+            "texts": texts,
+            "buttons": debugAlertButtons(in: window).map(\.title),
+            "isSheet": window.sheetParent != nil,
+            "isApplicationModal": NSApp.modalWindow === window,
+            "parentWindowNumber": window.sheetParent.map(\.windowNumber) ?? NSNull(),
+            "parentTitle": window.sheetParent?.title ?? NSNull(),
+        ]
+    }
+
+    @MainActor
+    private func resolveDebugAlert(arguments: [String: HypeMCPJSONValue]) -> NSWindow? {
+        let alerts = debugAlertWindows()
+        if let number = arguments["window_number"]?.intValue ?? arguments["windowNumber"]?.intValue {
+            return alerts.first { $0.windowNumber == number }
+        }
+        if let message = arguments["message"]?.flattenedString
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nonEmpty {
+            if let exact = alerts.first(where: {
+                (debugAlertJSON($0)["message"] as? String) == message
+            }) {
+                return exact
+            }
+            return alerts.first {
+                let alert = debugAlertJSON($0)
+                return ((alert["message"] as? String) ?? "").localizedCaseInsensitiveContains(message)
+                    || ((alert["informativeText"] as? String) ?? "").localizedCaseInsensitiveContains(message)
+            }
+        }
+        return alerts.first
+    }
+
+    @MainActor
+    private func resolveDebugAlertButton(_ requestedTitle: String?, in buttons: [NSButton]) -> NSButton? {
+        if let requestedTitle {
+            return buttons.first { $0.title == requestedTitle }
+                ?? buttons.first { $0.title.localizedCaseInsensitiveContains(requestedTitle) }
+        }
+        for preferredTitle in ["Cancel", "OK", "Close", "Dismiss"] {
+            if let button = buttons.first(where: {
+                $0.title.caseInsensitiveCompare(preferredTitle) == .orderedSame
+            }) {
+                return button
+            }
+        }
+        return buttons.first
+    }
+
+    @MainActor
+    private func debugAlertButtons(in window: NSWindow) -> [NSButton] {
+        debugDescendants(of: window.contentView)
+            .compactMap { $0 as? NSButton }
+            .filter { !$0.isHidden && $0.isEnabled && !$0.title.isEmpty }
+            .sorted {
+                $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX
+            }
+    }
+
+    @MainActor
+    private func debugAlertTextFields(in window: NSWindow) -> [NSTextField] {
+        var seen: Set<String> = []
+        return debugDescendants(of: window.contentView)
+            .compactMap { $0 as? NSTextField }
+            .filter { field in
+                !field.isHidden
+                    && !field.isEditable
+                    && !field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            .sorted {
+                $0.convert($0.bounds, to: nil).maxY > $1.convert($1.bounds, to: nil).maxY
+            }
+            .filter { field in
+                seen.insert(field.stringValue).inserted
+            }
+    }
+
+    @MainActor
+    private func debugDescendants(of root: NSView?) -> [NSView] {
+        guard let root else { return [] }
+        return [root] + root.subviews.flatMap { debugDescendants(of: $0) }
     }
 
     @MainActor
@@ -1978,14 +2469,85 @@ final class HypeDebugServer: @unchecked Sendable {
         name: String,
         arguments: [String: HypeMCPJSONValue]
     ) async -> (text: String, isError: Bool) {
-        switch name {
-        case "hype_wait_for_debugger_pause":
-            return await waitForDebuggerPause(arguments: arguments)
-        case "hype_step_script_execution_and_wait":
-            return await stepScriptExecutionAndWait(arguments: arguments)
-        default:
+        guard name == "hype_wait_for_debugger_pause"
+                || name == "hype_step_script_execution_and_wait" else {
             return ("Unknown debugger wait control tool \(name)", true)
         }
+        guard let operation = operationStore.start(method: name),
+              let operationIdText = operation["operationId"] as? String,
+              let operationId = UUID(uuidString: operationIdText) else {
+            return (debugJSONText([
+                "error": "The debug operation queue is full. Poll or forget completed operations before retrying.",
+            ]), true)
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let outcome: (text: String, isError: Bool)
+            switch name {
+            case "hype_wait_for_debugger_pause":
+                outcome = await self.waitForDebuggerPause(arguments: arguments)
+            default:
+                outcome = await self.stepScriptExecutionAndWait(arguments: arguments)
+            }
+            let operationResult = debugJSONObject(from: outcome.text) ?? [
+                "text": outcome.text,
+            ]
+            if outcome.isError {
+                self.operationStore.fail(id: operationId, error: operationResult)
+            } else {
+                self.operationStore.complete(id: operationId, result: operationResult)
+            }
+        }
+
+        return (debugJSONText(operation), false)
+    }
+
+    @MainActor
+    func callDebugOperationControlTool(
+        name: String,
+        arguments: [String: HypeMCPJSONValue]
+    ) -> (text: String, isError: Bool) {
+        guard let operationId = debuggerOperationId(from: arguments) else {
+            return (debugJSONText([
+                "error": "\(name) requires an operation_id UUID.",
+            ]), true)
+        }
+        switch name {
+        case "hype_poll_debug_operation":
+            guard let operation = operationStore.poll(id: operationId) else {
+                return (debugJSONText([
+                    "error": "Unknown or expired debug operation.",
+                    "operationId": operationId.uuidString,
+                ]), true)
+            }
+            return (debugJSONText(operation), false)
+        case "hype_forget_debug_operation":
+            guard operationStore.forget(id: operationId) else {
+                return (debugJSONText([
+                    "error": "Only a known terminal debug operation can be forgotten.",
+                    "operationId": operationId.uuidString,
+                ]), true)
+            }
+            return (debugJSONText([
+                "operationId": operationId.uuidString,
+                "forgotten": true,
+            ]), false)
+        default:
+            return ("Unknown debug operation control tool \(name)", true)
+        }
+    }
+
+    @MainActor
+    func resetDebugOperationsForTesting() {
+        operationStore.resetForTesting()
+    }
+
+    private func debuggerOperationId(
+        from arguments: [String: HypeMCPJSONValue]
+    ) -> UUID? {
+        let value = arguments["operation_id"] ?? arguments["operationId"]
+        return value.flatMap { UUID(uuidString: $0.flattenedString) }
     }
 
     @MainActor
@@ -2199,7 +2761,10 @@ final class HypeDebugServer: @unchecked Sendable {
         guard let target = resolveScriptTarget(type: type, identifier: identifier, document: document) else {
             return .object(["error": .string("No \(type) matched '\(identifier)'.")])
         }
-        var userInfo: [AnyHashable: Any] = ["target": target]
+        var userInfo: [AnyHashable: Any] = [
+            "target": target,
+            MenuCommandScoping.stackIdKey: document.stack.id,
+        ]
         if case .part(let partId) = target {
             userInfo["partId"] = partId
         }
@@ -2346,7 +2911,7 @@ final class HypeDebugServer: @unchecked Sendable {
             "scriptLineCount": script.isEmpty ? 0 : script.split(separator: "\n", omittingEmptySubsequences: false).count,
             "breakpointLines": breakpoints.compactMap(\.line).sorted(),
             "breakpoints": breakpoints.map(breakpointJSON),
-            "window": scriptEditorWindowJSON(for: target),
+            "window": scriptEditorWindowJSON(for: target, stackId: document.stack.id),
         ]
     }
 
@@ -2518,11 +3083,11 @@ final class HypeDebugServer: @unchecked Sendable {
     }
 
     @MainActor
-    private func scriptEditorWindowJSON(for target: ScriptTarget) -> Any {
-        let identityKey = target.identityKey
+    private func scriptEditorWindowJSON(for target: ScriptTarget, stackId: UUID) -> Any {
+        let identityKey = scriptEditorWindowIdentityKey(stackId: stackId, target: target)
         guard let window = NSApp.windows.first(where: { window in
             debugWindowKind(window) == "script_editor"
-                && window.title.localizedCaseInsensitiveContains("script editor")
+                && window.identifier?.rawValue == identityKey
         }) else {
             return NSNull()
         }
@@ -2666,11 +3231,14 @@ final class HypeDebugServer: @unchecked Sendable {
         guard let target = scriptTarget(for: HypeTalkScriptTraceSource(kind: sourceKind, objectId: objectId)) else {
             return ["error": "Unsupported trace source kind or missing object_id for \(sourceKind)."]
         }
-        guard activeDebugDocument() != nil else {
+        guard let document = activeDebugDocument() else {
             return ["error": "No active Hype document."]
         }
 
-        var userInfo: [AnyHashable: Any] = ["target": target]
+        var userInfo: [AnyHashable: Any] = [
+            "target": target,
+            MenuCommandScoping.stackIdKey: document.stack.id,
+        ]
         if case .part(let partId) = target {
             userInfo["partId"] = partId
         }

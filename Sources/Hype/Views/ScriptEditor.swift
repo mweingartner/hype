@@ -340,6 +340,33 @@ struct ScriptEditor: View {
         document.document.parts.map { $0.name }.filter { !$0.isEmpty }
     }
 
+    /// The script currently stored on the resolved document target.
+    ///
+    /// `scriptText` is local editor state so typing remains responsive, but the
+    /// document can also change through the live debug/MCP bridge while this
+    /// window is open. Keeping the stored value as an observable projection
+    /// lets the editor adopt those external mutations instead of continuing to
+    /// show stale text and potentially writing it back over the newer script.
+    private var storedScriptText: String {
+        guard let target = resolvedTarget else { return "" }
+        switch target {
+        case .part(let id):
+            return document.document.parts.first(where: { $0.id == id })?.script ?? ""
+        case .card(let id):
+            return document.document.cards.first(where: { $0.id == id })?.script ?? ""
+        case .background(let id):
+            return document.document.backgrounds.first(where: { $0.id == id })?.script ?? ""
+        case .scene(let partId, let sceneId):
+            return sceneScript(partId: partId, sceneId: sceneId)
+        case .node(let partId, let nodeId):
+            return nodeScript(partId: partId, nodeId: nodeId)
+        case .stack:
+            return document.document.stack.script
+        case .hype:
+            return hypeAppScript
+        }
+    }
+
     private var editorBreakpointLines: Set<Int> {
         guard let source = traceSource(for: resolvedTarget) else { return [] }
         return Set(debuggerSnapshot.breakpoints.compactMap { breakpoint in
@@ -471,6 +498,7 @@ struct ScriptEditor: View {
         }
         .onChange(of: partId) { _, _ in loadScript() }
         .onChange(of: resolvedTarget?.identityKey) { _, _ in loadScript() }
+        .onChange(of: storedScriptText) { _, _ in adoptStoredScriptIfNeeded() }
         .onChange(of: scriptText) { _, _ in
             // Once the user starts editing, the runtime error
             // location is no longer reliable — clear the highlight
@@ -500,6 +528,12 @@ struct ScriptEditor: View {
         }
         .onReceive(debuggerRefreshTimer) { _ in
             debuggerSnapshot = HypeTalkScriptTraceRecorder.shared.snapshot()
+            // This editor is hosted in its own NSHostingView, outside the
+            // document scene's SwiftUI hierarchy. An external MCP/debug
+            // mutation updates the binding but does not invalidate this root
+            // view, so sample the live binding on the refresh tick that already
+            // drives debugger controls.
+            adoptStoredScriptIfNeeded()
         }
         .onDisappear { applyScript() }
         // Outer surface — paint the chrome with the inspector
@@ -546,7 +580,11 @@ struct ScriptEditor: View {
 
             List {
                 ForEach(categoryOrder, id: \.self) { category in
-                    Section(header: Text(category).font(.system(size: 11, weight: .semibold))) {
+                    Section(
+                        header: Text(category)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(toolbarForeground.opacity(0.76))
+                    ) {
                         ForEach(templatesForCategory(category)) { template in
                             Button(action: { insertTemplate(template) }) {
                                 Text(template.name)
@@ -651,24 +689,14 @@ struct ScriptEditor: View {
     }
 
     private func loadScript() {
-        guard let t = resolvedTarget else { scriptText = ""; return }
-        switch t {
-        case .part(let id):
-            scriptText = document.document.parts.first(where: { $0.id == id })?.script ?? ""
-        case .card(let id):
-            scriptText = document.document.cards.first(where: { $0.id == id })?.script ?? ""
-        case .background(let id):
-            scriptText = document.document.backgrounds.first(where: { $0.id == id })?.script ?? ""
-        case .scene(let partId, let sceneId):
-            scriptText = sceneScript(partId: partId, sceneId: sceneId)
-        case .node(let partId, let nodeId):
-            scriptText = nodeScript(partId: partId, nodeId: nodeId)
-        case .stack:
-            scriptText = document.document.stack.script
-        case .hype:
-            scriptText = hypeAppScript
+        scriptText = scriptEditorDisplayedScriptText(storedScript: storedScriptText)
+    }
+
+    private func adoptStoredScriptIfNeeded() {
+        let displayedScript = scriptEditorDisplayedScriptText(storedScript: storedScriptText)
+        if scriptText != displayedScript {
+            scriptText = displayedScript
         }
-        scriptText = scriptEditorDisplayedScriptText(storedScript: scriptText)
     }
 
     private func toggleComment() {

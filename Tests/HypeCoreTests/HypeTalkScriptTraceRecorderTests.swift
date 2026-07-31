@@ -297,6 +297,59 @@ struct HypeTalkScriptTraceRecorderTests {
         )
     }
 
+    @Test("nested handler pauses are excluded from the caller's runtime budget")
+    func nestedHandlerPausePropagatesToCaller() async throws {
+        let recorder = HypeTalkScriptTraceRecorder()
+        defer { recorder.resetDebuggerState() }
+
+        var document = HypeDocument.newDocument()
+        let cardId = try #require(document.sortedCards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "Run")
+        button.script = """
+        on mouseUp
+          send "helper" to button "Run"
+        end mouseUp
+        on helper
+          put "nested" into phase
+        end helper
+        """
+        document.addPart(button)
+        _ = recorder.addBreakpoint(
+            HypeTalkScriptBreakpoint(
+                sourceKind: "part",
+                objectId: button.id,
+                handler: "helper"
+            )
+        )
+        recorder.setEnabled(true)
+
+        let dispatchTask = Task {
+            await MessageDispatcher(scriptTraceRecorder: recorder).dispatchAsync(
+                message: "mouseUp",
+                params: [],
+                targetId: button.id,
+                document: document,
+                currentCardId: cardId
+            )
+        }
+
+        let pause = try await waitForPause(recorder)
+        #expect(pause.context.handler == "helper")
+        try await Task.sleep(nanoseconds: 120_000_000)
+        #expect(recorder.resumePausedExecution())
+
+        let result = await dispatchTask.value
+        #expect(result.status == .completed)
+        #expect(
+            result.debugPausedMilliseconds >= 100,
+            "The caller must include debugger time accumulated by its nested send"
+        )
+        let caller = try #require(
+            recorder.snapshot().entries.first { $0.handler == "mouseUp" }
+        )
+        #expect(caller.durationMilliseconds < 100)
+    }
+
     @Test("line breakpoint annotations stay with their handler execution")
     func lineBreakpointAnnotationsAreExecutionScoped() async throws {
         let recorder = HypeTalkScriptTraceRecorder()

@@ -2051,6 +2051,13 @@ next statement in the current/calling handler. Step and breakpoint-hit state is
 scoped to the active dispatch/handler execution so concurrent stack runtimes do
 not consume each other's debugger state. These debugger controls are
 process/session state only and are not persisted into `.hype` documents.
+Debugger automation that may suspend at a breakpoint uses process-local
+operations over the Unix-socket debug bridge: `debug/startOperation` returns a
+UUID immediately, `debug/pollOperation` reports pending/completed/failed state,
+and terminal results expire after five minutes. This keeps script dispatch,
+step, and pause-wait hooks from holding a caller's socket request open while
+HypeTalk is halted. The operation registry is bounded and is never written to a
+stack package.
 
 A `MessageBoxView` REPL (Sources/Hype/Views/MessageBoxView.swift) lets the
 user evaluate HypeTalk expressions interactively against the live runtime

@@ -23,6 +23,8 @@ public enum HypeMCPToolBridge {
         "hype_list_windows",
         "hype_focus_window",
         "hype_wait_for_window",
+        "hype_list_alerts",
+        "hype_dismiss_alert",
         "hype_list_menu_commands",
         "hype_trigger_menu_command",
         "hype_get_script_debugger_state",
@@ -38,6 +40,8 @@ public enum HypeMCPToolBridge {
         "hype_step_over_script_execution",
         "hype_wait_for_debugger_pause",
         "hype_step_script_execution_and_wait",
+        "hype_poll_debug_operation",
+        "hype_forget_debug_operation",
         "hype_get_script_editor_state",
         "hype_toggle_script_editor_breakpoint"
     ]
@@ -142,7 +146,7 @@ public enum HypeMCPToolBridge {
             ),
             tool(
                 "hype_dispatch_message",
-                "Dispatch a HypeTalk message such as mouseUp to an existing object through the normal runtime MessageDispatcher path.",
+                "Start dispatching a HypeTalk message such as mouseUp through the normal runtime path. The stdio debug bridge returns a pollable operation so a breakpoint cannot block the caller.",
                 [
                     "object_type": ("string", "Object type: stack, card, background, or part.", true),
                     "id_or_name": ("string", "UUID or case-insensitive name. Omit only for stack.", false),
@@ -262,6 +266,20 @@ public enum HypeMCPToolBridge {
                 ]
             ),
             tool(
+                "hype_list_alerts",
+                "List visible Hype modal alerts and sheets, including message text, informative text, parent window, and available buttons.",
+                [:]
+            ),
+            tool(
+                "hype_dismiss_alert",
+                "Dismiss a visible Hype modal alert by window number or message. Optionally choose a button; otherwise prefers Cancel, then OK, Close, or Dismiss.",
+                [
+                    "window_number": ("number", "Optional modal window number from hype_list_alerts.", false),
+                    "message": ("string", "Optional exact or case-insensitive substring of the alert message.", false),
+                    "button": ("string", "Optional exact or case-insensitive substring of the button title to press.", false)
+                ]
+            ),
+            tool(
                 "hype_list_menu_commands",
                 "List debug-server menu automation commands that can be triggered without macOS Accessibility permissions.",
                 [:]
@@ -353,7 +371,7 @@ public enum HypeMCPToolBridge {
             ),
             tool(
                 "hype_wait_for_debugger_pause",
-                "Poll until script execution is halted in the debugger, optionally matching reason, handler, source kind, or line.",
+                "Start a nonblocking wait for script execution to halt in the debugger. Returns an operation_id immediately; poll it with hype_poll_debug_operation.",
                 [
                     "reason": ("string", "Optional pause reason to match, e.g. breakpoint, stepInto, or stepOver.", false),
                     "handler": ("string", "Optional handler name to match.", false),
@@ -364,10 +382,24 @@ public enum HypeMCPToolBridge {
             ),
             tool(
                 "hype_step_script_execution_and_wait",
-                "Step into or over from a halted script and wait for the next debugger pause.",
+                "Start a nonblocking step into or over from a halted script. Returns an operation_id immediately; poll it with hype_poll_debug_operation for the next pause.",
                 [
                     "step": ("string", "Step mode: into or over.", false),
                     "timeout_ms": ("number", "Timeout in milliseconds. Defaults to 5000.", false)
+                ]
+            ),
+            tool(
+                "hype_poll_debug_operation",
+                "Poll a debugger wait, step, click, dispatch, or other asynchronous debug-port operation without blocking.",
+                [
+                    "operation_id": ("string", "Operation UUID returned by an asynchronous debugger hook.", true)
+                ]
+            ),
+            tool(
+                "hype_forget_debug_operation",
+                "Remove a completed or failed debugger operation result before its automatic five-minute expiry.",
+                [
+                    "operation_id": ("string", "Terminal operation UUID to forget.", true)
                 ]
             ),
             tool(

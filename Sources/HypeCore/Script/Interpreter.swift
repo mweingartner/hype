@@ -1159,6 +1159,7 @@ public struct Interpreter: Sendable {
             handlerType: .message,
             debugExecutionId: context.debugTraceContext?.executionId
         )
+        env.debugPausedMilliseconds += result.debugPausedMilliseconds
         if let modifiedDocument = result.modifiedDocument {
             document = modifiedDocument
             env.globals = modifiedDocument.scriptGlobals
@@ -1244,6 +1245,7 @@ public struct Interpreter: Sendable {
             handlerType: .function,
             debugExecutionId: context.debugTraceContext?.executionId
         )
+        env.debugPausedMilliseconds += result.debugPausedMilliseconds
         if let modifiedDocument = result.modifiedDocument {
             env.globals = modifiedDocument.scriptGlobals
         }
@@ -2587,6 +2589,7 @@ public struct Interpreter: Sendable {
                 fileProvider: context.fileProvider,
                 debugExecutionId: context.debugTraceContext?.executionId
             )
+            env.debugPausedMilliseconds += result.debugPausedMilliseconds
             if let modifiedDocument = result.modifiedDocument {
                 document = modifiedDocument
                 env.globals = modifiedDocument.scriptGlobals

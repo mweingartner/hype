@@ -20,6 +20,30 @@ struct HypeTalkTextViewAppearanceTests {
         }
     }
 
+    private final class ScriptDocumentBox {
+        var document: HypeDocumentWrapper
+
+        init(document: HypeDocumentWrapper) {
+            self.document = document
+        }
+    }
+
+    private struct ScriptEditorHost: View {
+        let box: ScriptDocumentBox
+        let partId: UUID
+
+        var body: some View {
+            ScriptEditor(
+                document: Binding(
+                    get: { box.document },
+                    set: { box.document = $0 }
+                ),
+                partId: partId,
+                target: .part(partId)
+            )
+        }
+    }
+
     @Test("light and dark script palettes resolve to opaque contrasting colors")
     func palettesResolveWithReadableForegrounds() throws {
         for theme in [HypeScriptTheme.defaultLight, HypeScriptTheme.defaultDark] {
@@ -96,6 +120,46 @@ struct HypeTalkTextViewAppearanceTests {
         #expect(visibleGlyphOverlay.sublayers?.contains { $0 is CATextLayer } == true)
     }
 
+    @Test("open script editor adopts external document script changes")
+    func hostedScriptEditorAdoptsExternalScriptChanges() throws {
+        var document = HypeDocument.newDocument(name: "Script Sync")
+        let cardId = try #require(document.sortedCards.first?.id)
+        var button = Part(partType: .button, cardId: cardId, name: "Run")
+        button.script = "on mouseUp\n  beep\nend mouseUp"
+        document.addPart(button)
+
+        var wrapper = HypeDocumentWrapper()
+        wrapper.document = document
+        let box = ScriptDocumentBox(document: wrapper)
+        let hostingView = NSHostingView(rootView: ScriptEditorHost(box: box, partId: button.id))
+        hostingView.frame = NSRect(x: 0, y: 0, width: 1100, height: 680)
+        let window = NSWindow(
+            contentRect: hostingView.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.orderFront(nil)
+        defer { window.close() }
+        hostingView.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+
+        let textView = try #require(findTextView(
+            in: hostingView,
+            accessibilityIdentifier: HypeAccessibilityID.scriptEditorText
+        ))
+        #expect(textView.string == button.script)
+
+        let replacement = "on mouseUp\n  answer \"Updated externally\"\nend mouseUp"
+        box.document.document.updatePart(id: button.id) { part in
+            part.script = replacement
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+
+        #expect(textView.string == replacement)
+    }
+
     private func rgb(_ color: NSColor) throws -> (CGFloat, CGFloat, CGFloat) {
         let converted = try #require(color.usingColorSpace(.sRGB))
         return (converted.redComponent, converted.greenComponent, converted.blueComponent)
@@ -117,12 +181,20 @@ struct HypeTalkTextViewAppearanceTests {
         return 0.2126 * channel(rgb.0) + 0.7152 * channel(rgb.1) + 0.0722 * channel(rgb.2)
     }
 
-    private func findTextView(in view: NSView) -> NSTextView? {
-        if let textView = view as? NSTextView {
+    private func findTextView(
+        in view: NSView,
+        accessibilityIdentifier: String? = nil
+    ) -> NSTextView? {
+        if let textView = view as? NSTextView,
+           accessibilityIdentifier == nil
+                || textView.accessibilityIdentifier() == accessibilityIdentifier {
             return textView
         }
         for subview in view.subviews {
-            if let textView = findTextView(in: subview) {
+            if let textView = findTextView(
+                in: subview,
+                accessibilityIdentifier: accessibilityIdentifier
+            ) {
                 return textView
             }
         }

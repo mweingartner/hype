@@ -1812,6 +1812,11 @@ private struct NavigationHandlers: ViewModifier {
     }
 
     private func openPartScriptEditor(notification: Notification) {
+        guard MenuCommandScoping.shouldHandle(
+            notificationStackId: MenuCommandScoping.stackId(from: notification),
+            documentStackId: document.document.stack.id,
+            isKeyDocument: isKeyDocument
+        ) else { return }
         guard document.document.stack.userLevel.hypeUserLevel.canEditScripts else { return }
         // Command-Option-click on a part and other script-editor
         // surfaces converge here. User-level gating stays duplicated

@@ -75,6 +75,9 @@ Methods:
 - `debug/listPrompts`
 - `debug/getPrompt`
 - `debug/callTool`
+- `debug/startOperation`
+- `debug/pollOperation`
+- `debug/forgetOperation`
 - `debug/runScript`
 - `debug/clickButton`
 
@@ -93,6 +96,30 @@ is false, both methods return a refusal response without executing. This brings
 these two methods into parity with `debug/callTool` and the rest of the
 mutation surface.
 
+Requests that can suspend at a script breakpoint should be submitted through
+`debug/startOperation`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "start-click",
+  "method": "debug/startOperation",
+  "params": {
+    "method": "debug/clickButton",
+    "params": { "button": "Run", "card": "Card 1" }
+  }
+}
+```
+
+The start response is immediate and includes `operationId`, `status`, and
+`pollAfterMilliseconds`. Call `debug/pollOperation` with that UUID until the
+status becomes `completed` or `failed`; the terminal payload is returned as
+`result` or `error`. `debug/forgetOperation` releases a terminal result early.
+Completed and failed results otherwise expire after five minutes. The registry
+is process-local, bounded to 128 operations, and never persists into a `.hype`
+document. Pending operations are retained because a script may remain
+intentionally halted until an external debugger resumes it.
+
 Menu automation is exposed through `debug/callTool` control tools:
 
 - `hype_list_menu_commands`
@@ -108,8 +135,10 @@ Automatic UI and debugger testing is exposed through additional live-app
 control tools:
 
 - Window state: `hype_list_windows`, `hype_focus_window`, `hype_wait_for_window`
-- Debugger waits: `hype_wait_for_debugger_pause`,
-  `hype_step_script_execution_and_wait`
+- Modal alerts: `hype_list_alerts`, `hype_dismiss_alert`
+- Async debugger operations: `hype_wait_for_debugger_pause`,
+  `hype_step_script_execution_and_wait`, `hype_poll_debug_operation`,
+  `hype_forget_debug_operation`
 - Script editor breakpoints: `hype_get_script_editor_state`,
   `hype_toggle_script_editor_breakpoint`
 
@@ -126,6 +155,11 @@ handler entry. Step Over skips nested handler execution and pauses at the next
 statement in the current or calling handler. Step requests and pending
 breakpoint-hit annotations are scoped to their dispatch and handler execution,
 so concurrent stack runtimes cannot consume each other's debugger state.
+The two historically named wait tools now start operations and return
+immediately; callers poll the returned UUID instead of occupying an MCP or
+debug-socket request. The stdio bridge also starts `hype_debug_click_button` and
+`hype_dispatch_message` through `debug/startOperation`, so a breakpoint reached
+inside the dispatched script cannot block the MCP caller.
 
 ## MCP Server
 
@@ -137,6 +171,7 @@ It implements stdio MCP framing and always exposes connection-management tools:
 - `hype_detach_session`
 - `hype_active_session`
 - `hype_ping`
+- `hype_start_debug_operation`
 
 When attached to a Hype process, the MCP server keeps one Unix-socket debug
 connection open, sends periodic `debug/keepalive` requests, and reuses that

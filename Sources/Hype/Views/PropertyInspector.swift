@@ -5513,10 +5513,19 @@ private var activeScriptWindows: [String: NSWindow] = [:]
 /// UUID for opens that have no resolvable target. Used by
 /// `openScriptEditorWindow` to find or create the window slot.
 @MainActor
-private func scriptWindowKey(for target: ScriptTarget?, partId: UUID?) -> String {
-    if let target = target { return target.identityKey }
-    if let partId = partId { return "part:\(partId.uuidString)" }
-    return "unkeyed:\(UUID().uuidString)"
+func scriptEditorWindowIdentityKey(stackId: UUID, target: ScriptTarget) -> String {
+    "\(stackId.uuidString):\(target.identityKey)"
+}
+
+@MainActor
+private func scriptWindowKey(
+    stackId: UUID,
+    target: ScriptTarget?,
+    partId: UUID?
+) -> String {
+    if let target { return scriptEditorWindowIdentityKey(stackId: stackId, target: target) }
+    if let partId { return "\(stackId.uuidString):part:\(partId.uuidString)" }
+    return "\(stackId.uuidString):unkeyed:\(UUID().uuidString)"
 }
 
 /// Resolve the script editor target without changing script ownership.
@@ -5557,7 +5566,7 @@ func openScriptEditorWindow(
 ) {
     let doc = document.wrappedValue.document
     let resolvedTarget = effectiveScriptTarget(in: doc, target: target, partId: partId)
-    let key = scriptWindowKey(for: resolvedTarget, partId: nil)
+    let key = scriptWindowKey(stackId: doc.stack.id, target: resolvedTarget, partId: nil)
 
     // If a window for this target is already open, reuse it.
     // Bring it forward, refresh the error highlight, and return
@@ -5638,6 +5647,7 @@ func openScriptEditorWindow(
         windowTitle = "Script Editor"
     }
     window.title = windowTitle
+    window.identifier = NSUserInterfaceItemIdentifier(key)
     window.minSize = NSSize(width: 920, height: 520)
     window.isReleasedWhenClosed = false
     // Previously: `window.appearance = NSAppearance(named: .aqua)`

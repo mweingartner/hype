@@ -36,6 +36,23 @@ struct MenuCommandSourceTests {
         #expect(source.contains("NotificationCenter.default.publisher(for: .openScriptDebugger)"))
         #expect(source.contains("openScriptDebuggerWindow(document: $document)"))
         #expect(source.contains("MenuCommandScoping.shouldHandle"))
+        #expect(source.contains("private func openPartScriptEditor(notification: Notification)"))
+        #expect(source.contains("notificationStackId: MenuCommandScoping.stackId(from: notification)"))
+
+        let commandsSource = try String(
+            contentsOf: root
+                .appendingPathComponent("Sources")
+                .appendingPathComponent("Hype")
+                .appendingPathComponent("Views")
+                .appendingPathComponent("GoMenuCommands.swift"),
+            encoding: .utf8
+        )
+        #expect(commandsSource.contains(
+            "userInfo: MenuCommandScoping.userInfo(stackId: activeStackId)"
+        ))
+        #expect(commandsSource.contains(
+            "HypeDocumentMutationCoordinator.shared.activeDocumentBinding"
+        ))
     }
 
     @Test("Debugger step controls are shared by debugger and script editor")
@@ -62,6 +79,10 @@ struct MenuCommandSourceTests {
         #expect(componentSource.contains("stepOverPausedExecution()"))
         #expect(componentSource.contains("stepIntoPausedExecution()"))
         #expect(debuggerSource.contains("ScriptDebuggerStepControls("))
+        #expect(
+            debuggerSource.components(separatedBy: "maxHeight: .infinity").count >= 3,
+            "Both debugger panes and their split view should fill the available window height"
+        )
         #expect(editorSource.contains("ScriptDebuggerStepControls("))
     }
 

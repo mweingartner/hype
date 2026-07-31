@@ -21,24 +21,30 @@ struct HypeDebugServerMenuAutomationTests {
 
     @Test("trigger menu command posts script debugger notification")
     func triggerScriptDebuggerPostsNotification() {
+        let stackId = UUID()
         let capture = MenuNotificationCapture()
         let observer = NotificationCenter.default.addObserver(
             forName: .openScriptDebugger,
             object: nil,
             queue: nil
-        ) { _ in
+        ) { notification in
             capture.didPost = true
+            capture.stackId = notification.userInfo?[MenuCommandScoping.stackIdKey] as? UUID
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
         let result = HypeDebugServer.shared.callMenuAutomationControlTool(
             name: "hype_trigger_menu_command",
-            arguments: ["command": .string("script_debugger")]
+            arguments: [
+                "command": .string("script_debugger"),
+                "stack_id": .string(stackId.uuidString),
+            ]
         )
 
         #expect(result.isError == false)
         #expect(result.text.contains("\"notificationName\" : \"hype.openScriptDebugger\""))
         #expect(capture.didPost)
+        #expect(capture.stackId == stackId)
     }
 
     @Test("trigger menu command accepts visible labels")
