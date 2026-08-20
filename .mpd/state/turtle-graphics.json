@@ -1773,6 +1773,13 @@
         "base_modified": true,
         "weakened": true
       }
+    },
+    "doc-validation": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
     }
   },
   "freshness_invalidations": [
