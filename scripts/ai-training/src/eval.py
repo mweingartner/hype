@@ -144,12 +144,14 @@ def ollama_chat(
         payload["tools"] = tools
     body = _json.dumps(payload).encode()
 
+    # nosemgrep: python.lang.security.audit.insecure-transport.urllib.insecure-request-object.insecure-request-object -- loopback-only Ollama endpoint (http://localhost); TLS is not applicable over the loopback interface.
     req = urllib.request.Request(
         "http://localhost:11434/api/chat",
         data=body,
         headers={"Content-Type": "application/json"},
     )
     try:
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- req wraps a hardcoded localhost URL constant, not attacker-controlled input; no file:// / scheme-injection surface.
         with urllib.request.urlopen(req, timeout=120) as resp:
             payload = _json.loads(resp.read().decode())
     except urllib.error.URLError as e:
