@@ -265,6 +265,16 @@ public struct TurtleEngine: Sendable {
         /// `TurtleProgramValidator`, P3).
         static let programTooLarge = "turtle: program is too large — the limit is 65536 bytes."
 
+        /// Tool-only pre-parse nesting guard (not an E-number; composed
+        /// by `TurtleProgramValidator`, P3 — Security A2 hardening). Runs
+        /// BEFORE the recursive-descent parser ever sees the token
+        /// stream, so a pathologically nested program is refused
+        /// cleanly instead of reaching the parser's ~800-level SIGBUS
+        /// threshold (measured on an 8 MB stack).
+        static func nestingTooDeep(line: Int) -> String {
+            "turtle: line \(line) is nested too deeply — draw_with_turtle allows at most 200 levels of nested parentheses or repeat loops."
+        }
+
         private static func clip(_ raw: String) -> String {
             raw.count > maxEchoedInputLength ? String(raw.prefix(maxEchoedInputLength)) : raw
         }

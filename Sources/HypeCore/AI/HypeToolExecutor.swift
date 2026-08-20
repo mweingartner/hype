@@ -1265,6 +1265,13 @@ public struct HypeToolExecutor: Sendable {
             let shapeLayer = place.backgroundId != nil ? " on background" : ""
             return "Created shape '\(part.name)'\(shapeLayer)"
 
+        case "draw_with_turtle":
+            return await executeDrawWithTurtle(
+                program: arguments["program"] ?? "",
+                document: &document,
+                currentCardId: currentCardId
+            )
+
         case "create_webpage":
             let place = placement(arguments: arguments, currentCardId: currentCardId, document: document)
             var part = Part(
@@ -5749,6 +5756,133 @@ public struct HypeToolExecutor: Sendable {
         default:
             return "Unknown tool: \(toolName)"
         }
+    }
+
+    // MARK: - draw_with_turtle (design.md D7, turtle-graphics)
+
+    /// Executes a `draw_with_turtle` AI-tool call: validates `program`
+    /// against the turtle allowlist (Condition 4 — all-or-nothing before
+    /// any mutation; a refusal returns the E9/cap text with `document`
+    /// untouched), then runs the validated statements through the SAME
+    /// interpreter/engine/part-emission path HypeTalk uses (design.md D7
+    /// "one vocabulary, two front-ends" — no parallel geometry anywhere).
+    ///
+    /// Security C14: the `ExecutionContext` is built with deny-by-default
+    /// stub providers ONLY (`StubHostApplicationProvider`,
+    /// `StubAIScriptingProvider`, `StubFileAccessProvider`,
+    /// `runtimeProvider: nil`) — never this executor's real providers —
+    /// so a validated turtle verb, or a shadowed `on <turtle-verb>`
+    /// handler already living in the stack's script, can reach nothing
+    /// beyond the passed `inout HypeDocument`. Document mutation is the
+    /// only permitted side effect of this tool.
+    private func executeDrawWithTurtle(
+        program: String,
+        document: inout HypeDocument,
+        currentCardId: UUID
+    ) async -> String {
+        let validatedStatements: [Statement]
+        switch TurtleProgramValidator.validate(program: program) {
+        case .refused(let message):
+            return message
+        case .ok(let statements):
+            validatedStatements = statements
+        }
+
+        let existingPartIds = Set(document.parts.map(\.id))
+
+        // A trailing `return the result` is the only way to surface the
+        // engine's E6/E7 resultNote (unclosed fill / too-few-points fill)
+        // through `ExecutionResult`, which has no dedicated channel for
+        // it — the HypeTalk surface exposes the same value via `the
+        // result`. Appended AFTER validation, so it never participates
+        // in the allowlist walk.
+        let body = validatedStatements + [Statement.returnValue(.propertyAccess("result", nil))]
+        let handler = Handler(name: "drawWithTurtle", handlerType: .message, params: [], body: body, line: 1)
+
+        let context = ExecutionContext(
+            targetId: currentCardId,
+            currentCardId: currentCardId,
+            document: document,
+            hostProvider: StubHostApplicationProvider(),
+            aiProvider: StubAIScriptingProvider(),
+            runtimeProvider: nil,
+            fileProvider: StubFileAccessProvider()
+        )
+        let result = await Interpreter().executeAsync(handler: handler, params: [], context: context)
+
+        switch result.status {
+        case .error:
+            // All-or-nothing (Deviations d2): `document` is left
+            // untouched — a `ScriptError` result never carries a
+            // `modifiedDocument`.
+            return result.error?.message ?? "turtle: an unknown error occurred."
+
+        case .cancelled:
+            return "Turtle drawing was cancelled."
+
+        case .completed, .passed:
+            document = result.modifiedDocument ?? document
+            let newParts = document.parts.filter { $0.cardId == currentCardId && !existingPartIds.contains($0.id) }
+            let resultNote = result.returnValue.flatMap { $0.isEmpty ? nil : $0 }
+            return turtleDrawSummary(newParts: newParts, resultNote: resultNote, document: document, cardId: currentCardId)
+        }
+    }
+
+    /// Composes the §7.1 success summary:
+    /// `Drew <N> shapes on card "<name>": <part> (<n> points), …, <dot>.
+    /// Turtle at <x>,<y> heading <h>, pen <down|up>.` — dots are listed
+    /// without a point count; `N == 0` collapses to `Drew no shapes on
+    /// card "<name>".`; an unnamed card renders as `card <number>`
+    /// (Deviations d13); a resultNote (E6/E7) is appended as a final
+    /// sentence in either case.
+    private func turtleDrawSummary(
+        newParts: [Part],
+        resultNote: String?,
+        document: HypeDocument,
+        cardId: UUID
+    ) -> String {
+        let cardReference = turtleCardReference(cardId: cardId, document: document)
+
+        guard !newParts.isEmpty else {
+            var message = "Drew no shapes on \(cardReference)."
+            if let resultNote { message += " \(resultNote)" }
+            return message
+        }
+
+        let partList = newParts.map { part -> String in
+            part.pathData.isEmpty ? part.name : "\(part.name) (\(part.pathData.count) points)"
+        }.joined(separator: ", ")
+
+        let state = turtleScalarState(document: document)
+        var message = "Drew \(newParts.count) shapes on \(cardReference): \(partList). "
+        message += "Turtle at \(HypeTalkFormat.number(state.x)),\(HypeTalkFormat.number(state.y)) "
+        message += "heading \(HypeTalkFormat.number(state.heading)), pen \(state.penDown ? "down" : "up")."
+        if let resultNote { message += " \(resultNote)" }
+        return message
+    }
+
+    /// `card "<name>"`, or `card <1-based number>` when the card has no
+    /// name (Deviations d13).
+    private func turtleCardReference(cardId: UUID, document: HypeDocument) -> String {
+        guard let card = document.cards.first(where: { $0.id == cardId }) else { return "card" }
+        guard !card.name.isEmpty else {
+            let number = (document.sortedCards.firstIndex(where: { $0.id == cardId }) ?? 0) + 1
+            return "card \(number)"
+        }
+        return "card \"\(card.name)\""
+    }
+
+    /// Decodes the run's final turtle scalar state from
+    /// `document.scriptGlobals[TurtleEngine.sessionGlobalKey]`, falling
+    /// back to engine defaults on a missing/malformed value — the same
+    /// fallback rule `Interpreter.turtleEngine(env:document:)` uses.
+    private func turtleScalarState(document: HypeDocument) -> TurtleEngine.ScalarState {
+        let canvas = TurtleEngine.Canvas(width: Double(document.stack.width), height: Double(document.stack.height))
+        guard let encoded = document.scriptGlobals[TurtleEngine.sessionGlobalKey],
+              let state = TurtleEngine.ScalarState(encoded: encoded) else {
+            return TurtleEngine.ScalarState.defaults(canvas: canvas)
+        }
+        return state
     }
 
     private func musicTracks(from arguments: [String: String]) -> [MusicTrackSpec] {

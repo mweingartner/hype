@@ -71,6 +71,9 @@ public struct HypeToolDefinitions {
             "stroke_width": ("string", "Stroke width in points", false),
             "on_background": ("string", "Set to 'true' to place on the card's background", false),
         ]),
+        makeTool(name: "draw_with_turtle", description: "Draw vector graphics on the current card with the classic Logo turtle. Pass a program of turtle commands, one per line — forward/back, right/left, setHeading, setPos, home, penUp/penDown, setPenColor, setPenWidth, setFillColor, beginFill/endFill, circle, arc, dot, clean, clearScreen — plus repeat loops. Same commands and semantics as HypeTalk's turtle; heading 0 points up, degrees clockwise, card coordinates. Output becomes editable freeform shape parts named 'turtle path N' / 'turtle fill N'.", params: [
+            "program": ("string", "Newline-separated turtle commands and repeat loops. Required.", true),
+        ]),
         makeTool(name: "create_webpage", description: "Create a web page viewer on the current card or background.", params: [
             "name": ("string", "Webpage part name", true),
             "url": ("string", "URL to display", true),
@@ -2128,6 +2131,7 @@ public struct HypeToolDefinitions {
             "create_field",
             "create_label",
             "create_shape",
+            "draw_with_turtle",
             "create_image",
             "generate_image",
             "generate_3d_model_from_text",
@@ -2319,6 +2323,7 @@ public struct HypeToolDefinitions {
             "create_field",
             "create_label",
             "create_shape",
+            "draw_with_turtle",
             "create_image",
             "generate_image",
             "generate_3d_model_from_text",
