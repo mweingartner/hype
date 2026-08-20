@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "paths": [
+    "Sources/HypeCore/Script/TurtleEngine.swift",
+    "Tests/HypeCoreTests/TurtleEngineTests.swift"
+  ],
+  "shared_paths": []
+}
