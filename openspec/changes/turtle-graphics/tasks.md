@@ -98,33 +98,33 @@
 
 ## 4. P4 — Renderers and discovery (ends green)
 
-- [ ] 4.1 `Sources/HypeCore/Rendering/RenderGeometry.swift`:
+- [x] 4.1 `Sources/HypeCore/Rendering/RenderGeometry.swift`:
       `freeformIsOpenStroke(_:)` + `freeformLocalPoints(_:)` (public).
-- [ ] 4.2 `Sources/HypeCore/Rendering/ShapeRenderer.swift` `.freeform`:
+- [x] 4.2 `Sources/HypeCore/Rendering/ShapeRenderer.swift` `.freeform`:
       shared contract, no y-flip, round caps/joins, open vs closed
       branches.
-- [ ] 4.3 `Sources/Hype/SpriteKit/ShapePartNode.swift` `.freeform`: shared
+- [x] 4.3 `Sources/Hype/SpriteKit/ShapePartNode.swift` `.freeform`: shared
       contract ((x, −y) locals, `.clear` fill on open branch, round
       caps/joins).
-- [ ] 4.3b `Sources/HypeCore/Export/TargetRuntimeControlViews.swift`
+- [x] 4.3b `Sources/HypeCore/Export/TargetRuntimeControlViews.swift`
       `TargetRuntimeShapeView.shapePath`/`body` `.freeform`: gate
       `closeSubpath()` (line 1299) and the `context.fill(...)` (line 1263)
       on `!RenderGeometry.freeformIsOpenStroke(part)`; stroke `.round`
       cap/join when `strokeWidth > 0`. Keep `normalizedPathPoints` scaling
       unchanged (N3).
-- [ ] 4.4 Write `Tests/HypeCoreTests/ShapeRendererFreeformTests.swift`,
+- [x] 4.4 Write `Tests/HypeCoreTests/ShapeRendererFreeformTests.swift`,
       `Tests/HypeCoreTests/TargetRuntimeFreeformTests.swift`, and
       `Tests/HypeTests/ShapePartNodeFreeformTests.swift` (criterion 10
       across all three sites — `fillColor ""` open+unfilled vs `#FFFFFF`
       closed+filled legacy regression; criterion 14 for CG/SK only).
-- [ ] 4.5 `Sources/HypeCore/AI/HypeTalkGuide.swift`: `## Turtle graphics`
+- [x] 4.5 `Sources/HypeCore/AI/HypeTalkGuide.swift`: `## Turtle graphics`
       section (§4 vocabulary, defaults, part contract, error copy, R12
       note).
-- [ ] 4.6 `Sources/HypeCore/AI/HypeTalkSkillCatalog.swift`: skill
+- [x] 4.6 `Sources/HypeCore/AI/HypeTalkSkillCatalog.swift`: skill
       `turtle_graphics` (case, descriptor, guidance bullets, one pattern).
-- [ ] 4.7 Extend `Tests/HypeCoreTests/HypeTalkGuideTests.swift` (section +
+- [x] 4.7 Extend `Tests/HypeCoreTests/HypeTalkGuideTests.swift` (section +
       verbs present; skill listed).
-- [ ] 4.8 Full `swift test` green.
+- [x] 4.8 Full `swift test` green.
 
 ## 5. Later phases (not Build)
 
