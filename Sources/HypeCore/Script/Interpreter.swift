@@ -1967,6 +1967,18 @@ public struct Interpreter: Sendable {
             while true {
                 let condValue = try await evaluate(cond, env: &env, document: document, context: context)
                 if !isTruthy(condValue) { break }
+                // Security C13 — same per-iteration guard as `.repeatCount`/
+                // `.repeatWith`: an empty- or non-emitting-body loop never
+                // reaches `executeStatement`'s own `instructionCount`
+                // increment, so `repeat while true` with an empty body would
+                // otherwise spin unbounded and uncancellably. Counting every
+                // executing iteration here bounds and terminates it regardless
+                // of body. Placed after the condition break so a loop that
+                // exits normally never consumes an extra count.
+                instructionCount += 1
+                if instructionCount > context.instructionLimit {
+                    throw ScriptError(message: "Instruction limit exceeded", line: handler.line, handler: handler.name)
+                }
                 context.profiler?.recordLoopIteration("repeatWhile")
                 do {
                     for s in body {
