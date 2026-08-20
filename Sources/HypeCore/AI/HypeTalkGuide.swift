@@ -646,6 +646,27 @@ public enum HypeTalkGuide {
         - `listener <id>` supports: `status`, `state`, `host`, `port`, `transport`, `callbackMessage`.
         - `connection <id>` supports: `status`, `state`, `host`, `remoteAddress`, `port`, `remotePort`, `lastData`, `body`, `error`.
 
+        ## Turtle graphics
+        Classic Logo turtle. One turtle, `the turtle`, per open stack session -- scalar state (position, heading, pen, fill) persists across runs so the message box works as a live REPL, but nothing turtle-related is ever saved to the .hype file. Case-insensitive; numeric args are HypeTalk expressions coerced via toNumber (garbage -> 0); color args accept #RRGGBB, #RRGGBBAA, or a classic name (red, blue, ...).
+            forward n / fd n              back n / bk n
+            right deg / rt deg            left deg / lt deg
+            setHeading deg / setH deg     setPos x, y / setXY x, y
+            home
+            penUp / pu                    penDown / pd
+            setPenColor c                 setPenWidth w / setPenSize w
+            setFillColor c
+            beginFill                     endFill
+            circle r                      arc deg, r
+            dot                           dot d
+            clean                         clearScreen / cs
+            reset turtle
+        Coordinates are card coordinates (top-left origin, y-down, points) -- same system as `the loc`, `drag`, `the mouseLoc`. Heading is degrees, 0 = up (toward the card top), clockwise positive, normalized to [0, 360). Defaults: pen down, penColor "#000000", penWidth 2, fillColor "#000000", home = card center, heading 0.
+        `forward`/`back` move and draw when the pen is down; `right`/`left` turn in place; `setHeading`/`setPos` set state absolutely (setPos still draws when the pen is down); `home` moves to the card center and resets heading to 0, drawing if the pen is down. `beginFill`/`endFill` record a fill polygon -- movement while filling feeds only the polygon, never a separate stroke. `circle r` and `arc deg, r` draw immediately without moving the turtle (or feed the fill polygon while filling). `dot` (default diameter max(2 x penWidth, 4)) draws a filled circle at the turtle's position even with the pen up.
+        Every flush emits one ordinary shape part -- `.freeform` for strokes and fills, `.oval` for dots -- named `turtle path N` / `turtle fill N` / `turtle dot N` (N = smallest free integer per prefix per card). These are real, editable parts: select, move, and script them like anything hand-drawn; `get_card_parts` sees them. A stroke part has `fillColor ""` (open, unfilled; strokeColor/strokeWidth from the pen); a fill part's `fillColor` is the turtle's fill color, outlined per the pen state at `endFill`.
+        `clean` deletes every part on the current card named `turtle path`/`turtle fill`/`turtle dot` (renamed parts survive -- renaming a drawing is adopting it); `clearScreen`/`cs` is `clean` then `home`; `reset turtle` (an extension of the existing `reset` verb) restores scalar state to defaults without touching drawings.
+        Turtle state also reads/writes as part properties on `the turtle`: `the position of the turtle` (aliases loc, location; "x,y"), `the xcor of the turtle` / `the ycor of the turtle` (read-only), `the heading of the turtle`, `the penDown of the turtle`, `the penColor of the turtle`, `the penWidth of the turtle`, `the fillColor of the turtle`, `the filling of the turtle` (read-only). The turtle's pen is a distinct concept from the raster paint tool's `pencilsize`/`pencilcolor` globals -- always read/write turtle state via `of the turtle`, never `pencilcolor`/`pencilsize`.
+        Engine errors (byte-identical wording on every surface, "turtle: " prefix, quoted input, em-dash guidance): an invalid color name/hex, a non-positive circle/arc/dot radius or diameter, calling `beginFill` while already filling, calling `endFill` without `beginFill`, and the 200-part/50000-point per-run drawing limit. A fill with fewer than 3 distinct vertices, or an unclosed `beginFill` at end of run, draws nothing and sets `the result` to an explanatory string rather than raising a script error.
+
         ## Canonical patterns
 
         **Button that navigates:**

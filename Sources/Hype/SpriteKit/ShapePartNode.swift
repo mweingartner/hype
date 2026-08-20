@@ -52,15 +52,20 @@ final class ShapePartNode: SKShapeNode, CardPartNode {
             }
 
         case .freeform:
-            if part.pathData.count >= 2 {
+            // §5.2 / D8: local points are anchored to the tight path
+            // bounding box (shared with the CG renderer), so the node's
+            // (left, −top) position is all that's needed to translate
+            // the drawing rigidly when the frame moves (criterion 14).
+            let localPoints = RenderGeometry.freeformLocalPoints(part)
+            if localPoints.count >= 2 {
                 let mPath = CGMutablePath()
-                let origin = part.pathData[0]
-                mPath.move(to: CGPoint(x: origin.x - part.left, y: -(origin.y - part.top)))
-                for i in 1..<part.pathData.count {
-                    let pt = part.pathData[i]
-                    mPath.addLine(to: CGPoint(x: pt.x - part.left, y: -(pt.y - part.top)))
+                mPath.move(to: CGPoint(x: localPoints[0].x, y: -localPoints[0].y))
+                for point in localPoints.dropFirst() {
+                    mPath.addLine(to: CGPoint(x: point.x, y: -point.y))
                 }
-                mPath.closeSubpath()
+                if !RenderGeometry.freeformIsOpenStroke(part) {
+                    mPath.closeSubpath()
+                }
                 self.path = mPath
             }
         }
@@ -69,6 +74,21 @@ final class ShapePartNode: SKShapeNode, CardPartNode {
         self.fillColor = NSColor(hexString: part.fillColor) ?? .white
         self.strokeColor = NSColor(hexString: part.strokeColor) ?? .black
         self.lineWidth = CGFloat(part.strokeWidth)
+
+        if part.shapeType == .freeform {
+            // Round caps/joins for both branches — a pen trail must not
+            // show miter spikes. An open stroke is never filled; a
+            // zero-width open stroke also clears its stroke color so it
+            // doesn't fall back to SpriteKit's default hairline.
+            self.lineCap = .round
+            self.lineJoin = .round
+            if RenderGeometry.freeformIsOpenStroke(part) {
+                self.fillColor = .clear
+                if part.strokeWidth <= 0 {
+                    self.strokeColor = .clear
+                }
+            }
+        }
 
         // Position in nativeLayer coords (nativeLayer is at top of scene, y-down)
         self.position = CGPoint(x: part.left, y: -part.top)

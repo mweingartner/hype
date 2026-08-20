@@ -85,5 +85,63 @@ public enum RenderGeometry {
     ) -> CGPath {
         roundedRectPath(in: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius)
     }
+
+    // MARK: - Freeform contract (turtle-graphics D8, §5.2)
+
+    /// Whether `part` is an **open stroke** (a pen trail, no fill) rather
+    /// than a closed, filled polygon.
+    ///
+    /// `fillColor == ""` is the app-wide "none" sentinel (shared with
+    /// `fontColor`/`HexColor`); the turtle engine emits it for stroke
+    /// parts (§5.1) and leaves every other freeform-creation path on its
+    /// existing non-empty default (`"#FFFFFF"`), so this check is
+    /// additive and never reclassifies an existing part.
+    public static func freeformIsOpenStroke(_ part: Part) -> Bool {
+        part.fillColor.isEmpty
+    }
+
+    /// Translate `part.pathData` into local, origin-anchored coordinates:
+    /// the tight bounding box of the points — expanded by
+    /// `strokeWidth / 2` on every side, matching `TurtleEngine`'s frame
+    /// math (§5.1) — is moved to sit at `(0, 0)`. Coordinates stay
+    /// y-down, matching card-space `pathData`.
+    ///
+    /// Anchoring the drawing to a frame-independent local origin (rather
+    /// than to `part.left`/`part.top` directly) is what lets a renderer
+    /// draw at `rect.origin + localPoint` and have the visible shape
+    /// translate rigidly whenever the part's frame moves — including for
+    /// legacy freeforms whose stored frame had drifted from their path
+    /// bounds.
+    ///
+    /// NaN-safe like `safeRect(_:)`: non-finite point components and a
+    /// non-finite `strokeWidth` are treated as 0 rather than propagating
+    /// NaN into every returned point.
+    public static func freeformLocalPoints(_ part: Part) -> [CGPoint] {
+        let points = part.pathData
+        guard let first = points.first else { return [] }
+
+        func finite(_ value: Double) -> CGFloat {
+            let converted = CGFloat(value)
+            return converted.isFinite ? converted : 0
+        }
+
+        var minX = finite(first.x)
+        var maxX = minX
+        var minY = finite(first.y)
+        var maxY = minY
+        for point in points.dropFirst() {
+            let x = finite(point.x)
+            let y = finite(point.y)
+            minX = min(minX, x)
+            maxX = max(maxX, x)
+            minY = min(minY, y)
+            maxY = max(maxY, y)
+        }
+
+        let pad = finite(part.strokeWidth) / 2
+        let originX = minX - pad
+        let originY = minY - pad
+        return points.map { CGPoint(x: finite($0.x) - originX, y: finite($0.y) - originY) }
+    }
 }
 #endif
