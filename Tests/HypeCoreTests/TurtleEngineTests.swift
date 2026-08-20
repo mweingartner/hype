@@ -344,6 +344,415 @@ struct TurtleCurveTests {
     }
 }
 
+// MARK: - turtle-radius-clamp fix: radius/diameter bound to the coordinate world
+
+@Suite("Radius/diameter clamp — astronomically large circle/arc/dot inputs bound to positionLimit")
+struct TurtleRadiusClampTests {
+
+    /// An input far beyond `positionLimit` (1e6) that must clamp rather
+    /// than emit off-world geometry.
+    private static let hugeRadius: Double = 999_999_999_999
+
+    @Test("circle with an astronomically large radius clamps to positionLimit: finite, bounded pathData and frame")
+    func hugeRadiusCircleClampsToPositionLimit() throws {
+        var engine = makeEngine()
+        let center = engine.scalarState
+        let outcome = try engine.perform(.circle(radius: Self.hugeRadius))
+        #expect(outcome.emissions.count == 1)
+        let emission = try #require(outcome.emissions.first)
+        #expect(emission.pathData.count == 61)
+        for point in emission.pathData {
+            #expect(point.x.isFinite && point.y.isFinite)
+            #expect(abs(point.x) <= 2 * TurtleEngine.positionLimit)
+            #expect(abs(point.y) <= 2 * TurtleEngine.positionLimit)
+            // A genuine radius-1,000,000 circle, not merely "some bounded shape".
+            let radius = hypot(point.x - center.x, point.y - center.y)
+            #expect(abs(radius - TurtleEngine.positionLimit) <= 1e-6)
+        }
+        // Tighter frame bound (Security C5 note): the real magnitude, not
+        // just finiteness — |edge| ≤ 2·positionLimit + strokeWidth/2.
+        let strokeHalf = engine.scalarState.penWidth / 2
+        let frame = emission.frame
+        #expect(frame.left.isFinite && frame.top.isFinite && frame.width.isFinite && frame.height.isFinite)
+        #expect(abs(frame.left) <= 2 * TurtleEngine.positionLimit + strokeHalf)
+        #expect(abs(frame.top) <= 2 * TurtleEngine.positionLimit + strokeHalf)
+        #expect(abs(frame.left + frame.width) <= 2 * TurtleEngine.positionLimit + strokeHalf)
+        #expect(abs(frame.top + frame.height) <= 2 * TurtleEngine.positionLimit + strokeHalf)
+    }
+
+    @Test("arc with an astronomically large radius clamps to positionLimit: finite, bounded pathData and frame")
+    func hugeRadiusArcClampsToPositionLimit() throws {
+        var engine = makeEngine()
+        let center = engine.scalarState
+        let outcome = try engine.perform(.arc(degrees: 90, radius: Self.hugeRadius))
+        #expect(outcome.emissions.count == 1)
+        let emission = try #require(outcome.emissions.first)
+        for point in emission.pathData {
+            #expect(point.x.isFinite && point.y.isFinite)
+            #expect(abs(point.x) <= 2 * TurtleEngine.positionLimit)
+            #expect(abs(point.y) <= 2 * TurtleEngine.positionLimit)
+            let radius = hypot(point.x - center.x, point.y - center.y)
+            #expect(abs(radius - TurtleEngine.positionLimit) <= 1e-6)
+        }
+        let strokeHalf = engine.scalarState.penWidth / 2
+        let frame = emission.frame
+        #expect(frame.left.isFinite && frame.top.isFinite && frame.width.isFinite && frame.height.isFinite)
+        #expect(abs(frame.left) <= 2 * TurtleEngine.positionLimit + strokeHalf)
+        #expect(abs(frame.top) <= 2 * TurtleEngine.positionLimit + strokeHalf)
+        #expect(abs(frame.left + frame.width) <= 2 * TurtleEngine.positionLimit + strokeHalf)
+        #expect(abs(frame.top + frame.height) <= 2 * TurtleEngine.positionLimit + strokeHalf)
+    }
+
+    @Test("arc 360 with a huge radius equals circle with the same huge radius (metamorphic, post-clamp)")
+    func hugeRadiusArc360EqualsHugeRadiusCircle() throws {
+        var circleEngine = makeEngine()
+        var arcEngine = makeEngine()
+        let circleOutcome = try circleEngine.perform(.circle(radius: Self.hugeRadius))
+        let arcOutcome = try arcEngine.perform(.arc(degrees: 360, radius: Self.hugeRadius))
+        let circlePath = try #require(circleOutcome.emissions.first).pathData
+        let arcPath = try #require(arcOutcome.emissions.first).pathData
+        #expect(arcPath.count == circlePath.count, "both clamp to the same radius, so vertex counts must match")
+        #expect(arcPath == circlePath, "both clamp to radius positionLimit, so the polygons must be identical")
+    }
+
+    @Test("clamping does not touch the E2 error path: negative and zero radii still throw byte-identical copy for circle and arc")
+    func clampDoesNotAffectRadiusErrorPath() {
+        var engine = makeEngine()
+        #expect(throws: TurtleEngine.TurtleError("turtle: circle needs a radius greater than 0 (got -5).")) {
+            try engine.perform(.circle(radius: -5))
+        }
+        #expect(throws: TurtleEngine.TurtleError("turtle: arc needs a radius greater than 0 (got 0).")) {
+            try engine.perform(.arc(degrees: 90, radius: 0))
+        }
+    }
+
+    @Test("no regression: radius exactly at positionLimit and diameter exactly at 2·positionLimit are the clamp's identity boundary")
+    func inRangeSizesAreClampIdentity() throws {
+        let atLimit = TurtleEngine.positionLimit
+        var circleEngine = makeEngine()
+        let center = circleEngine.scalarState
+        let circleOutcome = try circleEngine.perform(.circle(radius: atLimit))
+        let circleEmission = try #require(circleOutcome.emissions.first)
+        for point in circleEmission.pathData {
+            let radius = hypot(point.x - center.x, point.y - center.y)
+            #expect(abs(radius - atLimit) <= 1e-6, "radius == positionLimit must draw a true, unclamped circle of that radius")
+        }
+
+        var dotEngine = makeEngine()
+        let dotOutcome = try dotEngine.perform(.dot(diameter: 2 * atLimit))
+        let dotEmission = try #require(dotOutcome.emissions.first)
+        #expect(dotEmission.frame.width == 2 * atLimit, "diameter == 2·positionLimit must be untouched by the clamp")
+        #expect(dotEmission.frame.height == 2 * atLimit)
+    }
+
+    @Test("a clamped huge-radius circle inside beginFill/endFill produces a bounded, finite fill polygon (C6)")
+    func hugeRadiusCircleInsideFillIsBounded() throws {
+        var engine = makeEngine()
+        _ = try engine.perform(.beginFill)
+        let curveOutcome = try engine.perform(.circle(radius: Self.hugeRadius))
+        #expect(curveOutcome.emissions.isEmpty, "a curve while filling feeds the polygon, it does not emit its own part")
+        let endOutcome = try engine.perform(.endFill)
+        let emission = try #require(endOutcome.emissions.first)
+        #expect(emission.kind == .fill)
+        // beginFill's initial vertex + the circle's 61 clamped vertices.
+        #expect(emission.pathData.count == 62)
+        for point in emission.pathData {
+            #expect(point.x.isFinite && point.y.isFinite)
+            #expect(abs(point.x) <= 2 * TurtleEngine.positionLimit)
+            #expect(abs(point.y) <= 2 * TurtleEngine.positionLimit)
+        }
+        let frame = emission.frame
+        #expect(frame.left.isFinite && frame.top.isFinite && frame.width.isFinite && frame.height.isFinite)
+        #expect(abs(frame.left) <= 2 * TurtleEngine.positionLimit + emission.strokeWidth / 2)
+        #expect(abs(frame.top) <= 2 * TurtleEngine.positionLimit + emission.strokeWidth / 2)
+    }
+
+    @Test("dot with an astronomically large diameter clamps to 2·positionLimit: finite, bounded frame spanning exactly that diameter (C8)")
+    func hugeDiameterDotClampsToPositionLimit() throws {
+        var engine = makeEngine()
+        let position = engine.scalarState
+        let outcome = try engine.perform(.dot(diameter: Self.hugeRadius))
+        let emission = try #require(outcome.emissions.first)
+        #expect(emission.kind == .dot)
+        let frame = emission.frame
+        #expect(frame.left.isFinite && frame.top.isFinite && frame.width.isFinite && frame.height.isFinite)
+        // Span == exactly the clamped diameter (not merely "some bounded value").
+        #expect(frame.width == 2 * TurtleEngine.positionLimit)
+        #expect(frame.height == 2 * TurtleEngine.positionLimit)
+        // Every edge within position ± positionLimit (C8), the tighter,
+        // position-relative bound (which implies |edge| ≤ 2·positionLimit).
+        #expect(abs(frame.left - position.x) <= TurtleEngine.positionLimit)
+        #expect(abs(frame.top - position.y) <= TurtleEngine.positionLimit)
+        #expect(abs((frame.left + frame.width) - position.x) <= TurtleEngine.positionLimit)
+        #expect(abs((frame.top + frame.height) - position.y) <= TurtleEngine.positionLimit)
+    }
+
+    @Test("clamping does not touch the E2 error path: negative and zero explicit dot diameters still throw byte-identical copy")
+    func clampDoesNotAffectDotDiameterErrorPath() {
+        var engine = makeEngine()
+        #expect(throws: TurtleEngine.TurtleError("turtle: dot needs a diameter greater than 0 (got 0).")) {
+            try engine.perform(.dot(diameter: 0))
+        }
+        #expect(throws: TurtleEngine.TurtleError("turtle: dot needs a diameter greater than 0 (got -7).")) {
+            try engine.perform(.dot(diameter: -7))
+        }
+    }
+
+    @Test("default dot diameter is unaffected by the diameter clamp: default penWidth 2 gives the max(2·penWidth,4) floor of 4")
+    func defaultDotDiameterUnaffectedByClamp() throws {
+        var engine = makeEngine()
+        let outcome = try engine.perform(.dot(diameter: nil))
+        let emission = try #require(outcome.emissions.first)
+        #expect(emission.frame.width == 4)
+        #expect(emission.frame.height == 4)
+    }
+}
+
+// MARK: - Tester pass (Test gate): deepens `TurtleRadiusClampTests` above
+// with a fuzz corpus, extreme-center composition, non-finite inputs,
+// randomized metamorphic checks, and vertex-count invariance. Pins
+// design.md's Conditions C1, C3, C5, C6, C8. Uses the file's seeded
+// `TurtleSeededRNG` (declared further below, in file scope) so any
+// failure replays from its printed seed.
+
+@Suite("Radius/diameter clamp — fuzz corpus, extreme-center composition, non-finite inputs, randomized metamorphic, vertex-count invariance")
+struct TurtleRadiusClampPropertyTests {
+
+    /// Deterministic fuzz corpus for the RADIUS clamp (circle/arc): spans
+    /// just over the cap, several huge magnitudes, the largest finite
+    /// double, and the exact identity boundary. Every one of these must
+    /// yield a finite result with |coordinate| ≤ 2·positionLimit — never a
+    /// crash, never an off-world value (C5).
+    static let radiusCorpus: [Double] = [
+        TurtleEngine.positionLimit + 1, // just over the cap
+        1e7, 1e9, 1e12,
+        .greatestFiniteMagnitude,
+        TurtleEngine.positionLimit,     // exact identity boundary
+        2 * TurtleEngine.positionLimit, // well above the cap
+    ]
+
+    /// Same corpus, in diameter units, for `dot`'s own cap
+    /// (2·positionLimit) — C8.
+    static let diameterCorpus: [Double] = [
+        2 * TurtleEngine.positionLimit + 1, // just over the cap
+        1e7, 1e9, 1e12,
+        .greatestFiniteMagnitude,
+        TurtleEngine.positionLimit,         // below the cap — identity
+        2 * TurtleEngine.positionLimit,     // exact identity boundary
+    ]
+
+    // MARK: 1. Fuzz corpus — bound invariant
+
+    @Test("circle over the fuzz corpus: every vertex is finite, within ±2·positionLimit, and the vertex count never changes (C5)",
+          arguments: TurtleRadiusClampPropertyTests.radiusCorpus)
+    func circleCorpusStaysBounded(_ radius: Double) throws {
+        var engine = makeEngine()
+        let outcome = try engine.perform(.circle(radius: radius))
+        let emission = try #require(outcome.emissions.first)
+        #expect(emission.pathData.count == 61, "radius \(radius): clamping must not change the vertex count")
+        for point in emission.pathData {
+            #expect(point.x.isFinite && point.y.isFinite, "radius \(radius): non-finite vertex")
+            #expect(abs(point.x) <= 2 * TurtleEngine.positionLimit, "radius \(radius): x \(point.x) exceeds the bound")
+            #expect(abs(point.y) <= 2 * TurtleEngine.positionLimit, "radius \(radius): y \(point.y) exceeds the bound")
+        }
+    }
+
+    @Test("arc over the fuzz corpus: every vertex is finite and within ±2·positionLimit (C5)",
+          arguments: TurtleRadiusClampPropertyTests.radiusCorpus)
+    func arcCorpusStaysBounded(_ radius: Double) throws {
+        var engine = makeEngine()
+        let outcome = try engine.perform(.arc(degrees: 200, radius: radius))
+        let emission = try #require(outcome.emissions.first)
+        for point in emission.pathData {
+            #expect(point.x.isFinite && point.y.isFinite, "radius \(radius): non-finite vertex")
+            #expect(abs(point.x) <= 2 * TurtleEngine.positionLimit, "radius \(radius): x \(point.x) exceeds the bound")
+            #expect(abs(point.y) <= 2 * TurtleEngine.positionLimit, "radius \(radius): y \(point.y) exceeds the bound")
+        }
+    }
+
+    @Test("dot over the fuzz corpus: every frame edge is finite and within ±2·positionLimit (C8)",
+          arguments: TurtleRadiusClampPropertyTests.diameterCorpus)
+    func dotCorpusStaysBounded(_ diameter: Double) throws {
+        var engine = makeEngine()
+        let outcome = try engine.perform(.dot(diameter: diameter))
+        let emission = try #require(outcome.emissions.first)
+        let frame = emission.frame
+        #expect(frame.left.isFinite && frame.top.isFinite && frame.width.isFinite && frame.height.isFinite,
+                "diameter \(diameter): non-finite frame")
+        #expect(abs(frame.left) <= 2 * TurtleEngine.positionLimit, "diameter \(diameter): left \(frame.left) exceeds the bound")
+        #expect(abs(frame.top) <= 2 * TurtleEngine.positionLimit, "diameter \(diameter): top \(frame.top) exceeds the bound")
+        #expect(abs(frame.left + frame.width) <= 2 * TurtleEngine.positionLimit, "diameter \(diameter): right edge exceeds the bound")
+        #expect(abs(frame.top + frame.height) <= 2 * TurtleEngine.positionLimit, "diameter \(diameter): bottom edge exceeds the bound")
+    }
+
+    // MARK: 2. Composition with a clamped, extreme center
+
+    @Test("circle/arc/dot after setPos to an extreme coordinate stay within ±2·positionLimit of the true ORIGIN (position-clamp ∘ size-clamp composition)")
+    func extremeCenterComposesWithSizeClamp() throws {
+        // setPos(1e12, −1e12) clamps to (positionLimit, −positionLimit) via
+        // the engine's OTHER, already-shipped position clamp. This pins the
+        // real end-to-end invariant: neither clamp alone is enough — the
+        // position clamp and the size clamp must COMPOSE to keep every
+        // emission within 2·positionLimit of the true origin, not merely
+        // within positionLimit of an already-extreme center.
+        var circleEngine = makeEngine()
+        _ = try circleEngine.perform(.penUp)
+        _ = try circleEngine.perform(.setPos(x: 1e12, y: -1e12))
+        #expect(circleEngine.scalarState.x == TurtleEngine.positionLimit)
+        #expect(circleEngine.scalarState.y == -TurtleEngine.positionLimit)
+        let circleOutcome = try circleEngine.perform(.circle(radius: 1e12))
+        let circleEmission = try #require(circleOutcome.emissions.first)
+        for point in circleEmission.pathData {
+            #expect(point.x.isFinite && point.y.isFinite)
+            #expect(abs(point.x) <= 2 * TurtleEngine.positionLimit, "x \(point.x) exceeds 2·positionLimit from the true origin")
+            #expect(abs(point.y) <= 2 * TurtleEngine.positionLimit, "y \(point.y) exceeds 2·positionLimit from the true origin")
+        }
+
+        var arcEngine = makeEngine()
+        _ = try arcEngine.perform(.penUp)
+        _ = try arcEngine.perform(.setPos(x: -1e12, y: 1e12))
+        #expect(arcEngine.scalarState.x == -TurtleEngine.positionLimit)
+        #expect(arcEngine.scalarState.y == TurtleEngine.positionLimit)
+        let arcOutcome = try arcEngine.perform(.arc(degrees: 270, radius: 1e12))
+        let arcEmission = try #require(arcOutcome.emissions.first)
+        for point in arcEmission.pathData {
+            #expect(point.x.isFinite && point.y.isFinite)
+            #expect(abs(point.x) <= 2 * TurtleEngine.positionLimit)
+            #expect(abs(point.y) <= 2 * TurtleEngine.positionLimit)
+        }
+
+        var dotEngine = makeEngine()
+        _ = try dotEngine.perform(.penUp)
+        _ = try dotEngine.perform(.setPos(x: 1e12, y: 1e12))
+        let dotOutcome = try dotEngine.perform(.dot(diameter: 1e12))
+        let dotEmission = try #require(dotOutcome.emissions.first)
+        let frame = dotEmission.frame
+        #expect(frame.left.isFinite && frame.top.isFinite && frame.width.isFinite && frame.height.isFinite)
+        #expect(abs(frame.left) <= 2 * TurtleEngine.positionLimit)
+        #expect(abs(frame.top) <= 2 * TurtleEngine.positionLimit)
+        #expect(abs(frame.left + frame.width) <= 2 * TurtleEngine.positionLimit)
+        #expect(abs(frame.top + frame.height) <= 2 * TurtleEngine.positionLimit)
+    }
+
+    @Test("a huge circle inside beginFill/endFill after an extreme setPos still produces a bounded polygon (C6 × composition)")
+    func extremeCenterFillCurveStaysBounded() throws {
+        var engine = makeEngine()
+        _ = try engine.perform(.penUp)
+        _ = try engine.perform(.setPos(x: -1e12, y: -1e12))
+        _ = try engine.perform(.beginFill)
+        let curveOutcome = try engine.perform(.circle(radius: 1e12))
+        #expect(curveOutcome.emissions.isEmpty, "a curve while filling feeds the polygon, it does not emit its own part")
+        let endOutcome = try engine.perform(.endFill)
+        let emission = try #require(endOutcome.emissions.first)
+        #expect(emission.pathData.count == 62) // beginFill's seed vertex + the circle's 61 vertices
+        for point in emission.pathData {
+            #expect(point.x.isFinite && point.y.isFinite)
+            #expect(abs(point.x) <= 2 * TurtleEngine.positionLimit)
+            #expect(abs(point.y) <= 2 * TurtleEngine.positionLimit)
+        }
+    }
+
+    // MARK: 3. Non-finite / sign inputs → E2, byte-exact
+
+    @Test("circle radius NaN/±Infinity sanitize to 0 and raise E2 with the exact 'got 0' copy (C3)",
+          arguments: [Double.nan, .infinity, -.infinity])
+    func circleNonFiniteRadiusRaisesE2GotZero(_ radius: Double) {
+        var engine = makeEngine()
+        #expect(throws: TurtleEngine.TurtleError("turtle: circle needs a radius greater than 0 (got 0).")) {
+            try engine.perform(.circle(radius: radius))
+        }
+    }
+
+    @Test("arc radius NaN/±Infinity sanitize to 0 and raise E2 with the exact 'got 0' copy (C3)",
+          arguments: [Double.nan, .infinity, -.infinity])
+    func arcNonFiniteRadiusRaisesE2GotZero(_ radius: Double) {
+        var engine = makeEngine()
+        #expect(throws: TurtleEngine.TurtleError("turtle: arc needs a radius greater than 0 (got 0).")) {
+            try engine.perform(.arc(degrees: 90, radius: radius))
+        }
+    }
+
+    @Test("dot explicit diameter NaN/±Infinity sanitize to 0 and raise E2 with the exact 'got 0' copy (C3)",
+          arguments: [Double.nan, .infinity, -.infinity])
+    func dotNonFiniteDiameterRaisesE2GotZero(_ diameter: Double) {
+        var engine = makeEngine()
+        #expect(throws: TurtleEngine.TurtleError("turtle: dot needs a diameter greater than 0 (got 0).")) {
+            try engine.perform(.dot(diameter: diameter))
+        }
+    }
+
+    @Test("negative finite radii/diameters still echo the raw value in E2, byte-identical — min() never raises a negative (C1/C8)",
+          arguments: [-0.5, -100, -1e6, -1e12])
+    func negativeFiniteSizesEchoRawValue(_ negative: Double) {
+        var circleEngine = makeEngine()
+        #expect(throws: TurtleEngine.TurtleError("turtle: circle needs a radius greater than 0 (got \(HypeTalkFormat.number(negative))).")) {
+            try circleEngine.perform(.circle(radius: negative))
+        }
+        var arcEngine = makeEngine()
+        #expect(throws: TurtleEngine.TurtleError("turtle: arc needs a radius greater than 0 (got \(HypeTalkFormat.number(negative))).")) {
+            try arcEngine.perform(.arc(degrees: 90, radius: negative))
+        }
+        var dotEngine = makeEngine()
+        #expect(throws: TurtleEngine.TurtleError("turtle: dot needs a diameter greater than 0 (got \(HypeTalkFormat.number(negative))).")) {
+            try dotEngine.perform(.dot(diameter: negative))
+        }
+    }
+
+    // MARK: 4. Metamorphic, randomized: any two huge radii clamp identically
+
+    @Test("randomized: any two radii > positionLimit clamp to the identical circle polygon, and arc 360 at that radius matches too (metamorphic)",
+          arguments: 0..<50)
+    func randomHugeRadiiClampIdentically(seed: Int) throws {
+        var rng = TurtleSeededRNG(seed: UInt64(seed) &* 0xA24BAED4963EE407 &+ 11)
+        let r1 = rng.double((TurtleEngine.positionLimit + 1)...1e15)
+        let r2 = rng.double((TurtleEngine.positionLimit + 1)...1e15)
+
+        var engine1 = makeEngine()
+        var engine2 = makeEngine()
+        let outcome1 = try engine1.perform(.circle(radius: r1))
+        let outcome2 = try engine2.perform(.circle(radius: r2))
+        let path1 = try #require(outcome1.emissions.first, "seed \(seed): r1=\(r1)").pathData
+        let path2 = try #require(outcome2.emissions.first, "seed \(seed): r2=\(r2)").pathData
+        #expect(path1 == path2, "seed \(seed): r1=\(r1) and r2=\(r2) both clamp to positionLimit, so their circles must be byte-identical")
+
+        var arcEngine = makeEngine()
+        let arcOutcome = try arcEngine.perform(.arc(degrees: 360, radius: r1))
+        let arcPath = try #require(arcOutcome.emissions.first, "seed \(seed): arc r=\(r1)").pathData
+        #expect(arcPath == path1, "seed \(seed): arc 360 at r1=\(r1) must equal circle at the same clamped radius")
+    }
+
+    // MARK: 5. Vertex-count invariance (resource / non-functional) — the
+    // clamp changes MAGNITUDE only, never vertex count, so it cannot
+    // interact with `maxPathPointsPerRun`/`maxPartsPerRun` (§5.5).
+
+    @Test("circle vertex count (61) is identical for a normal and an astronomically clamped radius")
+    func circleVertexCountInvariantUnderClamp() throws {
+        var normalEngine = makeEngine()
+        var hugeEngine = makeEngine()
+        let normal = try normalEngine.perform(.circle(radius: 42))
+        let huge = try hugeEngine.perform(.circle(radius: .greatestFiniteMagnitude))
+        let normalCount = try #require(normal.emissions.first).pathData.count
+        let hugeCount = try #require(huge.emissions.first).pathData.count
+        #expect(normalCount == 61)
+        #expect(hugeCount == 61)
+        #expect(normalCount == hugeCount,
+                "the clamp changes magnitude only — vertex count (and therefore the maxPathPointsPerRun budget) is unaffected by radius size")
+    }
+
+    @Test("arc vertex count is identical for a normal and an astronomically clamped radius, at several degree spans",
+          arguments: [1.0, 45, 90, 200, 360])
+    func arcVertexCountInvariantUnderClamp(_ degrees: Double) throws {
+        var normalEngine = makeEngine()
+        var hugeEngine = makeEngine()
+        let normal = try normalEngine.perform(.arc(degrees: degrees, radius: 42))
+        let huge = try hugeEngine.perform(.arc(degrees: degrees, radius: .greatestFiniteMagnitude))
+        let normalCount = try #require(normal.emissions.first).pathData.count
+        let hugeCount = try #require(huge.emissions.first).pathData.count
+        #expect(normalCount == hugeCount,
+                "degrees=\(degrees): the clamp must not change the arc's segment count (max(8, ceil(|degrees|/6)) + 1), only its magnitude")
+    }
+}
+
 // MARK: - Criterion 15 (engine half) — limits, atomicity
 
 @Suite("Limits — E8 atomicity, per-run part and point caps")
