@@ -167,21 +167,29 @@ card whose names start with `turtle path`, `turtle fill`, or `turtle dot`;
 
 ### Requirement: Freeform renderer alignment
 
-Both `ShapeRenderer` (CG) and `ShapePartNode` (SK) SHALL render `.freeform`
-parts with one contract: `fillColor == ""` → an open polyline (no close, no
-fill) stroked with `strokeColor` at `strokeWidth` when > 0, with round line
-caps and joins; `fillColor` non-empty → closed subpath, filled, and stroked
-when `strokeWidth > 0`. Both SHALL anchor the path's tight bounding box
-(expanded by `strokeWidth/2`) to the part frame origin so that moving the
-frame moves the visible drawing.
+All three freeform render sites — `ShapeRenderer` (CG),
+`ShapePartNode` (SK), and `TargetRuntimeShapeView` (the deployed/exported
+runtime, `TargetRuntimeControlViews.swift`) — SHALL render `.freeform`
+parts with one open/closed contract, gated through the shared
+`RenderGeometry.freeformIsOpenStroke(_:)` helper: `fillColor == ""` → an
+open polyline (no close, no fill) stroked with `strokeColor` at
+`strokeWidth` when > 0, with round line caps and joins; `fillColor`
+non-empty → closed subpath, filled, and stroked when `strokeWidth > 0`.
+The two editor renderers (CG, SK) SHALL additionally anchor the path's
+tight bounding box (expanded by `strokeWidth/2`) to the part frame origin
+so that moving the frame moves the visible drawing; the export runtime
+SHALL keep its existing stretch-to-fit `normalizedPathPoints` geometry
+unchanged (only its open/closed + fill/no-fill decision is unified).
 
 #### Scenario: Renderer parity
 
-- **WHEN** a stroke part (`fillColor ""`) and a fill part render in both CG
-  and SK
-- **THEN** the stroke part is open, stroked, and unfilled in both; the fill
-  part is closed, filled, and outlined in both; an existing freeform part
-  with `fillColor "#FFFFFF"` still renders closed and filled
+- **WHEN** a stroke part (`fillColor ""`) and a fill part render in CG, SK,
+  and the deployed/exported runtime
+- **THEN** the stroke part is open, stroked, and unfilled in all three; the
+  fill part is closed, filled, and outlined in all three; an existing
+  freeform part with `fillColor "#FFFFFF"` still renders closed and filled
+  in all three (in particular the export runtime no longer renders a
+  `fillColor ""` part as a solid black polygon)
 
 #### Scenario: Dragging moves the drawing
 

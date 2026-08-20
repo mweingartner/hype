@@ -119,12 +119,12 @@ Every flush emits one `Part`:
 
 ### 5.2 Renderer contract change (Architect owns; this is the one rendering change)
 
-`.freeform` in **both** `ShapeRenderer.draw` and `ShapePartNode.updateFromPart`:
+`.freeform` in **all three render sites** — `ShapeRenderer.draw` (CG), `ShapePartNode.updateFromPart` (SK), and `TargetRuntimeShapeView.shapePath` (deployed/exported runtime, `TargetRuntimeControlViews.swift`):
 
 - `fillColor == ""` → **open** polyline: no close, no fill; stroke with `strokeColor` at `strokeWidth` (when > 0), round line caps and joins (a pen trail must not have miter spikes).
 - `fillColor` non-empty → close subpath, fill, and stroke when `strokeWidth > 0` (also closed).
 
-Backward compatibility: existing freeform parts default `fillColor "#FFFFFF"` → still closed+filled. This **aligns** the two renderers (today CG never strokes freeform and SK always does); CG-rendered legacy freeforms gain the stroke SK already showed — record as a note, not a regression.
+Backward compatibility: existing freeform parts default `fillColor "#FFFFFF"` → still closed+filled. This **aligns** the three renderers (today CG never strokes freeform, SK always does, and the deployed runtime always closes+fills — so an open stroke part would otherwise render there as a solid **black**-filled blob, because `Color(hex: "")` resolves to opaque black). CG-rendered legacy freeforms gain the stroke SK already showed — record as a note, not a regression. The deployed runtime's pre-existing stretch-to-fit `normalizedPathPoints` scaling is **left unchanged** for all freeforms (only the open/closed + fill/no-fill decision is unified here).
 
 ### 5.3 Flush lifecycle
 
@@ -138,7 +138,7 @@ Segments n = max(8, ceil(|deg| / 6)); full circle = 60 segments. Chord error = r
 
 ### 5.5 Limits (shared by both surfaces, enforced in the engine)
 
-One run may emit at most **200 parts** and **50,000 total path points**. Exceeding → error E8, run stops, already-emitted parts remain (visible, honest partial state).
+One run may emit at most **200 parts** and **50,000 total path points**. Exceeding → error E8, run stops. On the **HypeTalk** surface, parts already flushed in the run remain — the live publish channel already applied them (visible, honest partial state). On the **`draw_with_turtle`** surface the call is **all-or-nothing**: a `ScriptError` result carries no document, so a failed program mutates nothing (design d2). Cross-surface equivalence (criterion 18) is unaffected: it guarantees identical parts for valid programs and identical error strings for invalid input, not partial-part parity on error.
 
 ### 5.6 Deferred raster mode (seam)
 
@@ -277,7 +277,7 @@ The same program body (inside `on mouseUp`… stripped) is the canonical `draw_w
 7. Part frames: for every emitted part, `left/top/width/height` equal the tight `pathData` bounds padded by `strokeWidth/2` per side; parts land on the current card with unique names per §5.1's smallest-free-N rule.
 8. `beginFill / repeat 3 [forward 130, right 120] / endFill` with pen down emits exactly ONE `.freeform` part: `fillColor` = turtle fill color, `strokeColor`/`strokeWidth` = pen state, 4 vertices; the same with pen up emits `strokeWidth 0`. Movement inside a fill span adds **no** separate stroke part.
 9. `circle 50` emits one 61-vertex part whose first and last vertices are identical and whose vertices all lie within 0.07 pt of the radius; `arc 90, 50` emits max(8, ceil(90/6)) = 15 segments (16 vertices); neither moves the turtle. `dot 10` emits an `.oval` part 10×10 centered on the turtle with `fillColor` = pen color.
-10. Renderer parity: a stroke part (`fillColor ""`) renders as an **open, stroked, unfilled** polyline in both `ShapeRenderer` (CG) and `ShapePartNode` (SK); a fill part renders closed+filled+outlined in both. Existing freeform parts (`fillColor "#FFFFFF"`) still render closed+filled.
+10. Renderer parity: a stroke part (`fillColor ""`) renders as an **open, stroked, unfilled** polyline in all three render sites — `ShapeRenderer` (CG), `ShapePartNode` (SK), and the deployed-runtime `TargetRuntimeShapeView` (`TargetRuntimeControlViews.swift`); a fill part renders closed+filled+outlined in all three. Existing freeform parts (`fillColor "#FFFFFF"`) still render closed+filled in all three.
 
 **State, persistence, round-trip**
 11. Scalar turtle state survives across separate runs in one session (two message-box commands continue one walk; each run flushes its own part), and resets to defaults on stack open. `reset turtle` restores defaults without deleting parts; `clean` deletes exactly the `turtle path`/`turtle fill`/`turtle dot`-prefixed parts on the current card; `clearScreen` additionally homes without drawing.
@@ -286,7 +286,7 @@ The same program body (inside `on mouseUp`… stripped) is the canonical `draw_w
 14. Dragging a turtle-drawn part in edit mode moves the visible drawing with the frame (the freeform `pathData`/frame translation contract — Architect resolves the latent offset behavior in `ShapePartNode.updateFromPart` for moved freeform parts).
 
 **Errors**
-15. `setPenColor "blurple"` raises E1 verbatim and leaves pen state unchanged; `circle 0`, `arc 90, -1`, `dot 0` raise E2; `beginFill` twice raises E4; bare `endFill` raises E5; a 2-point fill sets `the result` to E6 and emits nothing; exceeding §5.5 limits raises E8 with already-emitted parts intact. `setPenWidth 500` clamps to 100 silently; `forward "banana"` coerces to 0 and is a quiet no-op.
+15. `setPenColor "blurple"` raises E1 verbatim and leaves pen state unchanged; `circle 0`, `arc 90, -1`, `dot 0` raise E2; `beginFill` twice raises E4; bare `endFill` raises E5; a 2-point fill sets `the result` to E6 and emits nothing; exceeding §5.5 limits raises E8 (HypeTalk keeps already-flushed parts; the `draw_with_turtle` tool is all-or-nothing — §5.5). `setPenWidth 500` clamps to 100 silently; `forward "banana"` coerces to 0 and is a quiet no-op.
 
 **AI surface + equivalence**
 16. `draw_with_turtle` with the §8 program creates the same parts on the current card and returns a summary naming each part; the tool appears in `HypeToolDefinitions.allTools` with the §7.1 description; it is absent from `RuntimeAIToolCatalog`.
@@ -297,7 +297,7 @@ The same program body (inside `on mouseUp`… stripped) is the canonical `draw_w
 
 ## 11. Notes and conditions for the Architect
 
-- **No document-format change**: no new `PartType`, no `PathPoint` extension, no version bump. The only model-adjacent changes are the `.freeform` render contract (§5.2, both renderers, identical) and the `HexColor` name table (§5.7).
+- **No document-format change**: no new `PartType`, no `PathPoint` extension, no version bump. The only model-adjacent changes are the `.freeform` render contract (§5.2, all three renderers, identical) and the `HexColor` name table (§5.7).
 - **One engine**: a `TurtleEngine` (pure, `Sendable`, in HypeCore) owns state, geometry, flushing, limits, and every error string. Interpreter statements and `draw_with_turtle` are thin callers. Any second geometry implementation is a design-review FAIL.
 - Parser: turtle verbs should parse without new reserved lexer keywords where feasible (the external-command/identifier path shows the pattern); `reset turtle` extends the existing `resetCmd`. Architect owns the mechanism; the surface in §4 is the contract.
 - The `turtle` object joins `the <prop> of the turtle` resolution; keep alias symmetry and, where sensible, register through `PartPropertyRegistry`'s conventions for copy consistency (the turtle is not a Part; a small parallel resolver with the same error-copy style is acceptable — flag in design review if copy diverges).

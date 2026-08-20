@@ -472,7 +472,8 @@ Security.
 ### D8. Renderer alignment (§5.2 + criterion 14)
 
 `Sources/HypeCore/Rendering/RenderGeometry.swift` gains the shared contract
-(public, both modules use it):
+(public; all **three** freeform render sites use it — CG, SK, and the
+deployed/exported runtime):
 
 ```swift
 public static func freeformIsOpenStroke(_ part: Part) -> Bool   // part.fillColor.isEmpty
@@ -494,12 +495,26 @@ position stays `(left, −top)`); open branch sets `fillColor = .clear`, no
 (stroke color `.clear` when width == 0 on the open branch to avoid SK's
 default hairline). Because the applier writes frame = tight bounds + pad,
 un-moved turtle parts render at exactly their absolute `pathData`; moved
-parts translate rigidly with the frame in both renderers (criterion 14),
-covering every move path (drag, arrows, inspector, HypeTalk) at once.
+parts translate rigidly with the frame in both editor renderers (CG, SK;
+criterion 14), covering every move path (drag, arrows, inspector, HypeTalk)
+at once.
 Anchor-to-frame is a one-time visual correction for legacy freeforms whose
 frame had drifted from their path bounds — recorded as a note. 8-digit
 `#RRGGBBAA` strokes keep the existing 6-digit `NSColor(hexString:)`
 limitation shared by all shape types (pre-existing; not widened here).
+
+**Third render site — deployed/exported runtime** (`TargetRuntimeShapeView.shapePath`,
+`TargetRuntimeControlViews.swift:1272–1301`; see d9). Same `fillColor==""`
+open/no-fill contract via `RenderGeometry.freeformIsOpenStroke(part)`: guard
+the `path.closeSubpath()` (line 1299) and the unconditional
+`context.fill(path, with: .color(Color(hex: part.fillColor)))` (line 1263)
+on `!freeformIsOpenStroke(part)`; on the open branch stroke with `.round`
+cap/join when `strokeWidth > 0`. Unlike the two editor renderers, this site
+keeps its own `normalizedPathPoints` stretch-to-fit geometry
+(`:1304–1318`) **unchanged** — it does not adopt `freeformLocalPoints`
+anchoring (that would silently change every existing exported freeform's
+geometry; out of scope, N3). This site is in the HypeCore module, so the
+shared helper is directly reachable with no new import.
 
 ### D9. HexColor name table (§5.7, R9)
 
@@ -580,10 +595,15 @@ bullets, and one pattern (`turtle-square-flower`) using the §8 snippets.
   parts, including `set the name of button 1 …` and `repeat while` shapes
   and the 64 KB cap).
 - `Tests/HypeCoreTests/ShapeRendererFreeformTests.swift` +
-  `Tests/HypeTests/ShapePartNodeFreeformTests.swift` — criterion 10 parity
-  (open/unfilled vs closed/filled, round caps/joins, `#FFFFFF` legacy
-  regression) and criterion 14 (frame moved +Δ → rendered geometry moves
-  +Δ in both renderers).
+  `Tests/HypeTests/ShapePartNodeFreeformTests.swift` +
+  `Tests/HypeCoreTests/TargetRuntimeFreeformTests.swift` — criterion 10
+  parity across **all three** render sites (open/unfilled vs closed/filled,
+  round caps/joins, `#FFFFFF` legacy regression); the export-runtime test
+  asserts a `fillColor ""` part renders **open + unfilled** (not
+  black-filled) and a `#FFFFFF` part still closed+filled. Criterion 14
+  (frame moved +Δ → rendered geometry moves +Δ) applies to the two editor
+  renderers (CG, SK); the export site keeps its stretch-to-fit geometry and
+  is exempt from the anchoring assertion (N3).
 - `Tests/HypeCoreTests/PartPropertyDispatchTests.swift` — criterion 19:
   `red` → `#FF0000` via `HexColor.normalized`, HypeTalk `set the
   fillColor`, and `set_part_property`; `grey` ≡ `gray`; garbage still
@@ -646,10 +666,24 @@ bullets, and one pattern (`turtle-square-flower`) using the §8 snippets.
   sentinel is not a pen color).
 - d8 Navigation (`go`/`go … in stack`/`pop`) flushes the open stroke to
   the departing card and discards an open fill with resultNote E7.
-- d9 The export-runtime freeform renderer
-  (`TargetRuntimeControlViews.swift:1291`) still closes+fills+scales —
-  outside §5.2's two-renderer ruling; deferred with the seam noted, or
-  pulled in at review.
+- d9 **RESOLVED IN REVIEW — INCLUDE (was deferral, rejected).** The
+  deployed/exported-runtime freeform renderer
+  (`TargetRuntimeShapeView.shapePath`, `TargetRuntimeControlViews.swift:1272–1301`)
+  is the third of three freeform render sites and is folded into the §5.2
+  contract in this change: when `RenderGeometry.freeformIsOpenStroke(part)`
+  is true, skip `closeSubpath()` (line 1299) and skip `context.fill(...)`
+  (line 1263), and stroke with `.round` cap/join when `strokeWidth > 0`;
+  non-empty `fillColor` keeps close+fill (+stroke). Rationale:
+  `Color(hex: "")` resolves to opaque black (`:2615–2625`), so today an
+  open stroke part would render as a closed, solid-black-filled polygon in
+  every deployed stack. The pre-existing stretch-to-fit
+  `normalizedPathPoints` scaling (`:1304–1318`) is **left unchanged** for
+  all freeforms — the export site keeps its own geometry model; only the
+  open/closed + fill/no-fill decision is unified (note, not turtle-specific;
+  see N3). `TargetRuntimeControlViews.swift` is in the HypeCore module
+  (`Sources/HypeCore/Export/`), so the shared `RenderGeometry` helper is
+  directly reachable. Closed by an export-runtime freeform test parallel to
+  `ShapeRendererFreeformTests`/`ShapePartNodeFreeformTests`.
 - d10 Bare `home` becomes the turtle command (user handlers still shadow;
   `go home` unchanged).
 - d11 The two existing shared color error strings keep their current copy
@@ -685,10 +719,15 @@ bullets, and one pattern (`turtle-square-flower`) using the §8 snippets.
    existing error-copy strings are unchanged; chart color paths
    (`ChartConfig.normalizedHex`, chart create/series colors) are
    untouched.
-6. **Freeform render change keeps existing filled freeforms filled.**
-   `fillColor` non-empty (including the `#FFFFFF` default) renders
-   closed+filled in both renderers; only `""` renders open; caps/joins
-   round; contract identical CG/SK via the shared `RenderGeometry` helper.
+6. **Freeform render change keeps existing filled freeforms filled, in all
+   three render sites.** `fillColor` non-empty (including the `#FFFFFF`
+   default) renders closed+filled in CG, SK, **and** the deployed/exported
+   runtime (`TargetRuntimeShapeView`); only `""` renders open; caps/joins
+   round; the open/closed + fill/no-fill decision goes through the shared
+   `RenderGeometry.freeformIsOpenStroke` helper on every site. The export
+   site keeps its own `normalizedPathPoints` scaling (N3); it does not adopt
+   `freeformLocalPoints` anchoring. Leaving any of the three sites on the
+   old always-close+fill contract is a FAIL.
 7. **Masking and script-gate surfaces untouched.** No changes to the
    script-draft refusal gate, MCP masking, secure-field handling, or
    `RuntimeAIToolCatalog`.

@@ -4,18 +4,18 @@
   "schema": "mpd",
   "ui": true,
   "kind": "feature",
-  "phase": "design-review",
+  "phase": "security-plan",
   "gates": {
     "design-mock": {
       "verdict": "pass",
       "by": "Designer",
-      "evidence": "openspec/changes/turtle-graphics/design-mock.md (unchanged delegated Fable Designer spec; re-recorded after Architect finalized the 22-file manifest — scope-hash rewind, no design change)",
+      "evidence": "openspec/changes/turtle-graphics/design-mock.md (revised in Design Review by delegated Opus Designer: §5.2 renderer contract now spans all THREE freeform render sites incl. deployed/exported TargetRuntimeShapeView; §5.5 + criteria 10/15 reconciled for HypeTalk partial-state vs all-or-nothing AI surface)",
       "at": "2026-08-20",
-      "attempt": 2,
-      "started_at_epoch_secs": 1787202003,
-      "completed_at_epoch_secs": 1787202050,
+      "attempt": 3,
+      "started_at_epoch_secs": 1787235132,
+      "completed_at_epoch_secs": 1787235149,
       "receipt": {
-        "id": "dc829790d7db68d1382af3ee2693bc6491370fb9842d80b378ddca1f4bb58ab3",
+        "id": "e8235577ca567655069b1bc3779f73230176c1f14d0785122dea83d39bbb9293",
         "schema": 2,
         "phase": "design-mock",
         "disposition": {
@@ -24,9 +24,9 @@
         "dependencies": {
           "schema": 2,
           "values": {
-            "scope": "99b9b014e2bcee1de8b0c8844859db7ee721209476b546e69f7a8a7b0dc6ea56",
-            "governance": "0869236e0dffb3b0a7579343720054bd74fa3c41bc5e6ec87c4cfa71b7864bf0",
-            "design-mock-artifact": "6297778f15fd2be804349741fc4215be9a06fb5d46aa96218610e826a79eb609"
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+            "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1"
           }
         }
       },
@@ -37,19 +37,19 @@
       "delegation": {
         "schema": 1,
         "delegated": true,
-        "model": "claude-fable-5"
+        "model": "claude-opus-4-8"
       }
     },
     "architecture": {
       "verdict": "pass",
       "by": "Architect",
-      "evidence": "openspec/changes/turtle-graphics/{design.md (12 Conditions for Builder; one-engine, no-format-change, all-or-nothing AI allowlist, additive HexColor, renderer contract), proposal.md, specs/turtle-graphics/spec.md (## ADDED, 8 requirements), specs/part-properties/spec.md (## MODIFIED), tasks.md, manifest.json (22 paths + 3 shared)}",
+      "evidence": "openspec/changes/turtle-graphics/design.md (original plan delegated-Fable; Design-Review-mandated third-renderer inclusion integrated + code-verified here: TargetRuntimeShapeView folded into §5.2 open/closed contract via shared RenderGeometry.freeformIsOpenStroke, module reachability confirmed (Sources/HypeCore/Export in HypeCore), normalizedPathPoints scaling left unchanged per N3; manifest +2 paths=24, proposal/tasks/spec updated)",
       "at": "2026-08-20",
-      "attempt": 1,
-      "started_at_epoch_secs": 1787202050,
-      "completed_at_epoch_secs": 1787202064,
+      "attempt": 2,
+      "started_at_epoch_secs": 1787235149,
+      "completed_at_epoch_secs": 1787235187,
       "receipt": {
-        "id": "720d97ec105b1ce3f88fed80333bc9888c3ea735e22d98ea22969bb0b15a7462",
+        "id": "142aff4f631f938d1de1fffefe3f41419b832793b2d1a831c7e46570804606b0",
         "schema": 2,
         "phase": "architecture",
         "disposition": {
@@ -58,9 +58,44 @@
         "dependencies": {
           "schema": 2,
           "values": {
-            "scope": "99b9b014e2bcee1de8b0c8844859db7ee721209476b546e69f7a8a7b0dc6ea56",
-            "governance": "0869236e0dffb3b0a7579343720054bd74fa3c41bc5e6ec87c4cfa71b7864bf0",
-            "architecture-plan": "4f531c0eba95970d37891315ad3be60ab586be8c70e0098828c0814c566718e2"
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+            "architecture-plan": "551e4adc20ce9addc29953a10d6ea4573f0dc9deb9dfa7aba7d3ee0ea2baf5c8"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "design-review": {
+      "verdict": "pass",
+      "by": "Designer",
+      "evidence": "Delegated Opus Designer review (verdict: PASS WITH REQUIRED REVISIONS): ruled ACCEPT on 13/14 deviations, REJECTED d9 deferral — found a BLOCKING defect that the deployed/exported runtime (TargetRuntimeControlViews.swift:1263,1299) renders a fillColor='' freeform as a solid-black blob (Color(hex:'')→opaque black). All required revisions applied: REV-1 (design.md d9→INCLUDE + D8 third site + Condition 6), REV-2 (design-mock.md §5.2/criterion10 = 3 sites), REV-3 (design-mock.md §5.5/criterion15 HypeTalk-vs-AI partial-state reconciliation); spec + proposal + tasks + manifest updated.",
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787235187,
+      "completed_at_epoch_secs": 1787235208,
+      "receipt": {
+        "id": "659d301cd5f16d98f28ba839157ed935ba6157bbf93ac9b7d0e74165e7b31eb3",
+        "schema": 2,
+        "phase": "design-review",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+            "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+            "architecture-plan": "551e4adc20ce9addc29953a10d6ea4573f0dc9deb9dfa7aba7d3ee0ea2baf5c8"
           }
         }
       },
@@ -71,7 +106,7 @@
       "delegation": {
         "schema": 1,
         "delegated": true,
-        "model": "claude-fable-5"
+        "model": "claude-opus-4-8"
       }
     }
   },
@@ -183,6 +218,118 @@
           "model": "claude-fable-5"
         }
       }
+    },
+    {
+      "phase": "design-mock",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "openspec/changes/turtle-graphics/design-mock.md (revised in Design Review by delegated Opus Designer: §5.2 renderer contract now spans all THREE freeform render sites incl. deployed/exported TargetRuntimeShapeView; §5.5 + criteria 10/15 reconciled for HypeTalk partial-state vs all-or-nothing AI surface)",
+        "at": "2026-08-20",
+        "attempt": 3,
+        "started_at_epoch_secs": 1787235132,
+        "completed_at_epoch_secs": 1787235149,
+        "receipt": {
+          "id": "e8235577ca567655069b1bc3779f73230176c1f14d0785122dea83d39bbb9293",
+          "schema": 2,
+          "phase": "design-mock",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "openspec/changes/turtle-graphics/design.md (original plan delegated-Fable; Design-Review-mandated third-renderer inclusion integrated + code-verified here: TargetRuntimeShapeView folded into §5.2 open/closed contract via shared RenderGeometry.freeformIsOpenStroke, module reachability confirmed (Sources/HypeCore/Export in HypeCore), normalizedPathPoints scaling left unchanged per N3; manifest +2 paths=24, proposal/tasks/spec updated)",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787235149,
+        "completed_at_epoch_secs": 1787235187,
+        "receipt": {
+          "id": "142aff4f631f938d1de1fffefe3f41419b832793b2d1a831c7e46570804606b0",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "architecture-plan": "551e4adc20ce9addc29953a10d6ea4573f0dc9deb9dfa7aba7d3ee0ea2baf5c8"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "design-review",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "Delegated Opus Designer review (verdict: PASS WITH REQUIRED REVISIONS): ruled ACCEPT on 13/14 deviations, REJECTED d9 deferral — found a BLOCKING defect that the deployed/exported runtime (TargetRuntimeControlViews.swift:1263,1299) renders a fillColor='' freeform as a solid-black blob (Color(hex:'')→opaque black). All required revisions applied: REV-1 (design.md d9→INCLUDE + D8 third site + Condition 6), REV-2 (design-mock.md §5.2/criterion10 = 3 sites), REV-3 (design-mock.md §5.5/criterion15 HypeTalk-vs-AI partial-state reconciliation); spec + proposal + tasks + manifest updated.",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787235187,
+        "completed_at_epoch_secs": 1787235208,
+        "receipt": {
+          "id": "659d301cd5f16d98f28ba839157ed935ba6157bbf93ac9b7d0e74165e7b31eb3",
+          "schema": 2,
+          "phase": "design-review",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+              "architecture-plan": "551e4adc20ce9addc29953a10d6ea4573f0dc9deb9dfa7aba7d3ee0ea2baf5c8"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
     }
   ],
   "governance": {
@@ -199,27 +346,20 @@
       "parser-or-untrusted-input: Sources/HypeCore/Script/Parser.swift",
       "process-execution: Sources/HypeCore/AI/HypeToolExecutor.swift"
     ],
-    "signal_digest": "136f0773d07e0b70f0392098e0dfb11e7aecfd73ca664800f394df5932aeb990"
+    "signal_digest": "935c4fd5b2721caf3ea392cbf71b8ad916539b4d29c95daba55ed037322daa5c"
   },
   "strict": false,
   "waivers": [],
-  "phase_started_at_epoch_secs": 1787202065,
+  "phase_started_at_epoch_secs": 1787235209,
   "brief_tuning": {
     "design-mock": {
-      "attempt": 2,
+      "attempt": 3,
       "record": {
         "base_modified": true,
         "weakened": true
       }
     },
-    "architecture": {
-      "attempt": 1,
-      "record": {
-        "base_modified": true,
-        "weakened": true
-      }
-    },
-    "design-review": {
+    "security-plan": {
       "attempt": 1,
       "record": {
         "base_modified": true,
@@ -240,6 +380,24 @@
         "design-mock: governance changed"
       ],
       "at_epoch_secs": 1787202003
+    },
+    {
+      "schema": 1,
+      "stored_phase": "design-review",
+      "rewind_phase": "design-mock",
+      "stale_phases": [
+        "design-mock",
+        "architecture"
+      ],
+      "reasons": [
+        "design-mock: scope changed",
+        "design-mock: design-mock-artifact changed",
+        "design-mock: governance changed",
+        "architecture: scope changed",
+        "architecture: architecture-plan changed",
+        "architecture: governance changed"
+      ],
+      "at_epoch_secs": 1787235132
     }
   ]
 }

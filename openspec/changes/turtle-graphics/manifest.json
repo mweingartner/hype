@@ -10,6 +10,7 @@
     "Sources/HypeCore/Script/Interpreter.swift",
     "Sources/HypeCore/Rendering/ShapeRenderer.swift",
     "Sources/HypeCore/Rendering/RenderGeometry.swift",
+    "Sources/HypeCore/Export/TargetRuntimeControlViews.swift",
     "Sources/Hype/SpriteKit/ShapePartNode.swift",
     "Sources/HypeCore/AI/HypeTools.swift",
     "Sources/HypeCore/AI/HypeToolExecutor.swift",
@@ -22,6 +23,7 @@
     "Tests/HypeCoreTests/InterpreterFuzzTests.swift",
     "Tests/HypeCoreTests/HypeTalkGuideTests.swift",
     "Tests/HypeCoreTests/ShapeRendererFreeformTests.swift",
+    "Tests/HypeCoreTests/TargetRuntimeFreeformTests.swift",
     "Tests/HypeTests/ShapePartNodeFreeformTests.swift"
   ],
   "shared_paths": [

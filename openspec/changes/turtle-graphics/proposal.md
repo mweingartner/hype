@@ -27,11 +27,17 @@ construction.
   runtime catalog) that parses a turtle-only program with the real HypeTalk
   parser, refuses non-turtle statements all-or-nothing (E9), and executes
   through the same interpreter/engine path.
-- `.freeform` renderer alignment in both `ShapeRenderer` (CG) and
-  `ShapePartNode` (SK): `fillColor == ""` renders as an open, stroked,
-  round-capped polyline; non-empty renders closed + filled (+ stroked when
-  `strokeWidth > 0`). Path geometry anchors to the part frame so moved
-  freeform parts carry their drawing.
+- `.freeform` renderer alignment across **all three** render sites —
+  `ShapeRenderer` (CG), `ShapePartNode` (SK), and the deployed/exported
+  `TargetRuntimeShapeView` — through a shared
+  `RenderGeometry.freeformIsOpenStroke` helper: `fillColor == ""` renders
+  as an open, stroked, round-capped polyline; non-empty renders closed +
+  filled (+ stroked when `strokeWidth > 0`). In the two editor renderers
+  path geometry anchors to the part frame so moved freeform parts carry
+  their drawing; the export runtime keeps its existing stretch-to-fit
+  geometry (only its open/closed + fill decision is unified). This closes
+  a latent defect where the export runtime rendered a `fillColor ""`
+  freeform as a solid **black** polygon.
 - `HexColor.normalized` gains a fixed 16-name classic color table
   (system-wide, additive) — **modifies the `part-properties` capability**.
 - HypeTalk guide + skill catalog gain a Turtle graphics section/skill;
@@ -65,6 +71,10 @@ rendering vertically mirrored), and bare `home` becomes the turtle command
   `Interpreter.swift`. `AST.swift` is declared but expected untouched.
 - `Sources/HypeCore/Rendering/`: `ShapeRenderer.swift`, `RenderGeometry.swift`.
 - `Sources/Hype/SpriteKit/ShapePartNode.swift`.
+- `Sources/HypeCore/Export/TargetRuntimeControlViews.swift` — the third
+  freeform render site (deployed/exported runtime); honors the same
+  `fillColor==""` open/no-fill contract via the shared `RenderGeometry`
+  helper (keeps its own stretch-to-fit geometry).
 - `Sources/HypeCore/AI/`: `HypeTools.swift`, `HypeToolExecutor.swift`,
   `HypeTalkGuide.swift`, `HypeTalkSkillCatalog.swift`.
 - Shared: `Sources/HypeCore/Models/HexColor.swift` (name table),
@@ -72,6 +82,7 @@ rendering vertically mirrored), and bare `home` becomes the turtle command
   visibility `private` → `internal`).
 - Tests: `TurtleEngineTests`, `TurtleScriptingTests`,
   `TurtleCrossSurfaceEquivalenceTests`, `ShapeRendererFreeformTests`,
-  `ShapePartNodeFreeformTests` (app target), extensions to
-  `InterpreterFuzzTests`, `HypeTalkGuideTests`, `PartPropertyDispatchTests`.
+  `TargetRuntimeFreeformTests`, `ShapePartNodeFreeformTests` (app target),
+  extensions to `InterpreterFuzzTests`, `HypeTalkGuideTests`,
+  `PartPropertyDispatchTests`.
 - Docs: `HypeTalk-LLM-Context.md` (Documentation phase).

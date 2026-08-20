@@ -85,9 +85,17 @@
 - [ ] 4.3 `Sources/Hype/SpriteKit/ShapePartNode.swift` `.freeform`: shared
       contract ((x, −y) locals, `.clear` fill on open branch, round
       caps/joins).
-- [ ] 4.4 Write `Tests/HypeCoreTests/ShapeRendererFreeformTests.swift` and
-      `Tests/HypeTests/ShapePartNodeFreeformTests.swift` (criteria 10, 14;
-      `#FFFFFF` legacy regression).
+- [ ] 4.3b `Sources/HypeCore/Export/TargetRuntimeControlViews.swift`
+      `TargetRuntimeShapeView.shapePath`/`body` `.freeform`: gate
+      `closeSubpath()` (line 1299) and the `context.fill(...)` (line 1263)
+      on `!RenderGeometry.freeformIsOpenStroke(part)`; stroke `.round`
+      cap/join when `strokeWidth > 0`. Keep `normalizedPathPoints` scaling
+      unchanged (N3).
+- [ ] 4.4 Write `Tests/HypeCoreTests/ShapeRendererFreeformTests.swift`,
+      `Tests/HypeCoreTests/TargetRuntimeFreeformTests.swift`, and
+      `Tests/HypeTests/ShapePartNodeFreeformTests.swift` (criterion 10
+      across all three sites — `fillColor ""` open+unfilled vs `#FFFFFF`
+      closed+filled legacy regression; criterion 14 for CG/SK only).
 - [ ] 4.5 `Sources/HypeCore/AI/HypeTalkGuide.swift`: `## Turtle graphics`
       section (§4 vocabulary, defaults, part contract, error copy, R12
       note).
