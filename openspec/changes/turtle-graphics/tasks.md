@@ -128,7 +128,7 @@
 
 ## 5. Later phases (not Build)
 
-- [ ] 5.1 Documentation phase: `HypeTalk-LLM-Context.md` turtle section
+- [x] 5.1 Documentation phase: `HypeTalk-LLM-Context.md` turtle section
       (strict subset of the guide); Turtle Garden example stack for the
       Tester (design-mock §8).
-- [ ] 5.2 Design Review: rule on deviations d1–d14 in `design.md`.
+- [x] 5.2 Design Review: rule on deviations d1–d14 in `design.md`.
