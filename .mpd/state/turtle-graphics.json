@@ -4,7 +4,7 @@
   "schema": "mpd",
   "ui": true,
   "kind": "feature",
-  "phase": "doc-validation",
+  "phase": "done",
   "gates": {
     "design-mock": {
       "verdict": "pass",
@@ -335,6 +335,70 @@
         "delegated": true,
         "model": "sonnet"
       }
+    },
+    "doc-validation": {
+      "verdict": "pass",
+      "by": "Architect & Designer",
+      "evidence": "Dual delegated-Opus validation, both PASS. Architect lens: every factual claim byte-accurate vs shipped code (vocabulary=TurtleVocabulary, E1-E9+property errors=ErrorCopy verbatim, conventions, output contract, scope guardrails all TRUE/not overstated, 6 usage examples trace correctly incl. the draw_with_turtle summary, 16 named-color hex values match). Designer lens: purpose/value/representation accurate in domain language, editable-parts-not-pixels conveyed, fast path obvious, no misrepresentation. Non-blocking cosmetic notes only (E2 dot 'diameter' wording; add repeat-with example; R12 note) — documentation.md is an archived change artifact.",
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787254741,
+      "completed_at_epoch_secs": 1787255092,
+      "receipt": {
+        "id": "ed5fb72e480598b2ac1b8f6d3ee236780f7af356d5c47efacbea2522c9eb71ac",
+        "schema": 2,
+        "phase": "doc-validation",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "shipped-behavior": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+            "documentation": "09b411deb691d0b9015edffcf0ad3af3d8dfd390b00814e2894b28acc460a080",
+            "persona-tuning": "e48b22dd7aa27e02a9a0ad38c98bc07383c61deeb896eb2872208db4f07324b8"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "deploy": {
+      "verdict": "pass",
+      "by": "main-session",
+      "evidence": "All 10 gates passed + 4 conditions closed. Deploy authorized by the task ('deploy the turtle model natively') + standing deploy-to-Applications default. scripts/mpd-deploy.sh: build → bundle → local-codesign → install /Applications/Hype.app (DEVELOPER_DIR=Xcode-beta).",
+      "checks": {
+        "command": "scripts/mpd-deploy.sh"
+      },
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787255092,
+      "completed_at_epoch_secs": 1787255159,
+      "receipt": {
+        "id": "ada1d31d996458a2b97e8238ef083c172454816e3714546d764b2f1a2f125224",
+        "schema": 2,
+        "phase": "deploy",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "source": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+            "produced-artifact": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+            "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+          }
+        }
+      }
     }
   },
   "conditions": [
@@ -344,7 +408,7 @@
       "attempt": 1,
       "text": "C4: TurtleProgramValidator applies the allowed-expression walk to EVERY expression position (external-command args, set-value, repeatCount count, repeatWith from/to bounds); functionCall in any position refuses E9, zero parts. Verify in real TurtleProgramValidator.swift + escape tests.",
       "owner": "Security",
-      "closed": false,
+      "closed": true,
       "opened_at_epoch_secs": 1787236060,
       "events": [
         {
@@ -372,6 +436,13 @@
           "at_epoch_secs": 1787254370,
           "reason": "stale evidence rewind",
           "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787255133,
+          "evidence": "Re-resolved after the mechanical re-gate cascade re-opened them; all 4 verified MET in code by delegated Opus Security(code) (production byte-identical): C4 every-expression-position allowlist, C13 loop-head instructionCount guard, C14 stub-provider ExecutionContext, A2 parser recursion cap + nesting guard. Suite green 3521.",
+          "evidence_digest": "171253c7114d7bc0c94e8f4448bda34990cb7e9b965bcc6e965e5480ce48a082"
         }
       ]
     },
@@ -381,7 +452,7 @@
       "attempt": 1,
       "text": "C13: repeatCount/repeatWith loop heads gain the per-iteration instructionCount+checkCancellation+instructionLimit guard (as repeatForever) so empty-body counted loops are bounded/cancellable. Verify in real Interpreter.swift loop heads + DoS test.",
       "owner": "Security",
-      "closed": false,
+      "closed": true,
       "opened_at_epoch_secs": 1787236060,
       "events": [
         {
@@ -409,6 +480,13 @@
           "at_epoch_secs": 1787254370,
           "reason": "stale evidence rewind",
           "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787255133,
+          "evidence": "Re-resolved after the mechanical re-gate cascade re-opened them; all 4 verified MET in code by delegated Opus Security(code) (production byte-identical): C4 every-expression-position allowlist, C13 loop-head instructionCount guard, C14 stub-provider ExecutionContext, A2 parser recursion cap + nesting guard. Suite green 3521.",
+          "evidence_digest": "171253c7114d7bc0c94e8f4448bda34990cb7e9b965bcc6e965e5480ce48a082"
         }
       ]
     },
@@ -418,7 +496,7 @@
       "attempt": 1,
       "text": "C14: draw_with_turtle ExecutionContext built with deny-by-default stub providers only (no real file/host/runtime provider). Verify in real HypeToolExecutor.swift + containment test.",
       "owner": "Security",
-      "closed": false,
+      "closed": true,
       "opened_at_epoch_secs": 1787236060,
       "events": [
         {
@@ -446,6 +524,13 @@
           "at_epoch_secs": 1787254370,
           "reason": "stale evidence rewind",
           "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787255133,
+          "evidence": "Re-resolved after the mechanical re-gate cascade re-opened them; all 4 verified MET in code by delegated Opus Security(code) (production byte-identical): C4 every-expression-position allowlist, C13 loop-head instructionCount guard, C14 stub-provider ExecutionContext, A2 parser recursion cap + nesting guard. Suite green 3521.",
+          "evidence_digest": "171253c7114d7bc0c94e8f4448bda34990cb7e9b965bcc6e965e5480ce48a082"
         }
       ]
     },
@@ -455,7 +540,7 @@
       "attempt": 1,
       "text": "A2: InterpreterFuzzTests turtle corpus includes deeply-nested + ~64KB adversarial programs asserting no crash.",
       "owner": "Security",
-      "closed": false,
+      "closed": true,
       "opened_at_epoch_secs": 1787236060,
       "events": [
         {
@@ -483,6 +568,13 @@
           "at_epoch_secs": 1787254370,
           "reason": "stale evidence rewind",
           "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787255133,
+          "evidence": "Re-resolved after the mechanical re-gate cascade re-opened them; all 4 verified MET in code by delegated Opus Security(code) (production byte-identical): C4 every-expression-position allowlist, C13 loop-head instructionCount guard, C14 stub-provider ExecutionContext, A2 parser recursion cap + nesting guard. Suite green 3521.",
+          "evidence_digest": "171253c7114d7bc0c94e8f4448bda34990cb7e9b965bcc6e965e5480ce48a082"
         }
       ]
     }
@@ -1640,6 +1732,76 @@
           "model": "sonnet"
         }
       }
+    },
+    {
+      "phase": "doc-validation",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect & Designer",
+        "evidence": "Dual delegated-Opus validation, both PASS. Architect lens: every factual claim byte-accurate vs shipped code (vocabulary=TurtleVocabulary, E1-E9+property errors=ErrorCopy verbatim, conventions, output contract, scope guardrails all TRUE/not overstated, 6 usage examples trace correctly incl. the draw_with_turtle summary, 16 named-color hex values match). Designer lens: purpose/value/representation accurate in domain language, editable-parts-not-pixels conveyed, fast path obvious, no misrepresentation. Non-blocking cosmetic notes only (E2 dot 'diameter' wording; add repeat-with example; R12 note) — documentation.md is an archived change artifact.",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787254741,
+        "completed_at_epoch_secs": 1787255092,
+        "receipt": {
+          "id": "ed5fb72e480598b2ac1b8f6d3ee236780f7af356d5c47efacbea2522c9eb71ac",
+          "schema": 2,
+          "phase": "doc-validation",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "shipped-behavior": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+              "documentation": "09b411deb691d0b9015edffcf0ad3af3d8dfd390b00814e2894b28acc460a080",
+              "persona-tuning": "e48b22dd7aa27e02a9a0ad38c98bc07383c61deeb896eb2872208db4f07324b8"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "deploy",
+      "record": {
+        "verdict": "pass",
+        "by": "main-session",
+        "evidence": "All 10 gates passed + 4 conditions closed. Deploy authorized by the task ('deploy the turtle model natively') + standing deploy-to-Applications default. scripts/mpd-deploy.sh: build → bundle → local-codesign → install /Applications/Hype.app (DEVELOPER_DIR=Xcode-beta).",
+        "checks": {
+          "command": "scripts/mpd-deploy.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787255092,
+        "completed_at_epoch_secs": 1787255159,
+        "receipt": {
+          "id": "ada1d31d996458a2b97e8238ef083c172454816e3714546d764b2f1a2f125224",
+          "schema": 2,
+          "phase": "deploy",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+              "produced-artifact": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+              "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+            }
+          }
+        }
+      }
     }
   ],
   "governance": {
@@ -1709,7 +1871,7 @@
   },
   "strict": false,
   "waivers": [],
-  "phase_started_at_epoch_secs": 1787254741,
+  "phase_started_at_epoch_secs": 1787255162,
   "brief_tuning": {
     "design-mock": {
       "attempt": 3,
