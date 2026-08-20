@@ -593,3 +593,113 @@ struct ChunkFastPathTests {
         #expect(v == "Z", "expected Z at position 250; got \(v ?? "nil")")
     }
 }
+
+// MARK: - Turtle publish gating (turtle-publish-gating)
+
+@Suite("Turtle publish gating", .serialized)
+struct TurtlePublishGatingTests {
+
+    /// Count turtle-drawn parts (path/fill/dot) on the result document.
+    private func turtlePartCount(_ result: ExecutionResult) -> Int {
+        (result.modifiedDocument?.parts ?? []).filter { $0.name.hasPrefix("turtle ") }.count
+    }
+
+    @Test("the 12-circle flower publishes ~once per drawn shape, not per command")
+    func flowerPublishesPerShapeNotPerCommand() async {
+        let (doc, cardId, btnId, _) = makeGatingDoc()
+        let runtime = CountingRuntime()
+        let script = """
+        on mouseUp
+          clean
+          home
+          setPenColor magenta
+          repeat 12 times
+            penUp
+            forward 40
+            penDown
+            circle 40
+            penUp
+            back 40
+            penDown
+            right 30
+          end repeat
+        end mouseUp
+        """
+        let result = await runScript(script, doc: doc, cardId: cardId, targetId: btnId, runtime: runtime)
+
+        // Pre-fix: every turtle command is a visible-effect .externalCommand,
+        // so all ~99 of them (clean/home/setPenColor + 12×8 verbs) published.
+        // Post-fix: only clean (1) + the 12 circle stamps (12) change rendered
+        // content ≈ 13 publishes. Assert far below the pre-fix count, and at
+        // least one per circle (shapes still publish → animation preserved).
+        #expect(runtime.count <= 20,
+                "flower published \(runtime.count) times; expected ≤20 (pre-fix ≈99)")
+        #expect(runtime.count >= 12,
+                "flower published \(runtime.count) times; expected ≥12 (one per circle)")
+        // Drawing unchanged: 12 circles → 12 turtle parts.
+        #expect(turtlePartCount(result) == 12,
+                "expected 12 turtle parts; got \(turtlePartCount(result))")
+    }
+
+    @Test("state-only turtle commands (no draw) publish zero times")
+    func stateOnlyTurtleCommandsPublishZero() async {
+        let (doc, cardId, btnId, _) = makeGatingDoc()
+        let runtime = CountingRuntime()
+        // Pen-up moves + turns + pen toggles: nothing is ever drawn.
+        let script = """
+        on mouseUp
+          penUp
+          repeat 50 times
+            forward 10
+            right 20
+          end repeat
+          penDown
+          penUp
+        end mouseUp
+        """
+        _ = await runScript(script, doc: doc, cardId: cardId, targetId: btnId, runtime: runtime)
+        #expect(runtime.count == 0,
+                "state-only turtle run published \(runtime.count) times; expected 0")
+    }
+
+    @Test("a pen-down stroke still renders (one part) — behavior preserved")
+    func penDownStrokeStillRenders() async {
+        let (doc, cardId, btnId, _) = makeGatingDoc()
+        let runtime = CountingRuntime()
+        // Pen-down square: buffered stroke, flushed once at run end → 1 part.
+        let script = """
+        on mouseUp
+          home
+          repeat 4 times
+            forward 100
+            right 90
+          end repeat
+        end mouseUp
+        """
+        let result = await runScript(script, doc: doc, cardId: cardId, targetId: btnId, runtime: runtime)
+        #expect(turtlePartCount(result) == 1,
+                "expected 1 stroke part; got \(turtlePartCount(result))")
+    }
+
+    @Test("each drawn shape still publishes — per-shape turtle animation preserved")
+    func eachDrawnShapePublishes() async {
+        let (doc, cardId, btnId, _) = makeGatingDoc()
+        let runtime = CountingRuntime()
+        // 5 pen-up dots, each emits a part → each must publish, so a
+        // `wait`-driven animation would still show them one at a time.
+        let script = """
+        on mouseUp
+          penUp
+          repeat 5 times
+            dot 10
+            forward 20
+          end repeat
+        end mouseUp
+        """
+        let result = await runScript(script, doc: doc, cardId: cardId, targetId: btnId, runtime: runtime)
+        #expect(runtime.count >= 5,
+                "expected ≥5 publishes (one per dot); got \(runtime.count)")
+        #expect(turtlePartCount(result) == 5,
+                "expected 5 dot parts; got \(turtlePartCount(result))")
+    }
+}
