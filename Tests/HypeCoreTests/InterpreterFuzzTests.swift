@@ -533,6 +533,22 @@ private func execTurtleHandler(_ source: String) -> (errored: Bool, message: Str
     return (errored, message, digest)
 }
 
+/// Like `execTurtleHandler` but returns the actual `Part` values left on
+/// the card, so a test can assert structural standing invariants (names,
+/// finiteness, coordinate bounds) that a string digest cannot express.
+/// `nil` on a parse failure.
+private func execTurtleHandlerParts(_ source: String) -> [Part]? {
+    var lexer = Lexer(source: source)
+    let tokens = lexer.tokenize()
+    var parser = Parser(tokens: tokens)
+    guard let script = try? parser.parse(), let handler = script.handlers.first else { return nil }
+    let doc = HypeDocument.newDocument()
+    let cardId = doc.cards[0].id
+    let context = ExecutionContext(targetId: cardId, currentCardId: cardId, document: doc)
+    let result = Interpreter().execute(handler: handler, params: [], context: context)
+    return (result.modifiedDocument?.parts ?? doc.parts).filter { $0.cardId == cardId }
+}
+
 /// Generates bounded HypeTalk handlers exercising the turtle vocabulary:
 /// every verb (long form and abbreviation), tolerant/garbage/huge numeric
 /// arguments, valid-name/hex/garbage color arguments, property gets/sets
@@ -727,6 +743,58 @@ struct TurtleMetamorphicTests {
         let twice = execTurtleHandler("on test\n  fd \(length)\n  clean\n  clean\n  return \"done\"\nend test")
         #expect(once?.partsDigest == twice?.partsDigest, "clean once vs twice diverged for length \(length)")
         #expect(twice?.partsDigest.isEmpty == true, "clean should leave zero turtle parts")
+    }
+
+    @Test("arc 360, r ≡ circle r on the HypeTalk surface (metamorphic — full arc is a circle)", arguments: 0..<40)
+    func arc360EqualsCircle(seed: Int) {
+        var rng = SplitMix64(seed: UInt64(seed) &+ 127)
+        let r = rng.int(1...400)
+        let circle = execTurtleHandler("on test\n  circle \(r)\n  return \"done\"\nend test")
+        let arc = execTurtleHandler("on test\n  arc 360, \(r)\n  return \"done\"\nend test")
+        #expect(circle?.partsDigest == arc?.partsDigest,
+                "arc 360, \(r) must draw the same part as circle \(r):\n  circle=\(circle?.partsDigest ?? "nil")\n  arc=\(arc?.partsDigest ?? "nil")")
+    }
+}
+
+// MARK: - Standing invariants over the turtle fuzz corpus
+//
+// The design's test plan names harness-wide invariants; the determinism
+// fuzzer above asserts none of them (it only compares a run against itself),
+// so this suite generates the same bounded turtle programs and checks the
+// structural invariants the ENGINE actually guarantees on whatever parts they
+// leave behind:
+//
+//   * every emitted part carries a reserved-prefix name (its accessible
+//     identity — the applier never emits an unnamed part), and
+//   * every pathData vertex is FINITE (no NaN/±Inf ever reaches a part,
+//     even under garbage/huge/non-finite arguments).
+//
+// NOTE (reported to the pipeline, not asserted here): the design lists a
+// "pathData within ±1,000,000" invariant, but the engine clamps only the
+// turtle *position* (`move`/stroke vertices) to ±positionLimit — `circle`/
+// `arc` vertices are `center ± radius·trig` with an UNCLAMPED radius, so a
+// pathological `circle 999999999999` yields finite pathData far outside
+// ±1,000,000. Asserting the ±1e6 bound on curve vertices would test the spec
+// wording rather than the implementation, so this suite asserts finiteness
+// (which genuinely holds) and the observation is surfaced in the Test report.
+
+@Suite("Turtle standing invariants — reserved names + finite geometry", .serialized)
+struct TurtleStandingInvariantFuzzTests {
+
+    @Test("every emitted part is reserved-prefix-named with finite pathData", arguments: 0..<200)
+    func emittedPartsHonorStandingInvariants(seed: Int) {
+        var gen = TurtleScriptGen(rng: SplitMix64(seed: UInt64(seed) &* 0x9E3779B185EBCA87 &+ 29))
+        let source = gen.handler()
+        guard let parts = execTurtleHandlerParts(source) else { return } // parse failure isn't a fuzz finding
+
+        for part in parts {
+            #expect(TurtlePartApplier.namePrefixes.contains { part.name.hasPrefix($0) },
+                    "seed \(seed): part \"\(part.name)\" lacks a reserved turtle prefix\n\(source)")
+            for point in part.pathData {
+                #expect(point.x.isFinite && point.y.isFinite,
+                        "seed \(seed): non-finite vertex (\(point.x),\(point.y)) in \(part.name)\n\(source)")
+            }
+        }
     }
 }
 

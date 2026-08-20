@@ -576,3 +576,425 @@ struct TurtleVocabularyTests {
         #expect(TurtleVocabulary.zeroArgumentVerbs == expected)
     }
 }
+
+// MARK: - Tester deepening (Test gate): property / metamorphic / resource /
+// accessibility / edge passes the Builder's inline suites don't cover.
+//
+// Everything below is engine-level and pure (no document, no interpreter),
+// mirroring the file's existing `makeEngine()` idiom. Seeded PRNG cases are
+// reproducible: a failing seed prints in the message so it can be replayed
+// and pinned.
+
+/// SplitMix64 — the same small, reproducible generator the fuzz harness
+/// uses, redeclared file-privately here (the fuzz copy is file-private to
+/// `InterpreterFuzzTests.swift`). Seeded per case so any failure replays.
+private struct TurtleSeededRNG {
+    var state: UInt64
+    init(seed: UInt64) { self.state = seed }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E3779B97F4A7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58476D1CE4E5B9
+        z = (z ^ (z >> 27)) &* 0x94D049BB133111EB
+        return z ^ (z >> 31)
+    }
+
+    mutating func double(_ range: ClosedRange<Double>) -> Double {
+        let unit = Double(next() >> 11) * (1.0 / 9_007_199_254_740_992.0) // 2^-53
+        return range.lowerBound + unit * (range.upperBound - range.lowerBound)
+    }
+
+    mutating func bool() -> Bool { next() & 1 == 0 }
+}
+
+/// The engine's own heading contract, recomputed independently as the test
+/// oracle: non-finite coerces to 0, then `((h mod 360)+360) mod 360`.
+private func referenceNormalizedHeading(_ h: Double) -> Double {
+    let sanitized = h.isFinite ? h : 0
+    let m = sanitized.truncatingRemainder(dividingBy: 360)
+    return (m + 360).truncatingRemainder(dividingBy: 360)
+}
+
+// MARK: - Property: heading normalization is always in [0,360)
+
+@Suite("Heading normalization is total and always in [0,360)")
+struct TurtleHeadingNormalizationTests {
+
+    /// The interesting non-random inputs: cardinal exacts, negatives,
+    /// wrap boundaries, huge magnitudes, and the non-finite trio.
+    static let headingInputs: [Double] = [
+        0, 90, 180, 270, 359.999, 360, 450, 720, -0.0, -1, -90, -359, -360, -450, -720,
+        0.5, 123.456, 1_000_000.25, 1e15, -1e15, 1e300, -1e300,
+        .nan, .infinity, -.infinity,
+    ]
+
+    @Test("setHeading normalizes every input into [0,360) matching the reference formula",
+          arguments: TurtleHeadingNormalizationTests.headingInputs)
+    func setHeadingNormalizes(_ h: Double) throws {
+        var engine = makeEngine()
+        _ = try engine.perform(.setHeading(h))
+        let heading = engine.scalarState.heading
+        #expect(heading >= 0 && heading < 360, "setHeading(\(h)) left heading out of [0,360): \(heading)")
+        #expect(heading == referenceNormalizedHeading(h), "setHeading(\(h)) = \(heading), expected \(referenceNormalizedHeading(h))")
+    }
+
+    @Test("right/left over arbitrary (huge / negative / non-finite) deltas keep heading in [0,360)",
+          arguments: 0..<200)
+    func rotationsStayNormalized(seed: Int) throws {
+        var rng = TurtleSeededRNG(seed: UInt64(seed) &* 0x100000001B3 &+ 1)
+        var engine = makeEngine()
+        // A random but finite starting heading.
+        let start = rng.double(-10_000...10_000)
+        _ = try engine.perform(.setHeading(start))
+
+        // Apply a handful of random right/left turns, including occasional
+        // huge or non-finite deltas, checking the [0,360) invariant after
+        // every single one.
+        var expected = referenceNormalizedHeading(start)
+        for _ in 0..<8 {
+            let delta: Double
+            switch rng.next() % 5 {
+            case 0: delta = rng.double(-720...720)
+            case 1: delta = rng.double(-1_000_000...1_000_000)
+            case 2: delta = 1e18
+            case 3: delta = .nan
+            default: delta = rng.double(-360...360)
+            }
+            let sanitized = delta.isFinite ? delta : 0
+            if rng.bool() {
+                _ = try engine.perform(.right(delta))
+                expected = referenceNormalizedHeading(expected + sanitized)
+            } else {
+                _ = try engine.perform(.left(delta))
+                expected = referenceNormalizedHeading(expected - sanitized)
+            }
+            let heading = engine.scalarState.heading
+            #expect(heading >= 0 && heading < 360, "seed \(seed): heading escaped [0,360): \(heading)")
+            #expect(heading == expected, "seed \(seed): heading \(heading) != expected \(expected)")
+        }
+    }
+}
+
+// MARK: - Property/metamorphic: closed polygons, circle tolerance, arc≈circle
+
+@Suite("Geometry properties — N-gon closure, circle radius tolerance, arc≡circle")
+struct TurtleGeometryPropertyTests {
+
+    /// N×(forward L, right 360/N) from a pen-down start must produce ONE
+    /// stroke part of N+1 vertices whose closing vertex returns to the
+    /// start — exact for the cardinal N=4, within a tight FP tolerance for
+    /// the non-cardinal regular polygons.
+    @Test("regular N-gon closes back to its start vertex",
+          arguments: [3, 4, 5, 6, 8, 12])
+    func regularPolygonCloses(_ n: Int) throws {
+        var engine = makeEngine()
+        let length = 120.0
+        let turn = 360.0 / Double(n)
+        for _ in 0..<n {
+            _ = try engine.perform(.forward(length))
+            _ = try engine.perform(.right(turn))
+        }
+        let outcome = engine.endRun()
+        #expect(outcome.emissions.count == 1, "an N-gon walk is one continuous stroke")
+        let path = try #require(outcome.emissions.first).pathData
+        #expect(path.count == n + 1, "N=\(n): expected \(n + 1) vertices, got \(path.count)")
+        let first = try #require(path.first)
+        let last = try #require(path.last)
+        let gap = hypot(last.x - first.x, last.y - first.y)
+        #expect(gap <= 1e-6, "N=\(n): closing vertex drifted \(gap) from the start")
+    }
+
+    @Test("circle r vertices all lie within the design tolerance (r·(1−cos3°)) of r, for a range of r",
+          arguments: [1.0, 3.5, 10, 22, 50, 100, 250, 1000])
+    func circleVerticesWithinTolerance(_ r: Double) throws {
+        var engine = makeEngine()
+        _ = try engine.perform(.setHeading(37)) // non-cardinal start angle
+        let center = engine.scalarState
+        let outcome = try engine.perform(.circle(radius: r))
+        let path = try #require(outcome.emissions.first).pathData
+        #expect(path.count == 61)
+        #expect(path.first == path.last, "circle must close exactly (vertex 60 copied from vertex 0)")
+        // §5.4 chord tolerance: every polyline vertex is exactly on the
+        // circle, so the only error is FP; assert a generous but tight
+        // absolute-plus-relative bound.
+        let tolerance = max(1e-9, r * 1e-12)
+        for point in path {
+            let radius = hypot(point.x - center.x, point.y - center.y)
+            #expect(abs(radius - r) <= tolerance, "r=\(r): vertex radius \(radius) off by \(abs(radius - r))")
+        }
+    }
+
+    @Test("arc 360, r draws exactly the same polygon as circle r (metamorphic)",
+          arguments: [1.0, 7, 22, 50, 137.5, 400])
+    func arc360EqualsCircle(_ r: Double) throws {
+        var circleEngine = makeEngine()
+        var arcEngine = makeEngine()
+        _ = try circleEngine.perform(.setHeading(53))
+        _ = try arcEngine.perform(.setHeading(53))
+        let circleOutcome = try circleEngine.perform(.circle(radius: r))
+        let arcOutcome = try arcEngine.perform(.arc(degrees: 360, radius: r))
+        let circlePath = try #require(circleOutcome.emissions.first).pathData
+        let arcPath = try #require(arcOutcome.emissions.first).pathData
+        #expect(arcPath.count == circlePath.count, "arc 360 and circle must have the same vertex count for r=\(r)")
+        for (a, c) in zip(arcPath, circlePath) {
+            #expect(hypot(a.x - c.x, a.y - c.y) <= 1e-9, "arc 360 diverged from circle at r=\(r)")
+        }
+    }
+}
+
+// MARK: - Property: ScalarState encode/decode round-trips exactly
+
+@Suite("ScalarState round-trips exactly for random states")
+struct TurtleScalarStateRandomRoundTripTests {
+
+    @Test("encode → decode is the identity for arbitrary finite states",
+          arguments: 0..<200)
+    func randomRoundTrip(seed: Int) throws {
+        var rng = TurtleSeededRNG(seed: UInt64(seed) &* 0x2545F4914F6CDD1D &+ 7)
+        func hex() -> String { String(format: "#%06X", Int(rng.double(0...Double(0xFFFFFF)))) }
+        let state = TurtleEngine.ScalarState(
+            x: rng.double(-1_000_000...1_000_000),
+            y: rng.double(-1_000_000...1_000_000),
+            heading: rng.double(0...359.999),
+            penDown: rng.bool(),
+            penColor: hex(),
+            penWidth: rng.double(0.5...100),
+            fillColor: hex()
+        )
+        let decoded = try #require(TurtleEngine.ScalarState(encoded: state.encoded),
+                                   "seed \(seed): a well-formed state failed to decode: \(state.encoded)")
+        #expect(decoded == state, "seed \(seed): round-trip changed the state")
+    }
+}
+
+// MARK: - Determinism: same commands on two fresh engines → identical parts
+
+@Suite("Determinism — identical command streams emit byte-identical shapes")
+struct TurtleDeterminismTests {
+
+    @Test("two fresh engines running the same varied program emit identical emissions")
+    func identicalProgramsAreByteIdentical() throws {
+        func run() throws -> [TurtleEngine.Emission] {
+            var engine = makeEngine()
+            var emissions: [TurtleEngine.Emission] = []
+            let commands: [TurtleEngine.Command] = [
+                .setPenColor("blue"), .setPenWidth(3), .forward(120), .right(90),
+                .forward(60), .setPenColor("red"), .forward(40), .circle(radius: 22),
+                .setHeading(210), .arc(degrees: 135, radius: 33), .dot(diameter: 9),
+                .beginFill, .forward(50), .right(120), .forward(50), .right(120),
+                .forward(50), .endFill,
+            ]
+            for command in commands { emissions += try engine.perform(command).emissions }
+            emissions += engine.endRun().emissions
+            return emissions
+        }
+        // `Emission` is `Equatable`; two independent runs must be bit-equal.
+        let first = try run()
+        let second = try run()
+        #expect(first == second, "the engine is deterministic — identical inputs must yield identical shapes")
+    }
+}
+
+// MARK: - Edge cases the inline suites don't reach
+
+@Suite("Edge cases — zero moves, radius epsilon, clamping, pen-up fill, boundary fills")
+struct TurtleEdgeCaseTests {
+
+    @Test("forward 0 buffers a single point and emits no stroke part")
+    func zeroLengthMoveEmitsNothing() throws {
+        var engine = makeEngine()
+        let move = try engine.perform(.forward(0))
+        #expect(move.emissions.isEmpty)
+        #expect(engine.scalarState.x == 400 && engine.scalarState.y == 300, "forward 0 never moves")
+        #expect(engine.endRun().emissions.isEmpty, "a zero-length trail has < 2 distinct vertices — no part")
+    }
+
+    @Test("circle with a radius just above 0 succeeds with a full 61-vertex ring")
+    func circleJustAboveZeroSucceeds() throws {
+        var engine = makeEngine()
+        let outcome = try engine.perform(.circle(radius: 0.0001))
+        let emission = try #require(outcome.emissions.first)
+        #expect(emission.pathData.count == 61)
+        #expect(emission.pathData.first == emission.pathData.last)
+    }
+
+    @Test("setPos clamps each coordinate to ±positionLimit")
+    func setPosClampsAtPositionLimit() throws {
+        var engine = makeEngine()
+        _ = try engine.perform(.penUp) // don't draw the huge segment
+        _ = try engine.perform(.setPos(x: 5_000_000, y: -5_000_000))
+        #expect(engine.scalarState.x == TurtleEngine.positionLimit)
+        #expect(engine.scalarState.y == -TurtleEngine.positionLimit)
+    }
+
+    @Test("setPos with non-finite coordinates coerces them to 0 (never NaN in state)")
+    func setPosNonFiniteCoercesToZero() throws {
+        var engine = makeEngine()
+        _ = try engine.perform(.penUp)
+        _ = try engine.perform(.setPos(x: .infinity, y: .nan))
+        #expect(engine.scalarState.x == 0)
+        #expect(engine.scalarState.y == 0)
+    }
+
+    @Test("pen up mid-fill still feeds the polygon (d6); pen state at endFill sets outline width 0")
+    func penUpMidFillStillFeedsPolygon() throws {
+        var engine = makeEngine()
+        _ = try engine.perform(.beginFill)          // seed vertex
+        _ = try engine.perform(.forward(50))        // + vertex 2
+        let penUp = try engine.perform(.penUp)
+        #expect(penUp.emissions.isEmpty, "penUp while filling must not flush a stray stroke part")
+        #expect(engine.isFilling, "penUp must not end the fill")
+        _ = try engine.perform(.right(120))
+        _ = try engine.perform(.forward(50))        // + vertex 3, though pen is up
+        let outcome = try engine.perform(.endFill)
+        let emission = try #require(outcome.emissions.first)
+        #expect(emission.kind == .fill)
+        #expect(emission.pathData.count == 3, "movement while filling feeds the polygon regardless of pen state (d6)")
+        #expect(emission.strokeWidth == 0, "pen up at endFill → zero-width outline")
+    }
+
+    @Test("a fill with exactly 3 accumulated vertices succeeds (the 3-vs-2 boundary above E6)")
+    func exactlyThreeVertexFillSucceeds() throws {
+        var engine = makeEngine()
+        _ = try engine.perform(.beginFill)   // vertex 1 (seed)
+        _ = try engine.perform(.forward(10)) // vertex 2
+        _ = try engine.perform(.right(90))
+        _ = try engine.perform(.forward(10)) // vertex 3
+        let outcome = try engine.perform(.endFill)
+        let emission = try #require(outcome.emissions.first)
+        #expect(emission.pathData.count == 3)
+        #expect(outcome.resultNote == nil, "3 vertices is at the boundary — no E6 note")
+    }
+
+    @Test("setPenColor is case-insensitive: RED ≡ red ≡ Red ≡ rEd all resolve to #FF0000")
+    func namedColorIsCaseInsensitiveThroughEngine() throws {
+        for spelling in ["red", "RED", "Red", "rEd"] {
+            var engine = makeEngine()
+            _ = try engine.perform(.setPenColor(spelling))
+            #expect(engine.scalarState.penColor == "#FF0000", "\(spelling) should resolve to #FF0000")
+        }
+    }
+}
+
+// MARK: - Resource / limit bounds (non-functional)
+
+@Suite("Resource bounds — cap boundaries, point accounting, near-limit completion")
+struct TurtleResourceBoundsTests {
+
+    @Test("endRun may emit the open stroke even when the run already sits at the 200-part cap")
+    func endRunEmitsBonusStrokeAtPartCap() throws {
+        var engine = makeEngine()
+        _ = try engine.perform(.forward(100)) // opens a 2-vertex stroke (points reserved, 0 parts)
+        for _ in 0..<TurtleEngine.maxPartsPerRun {
+            _ = try engine.perform(.dot(diameter: 4)) // 200 dot parts — exactly at the cap
+        }
+        #expect(throws: TurtleEngine.TurtleError.self, "a 201st emitting command must throw E8") {
+            try engine.perform(.dot(diameter: 4))
+        }
+        let end = engine.endRun()
+        #expect(end.emissions.count == 1, "endRun flushes the open stroke even at the part cap (the bounded +1)")
+        #expect(end.emissions.first?.kind == .path)
+    }
+
+    @Test("each circle contributes exactly 61 vertices to a fill — point accounting matches emitted geometry")
+    func fillPointAccountingMatchesGeometry() throws {
+        var engine = makeEngine()
+        _ = try engine.perform(.beginFill) // seed vertex (1 point)
+        let circles = 200
+        for _ in 0..<circles { _ = try engine.perform(.circle(radius: 20)) }
+        let outcome = try engine.perform(.endFill)
+        let emission = try #require(outcome.emissions.first)
+        #expect(emission.pathData.count == 1 + 61 * circles,
+                "the emitted polygon must carry exactly the points the engine reserved — no phantom/lost vertices")
+    }
+
+    @Test("a fill of exactly 50,000 points succeeds; the 50,001st point throws E8 atomically")
+    func exactlyAtPointCapSucceedsOneMoreThrows() throws {
+        var engine = makeEngine()
+        _ = try engine.perform(.setHeading(90)) // travel +x so every step is a distinct vertex
+        _ = try engine.perform(.beginFill)      // point 1 (the seed)
+        for _ in 0..<(TurtleEngine.maxPathPointsPerRun - 1) {
+            _ = try engine.perform(.forward(1))  // 49,999 appends → exactly 50,000 points buffered
+        }
+        #expect(throws: TurtleEngine.TurtleError.self, "the point that would make 50,001 must throw E8") {
+            try engine.perform(.forward(1))
+        }
+        // The throw was atomic: the polygon is still exactly at the cap and closes.
+        let outcome = try engine.perform(.endFill)
+        #expect(outcome.emissions.first?.pathData.count == TurtleEngine.maxPathPointsPerRun)
+    }
+
+    @Test("a representative near-part-cap run (199 standalone circles) completes within both caps")
+    func nearCapRunCompletesWithinBudget() throws {
+        var engine = makeEngine()
+        var emittedParts = 0
+        var emittedPoints = 0
+        let circles = TurtleEngine.maxPartsPerRun - 1 // 199 standalone circle parts
+        for _ in 0..<circles {
+            let outcome = try engine.perform(.circle(radius: 15))
+            emittedParts += outcome.emissions.count
+            emittedPoints += outcome.emissions.reduce(0) { $0 + $1.pathData.count }
+        }
+        // Assert on operation/point counts, not wall-clock (per the Test brief).
+        #expect(emittedParts == circles, "each standalone circle emits exactly one part")
+        #expect(emittedPoints == circles * 61)
+        #expect(emittedParts <= TurtleEngine.maxPartsPerRun)
+        #expect(emittedPoints <= TurtleEngine.maxPathPointsPerRun)
+        #expect(engine.endRun().emissions.isEmpty, "no open stroke remains after standalone circles")
+    }
+}
+
+// MARK: - Accessibility / representation parity with hand-drawn freeform
+
+@Suite("Turtle output carries the same inspectable representation as hand-drawn parts")
+struct TurtleAccessibilityRepresentationTests {
+
+    /// Turtle drawings are ordinary shape parts (design-mock §9): they must
+    /// carry the same accessible identity (a non-empty, reserved-prefix
+    /// name), part-list membership, visibility, and editable shape type a
+    /// hand-authored freeform part has — the feature adds no inaccessible
+    /// surface. This asserts what is machine-checkable at the model layer;
+    /// the rendered/inspector surface is the Designer Sign-off's domain.
+    @Test("applied stroke/dot parts are named, visible, editable, and members of the document like a hand-drawn freeform")
+    func turtlePartsMatchHandDrawnFreeformRepresentation() throws {
+        var document = HypeDocument.newDocument()
+        let cardId = document.cards[0].id
+
+        var engine = makeEngine()
+        _ = try engine.perform(.forward(100))            // a stroke
+        let dotOutcome = try engine.perform(.dot(diameter: 12))
+        TurtlePartApplier.apply(dotOutcome, to: &document, cardId: cardId)
+        let strokeOutcome = engine.endRun()
+        TurtlePartApplier.apply(strokeOutcome, to: &document, cardId: cardId)
+
+        let parts = document.parts.filter { $0.cardId == cardId }
+        #expect(parts.count == 2, "one dot part and one stroke part should have been applied")
+
+        // A hand-authored freeform reference part — the representation the
+        // turtle output must be indistinguishable from at the model layer.
+        let handDrawn = { () -> Part in
+            var p = Part(partType: .shape, cardId: cardId, name: "hand freeform")
+            p.shapeType = .freeform
+            return p
+        }()
+
+        for part in parts {
+            #expect(!part.name.isEmpty, "an emitted part must always be named (its accessible identity)")
+            #expect(TurtlePartApplier.namePrefixes.contains { part.name.hasPrefix($0) },
+                    "\(part.name) must carry a reserved turtle prefix")
+            #expect(part.partType == handDrawn.partType, "turtle parts are ordinary shape parts")
+            #expect(part.visible, "emitted parts are visible like any drawn part")
+            #expect(part.script.isEmpty, "emitted parts carry no attached script")
+            #expect(part.shapeType == .freeform || part.shapeType == .oval,
+                    "turtle output uses the existing editable freeform/oval shapes — no new part type")
+            // Membership + inspectability: the part is addressable by its name.
+            #expect(document.parts.contains { $0.id == part.id })
+        }
+
+        // The stroke part specifically shares the hand-drawn freeform's
+        // shapeType — proving representation parity, not just non-nil.
+        let strokePart = try #require(parts.first { $0.shapeType == .freeform })
+        #expect(strokePart.shapeType == handDrawn.shapeType)
+    }
+}
