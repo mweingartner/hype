@@ -1,0 +1,282 @@
+{
+  "format": 2,
+  "change": "repeatwhile-instruction-guard",
+  "schema": "mpd",
+  "ui": false,
+  "kind": "fix",
+  "phase": "security-code",
+  "gates": {
+    "architecture": {
+      "verdict": "pass",
+      "by": "Architect",
+      "evidence": "design.md — trivial defect fix: insert the byte-identical C13 guard (instructionCount/instructionLimit throw) into the .repeatWhile head after the condition break, matching .repeatCount/.repeatWith (lines ~1946-1948). 5 Conditions for Builder (exact pattern, placement, no-semantic-change, tests, no-regression). Self-authored — a 6-line pattern-replication needs no separate architect.",
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787255682,
+      "completed_at_epoch_secs": 1787255824,
+      "receipt": {
+        "id": "89d5d14fa34d4e0670c8d51e98d89cac3284551e790f4bcaa08c41a0246c953a",
+        "schema": 2,
+        "phase": "architecture",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "56e43c02332ad7ea6143adb17a7eea1d7e455c2bd93ff0db86d3b4ceecb3dace",
+            "governance": "091572db696168c07bcc0391dc16ee1d0cd5302bcdc9db9bb9999199bba82a60",
+            "architecture-plan": "12fe830fb9d36aaf0a70c6769ae2e523c2e25ebd1246d90f19c8cdd86661bcdb"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "security-plan": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Plan replicates the existing, already-security-reviewed C13 instruction-limit guard (turtle-graphics Security-code) into the one unguarded repeat form. Strictly ADDITIVE termination bound — no new attack surface, no data/credential/boundary change; closes a pre-existing local-trusted-user DoS footgun. Not reachable via draw_with_turtle (validator excludes repeat while). Conditions for Builder are sound. Real code review deferred to Security(code). Self-recorded — trivial plan.",
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787255824,
+      "completed_at_epoch_secs": 1787255843,
+      "receipt": {
+        "id": "180c9c591a87d0cea1af5df7d2ddefc41734c2f7fde67d3c51278c1bdf451c71",
+        "schema": 2,
+        "phase": "security-plan",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "56e43c02332ad7ea6143adb17a7eea1d7e455c2bd93ff0db86d3b4ceecb3dace",
+            "governance": "9b16da2717786e3ce17463bf6ec2a3746c1dce0665cdad7c5cba3f5313161ad8",
+            "architecture-plan": "12fe830fb9d36aaf0a70c6769ae2e523c2e25ebd1246d90f19c8cdd86661bcdb",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "build": {
+      "verdict": "pass",
+      "by": "Builder",
+      "evidence": "6-line C13 guard inserted into .repeatWhile head (commit 831a948) matching .repeatCount/.repeatWith verbatim; 2 tests (empty-body terminates with 'Instruction limit exceeded'; bounded loop completes). scripts/mpd-test.sh 3523 passed / 0 failed. Self-implemented — trivial pattern-replication.",
+      "checks": {
+        "tests_passed": 7046,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787255843,
+      "completed_at_epoch_secs": 1787256114,
+      "receipt": {
+        "id": "8d95c50020066e503f199013d10ba25109cdee93b05a10028e977e9a9cb46740",
+        "schema": 2,
+        "phase": "build",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "56e43c02332ad7ea6143adb17a7eea1d7e455c2bd93ff0db86d3b4ceecb3dace",
+            "source": "290415a8d7d8437b985dfd133679e2b2020b4b874826ff068515cf7634bea5c8",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "290415a8d7d8437b985dfd133679e2b2020b4b874826ff068515cf7634bea5c8"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    }
+  },
+  "conditions": [],
+  "task_deferrals": [],
+  "history": [
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "design.md — trivial defect fix: insert the byte-identical C13 guard (instructionCount/instructionLimit throw) into the .repeatWhile head after the condition break, matching .repeatCount/.repeatWith (lines ~1946-1948). 5 Conditions for Builder (exact pattern, placement, no-semantic-change, tests, no-regression). Self-authored — a 6-line pattern-replication needs no separate architect.",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787255682,
+        "completed_at_epoch_secs": 1787255824,
+        "receipt": {
+          "id": "89d5d14fa34d4e0670c8d51e98d89cac3284551e790f4bcaa08c41a0246c953a",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "56e43c02332ad7ea6143adb17a7eea1d7e455c2bd93ff0db86d3b4ceecb3dace",
+              "governance": "091572db696168c07bcc0391dc16ee1d0cd5302bcdc9db9bb9999199bba82a60",
+              "architecture-plan": "12fe830fb9d36aaf0a70c6769ae2e523c2e25ebd1246d90f19c8cdd86661bcdb"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Plan replicates the existing, already-security-reviewed C13 instruction-limit guard (turtle-graphics Security-code) into the one unguarded repeat form. Strictly ADDITIVE termination bound — no new attack surface, no data/credential/boundary change; closes a pre-existing local-trusted-user DoS footgun. Not reachable via draw_with_turtle (validator excludes repeat while). Conditions for Builder are sound. Real code review deferred to Security(code). Self-recorded — trivial plan.",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787255824,
+        "completed_at_epoch_secs": 1787255843,
+        "receipt": {
+          "id": "180c9c591a87d0cea1af5df7d2ddefc41734c2f7fde67d3c51278c1bdf451c71",
+          "schema": 2,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "56e43c02332ad7ea6143adb17a7eea1d7e455c2bd93ff0db86d3b4ceecb3dace",
+              "governance": "9b16da2717786e3ce17463bf6ec2a3746c1dce0665cdad7c5cba3f5313161ad8",
+              "architecture-plan": "12fe830fb9d36aaf0a70c6769ae2e523c2e25ebd1246d90f19c8cdd86661bcdb",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "6-line C13 guard inserted into .repeatWhile head (commit 831a948) matching .repeatCount/.repeatWith verbatim; 2 tests (empty-body terminates with 'Instruction limit exceeded'; bounded loop completes). scripts/mpd-test.sh 3523 passed / 0 failed. Self-implemented — trivial pattern-replication.",
+        "checks": {
+          "tests_passed": 7046,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787255843,
+        "completed_at_epoch_secs": 1787256114,
+        "receipt": {
+          "id": "8d95c50020066e503f199013d10ba25109cdee93b05a10028e977e9a9cb46740",
+          "schema": 2,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "56e43c02332ad7ea6143adb17a7eea1d7e455c2bd93ff0db86d3b4ceecb3dace",
+              "source": "290415a8d7d8437b985dfd133679e2b2020b4b874826ff068515cf7634bea5c8",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "290415a8d7d8437b985dfd133679e2b2020b4b874826ff068515cf7634bea5c8"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    }
+  ],
+  "governance": {
+    "risk": "low",
+    "threat_profile": "local-trusted-user",
+    "reconciliations": []
+  },
+  "risk_assessment": {
+    "classifier_version": 3,
+    "requested": "low",
+    "derived": "medium",
+    "effective": "medium",
+    "reasons": [
+      "ordinary-code-scope: no sensitive signal in declared paths"
+    ],
+    "signal_digest": "404b88f8c928da5958a0132cec04ea7d45ce5821215f488ee58c9f2a0fb4b6ca"
+  },
+  "strict": false,
+  "waivers": [],
+  "phase_started_at_epoch_secs": 1787256231,
+  "brief_tuning": {
+    "architecture": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "security-plan": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "build": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    }
+  }
+}
