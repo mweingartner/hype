@@ -3140,8 +3140,51 @@ public struct Parser: Sendable {
 
     // MARK: - Expression parsing (precedence climbing)
 
+    /// Security B1 hardening (CWE-674 / CWE-400): bounds the recursive-
+    /// descent expression parser's OWN call depth. `TurtleProgramValidator`
+    /// pre-scans the raw token stream for parenthesized/`if`/`repeat`
+    /// nesting before ever calling the real parser, but that scan can't
+    /// enumerate every recursive path the *expression* grammar takes —
+    /// bare prefix-operator chains (`- - - 1`, `not not not x`, `await
+    /// await x`), chunk `of` chains (`item 1 of item 1 of … x`), and
+    /// nested function-call arguments all recurse here with no token the
+    /// pre-scan counts. Guarding the parser itself closes every such path
+    /// at once, independent of which construct produces the nesting.
+    ///
+    /// The real SIGBUS threshold measured empirically against this
+    /// parser's full precedence chain is ~800 recursive levels on an 8 MB
+    /// thread stack (see `TurtleSecurityRobustnessTests`, probed to
+    /// 700-safe/800-traps). 256 is a wide safety margin under that —
+    /// legitimate HypeTalk expressions nest a handful of levels deep at
+    /// most, and a single level of parenthesized nesting costs *four*
+    /// increments here (one each through `parseExpression`, `parseNot`,
+    /// `parseUnary`, and `parsePrimary`), so this cap refuses well before
+    /// 1/10th of the measured crash threshold even for the most
+    /// stack-expensive recursion shape the grammar produces.
+    private static let maxExpressionDepth = 256
+
+    /// Current recursive-descent depth through the expression grammar's
+    /// self-recursive entry points. Always balanced by `defer` at every
+    /// call site, including every throw path.
+    private var expressionDepth = 0
+
+    /// Call at the very top of every method in the expression grammar
+    /// that can recurse into itself or into another expression-parsing
+    /// method one level deeper (`parseExpression`, `parseNot`,
+    /// `parseUnary`, `parsePrimary`). Pair with `defer { expressionDepth
+    /// -= 1 }` in the same method so the counter is exact and balanced on
+    /// every exit, including a throw.
+    private mutating func enterExpressionRecursion() throws {
+        expressionDepth += 1
+        guard expressionDepth <= Self.maxExpressionDepth else {
+            throw ParseError.unexpected(current, expected: "expression nested too deeply (max \(Self.maxExpressionDepth) levels)")
+        }
+    }
+
     /// Parse a full expression.
     public mutating func parseExpression() throws -> Expression {
+        try enterExpressionRecursion()
+        defer { expressionDepth -= 1 }
         return try parseOr()
     }
 
@@ -3178,6 +3221,8 @@ public struct Parser: Sendable {
     }
 
     private mutating func parseNot() throws -> Expression {
+        try enterExpressionRecursion()
+        defer { expressionDepth -= 1 }
         if current.type == .not {
             _ = advance()
             let expr = try parseNot()
@@ -3314,6 +3359,8 @@ public struct Parser: Sendable {
     }
 
     private mutating func parseUnary() throws -> Expression {
+        try enterExpressionRecursion()
+        defer { expressionDepth -= 1 }
         if current.type == .await {
             _ = advance()
             let expr = try parseUnary()
@@ -3328,6 +3375,8 @@ public struct Parser: Sendable {
     }
 
     private mutating func parsePrimary() throws -> Expression {
+        try enterExpressionRecursion()
+        defer { expressionDepth -= 1 }
         switch current.type {
         case .integer, .float:
             let tok = advance()

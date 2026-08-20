@@ -735,24 +735,58 @@ struct TurtleMetamorphicTests {
 @Suite("Security — parser robustness (A2) and bounded loops (C13)", .serialized)
 struct TurtleSecurityRobustnessTests {
 
-    /// A2: deeply-nested parenthesized expressions must not crash the
+    /// A2 + B1: deeply-nested parenthesized expressions must not crash the
     /// process (a native stack overflow would kill the whole test run —
-    /// that IS the failure mode this guards). 500 levels is an empirically
-    /// safe margin on an 8 MB thread stack for this recursive-descent
-    /// parser (probed locally: 700 levels parses cleanly, 800 traps) — see
-    /// the Builder's report for the deviation from the design's "thousands"
-    /// example figure.
-    @Test("Deeply-nested expression (500 parens) does not crash the parser")
+    /// that IS the failure mode this guards). Historically 500 levels was
+    /// an empirically safe margin on an 8 MB thread stack for this
+    /// recursive-descent parser (probed locally: 700 levels parses
+    /// cleanly, 800 traps) — see the Builder's report for the deviation
+    /// from the design's "thousands" example figure.
+    ///
+    /// Security B1 (fix) added `Parser.maxExpressionDepth` (256), an
+    /// internal recursion-depth cap on the parser's own expression-parsing
+    /// entry points. Each level of parenthesized nesting costs 4 depth
+    /// increments (one through each of `parseExpression`/`parseNot`/
+    /// `parseUnary`/`parsePrimary`), so the cap now trips around paren
+    /// level ~64 — long before 500. 500 levels therefore no longer parses
+    /// (as it silently did pre-B1, via a swallowed `try?`); it refuses
+    /// with a clean `ParseError` instead. That is the correct, INTENDED
+    /// post-fix behavior — a crash is still the only unacceptable outcome.
+    @Test("Deeply-nested expression (500 parens) refuses with a clean ParseError, not a crash")
     func deeplyNestedExpressionNoCrash() async {
         let nested = String(repeating: "(", count: 500) + "1" + String(repeating: ")", count: 500)
         let source = "on test\n  return \(nested)\nend test"
-        _ = await runOnLargeStack { () -> Bool in
+        let threw = await runOnLargeStack { () -> Bool in
             var lexer = Lexer(source: source)
             let tokens = lexer.tokenize()
             var parser = Parser(tokens: tokens)
-            _ = try? parser.parse()
-            return true
+            do {
+                _ = try parser.parse()
+                return false
+            } catch is ParseError {
+                return true
+            } catch {
+                return false
+            }
         }
+        #expect(threw, "500 levels of paren nesting must refuse with ParseError under the B1 depth cap, not succeed silently or crash")
+    }
+
+    /// B1 control: nesting comfortably under the parser's depth cap must
+    /// still parse — the cap guards against pathological input, not
+    /// ordinary scripts. 40 levels of paren nesting costs 40 * 4 = 160
+    /// depth increments, safely under the 256 cap.
+    @Test("Moderately-nested expression (40 parens) still parses successfully")
+    func moderatelyNestedExpressionStillParses() async {
+        let nested = String(repeating: "(", count: 40) + "1" + String(repeating: ")", count: 40)
+        let source = "on test\n  return \(nested)\nend test"
+        let parsed = await runOnLargeStack { () -> Bool in
+            var lexer = Lexer(source: source)
+            let tokens = lexer.tokenize()
+            var parser = Parser(tokens: tokens)
+            return (try? parser.parse()) != nil
+        }
+        #expect(parsed, "40 levels of paren nesting is well under the B1 depth cap and must still parse")
     }
 
     /// A2: a ~64 KB turtle program (breadth, not depth — thousands of
@@ -811,5 +845,143 @@ struct TurtleSecurityRobustnessTests {
         """)
         #expect(result?.errored == true)
         #expect(result?.message == "Instruction limit exceeded")
+    }
+
+    // MARK: - Security B1 (parser-internal recursion-depth cap)
+    //
+    // The A2 pre-parse token-nesting guard (`nestingDepthRefusal`, above
+    // `TurtleProgramValidator`) only counts `(`/`)` and `if`/`repeat`
+    // nesting over the RAW token stream. It cannot see every construct
+    // that makes the real recursive-descent `Parser` recurse: bare
+    // prefix-operator chains (`- - - 1`, `not not not x`, `await await
+    // x`), and chunk `of` chains (`item 1 of item 1 of … x`) use no
+    // `(`/`)`/`if`/`repeat` token at all, so the A2 counter never moves
+    // for them. Security B1 closes this gap with an internal
+    // recursion-depth cap inside the parser itself
+    // (`Parser.maxExpressionDepth`, 256) so ANY pathological nesting —
+    // regardless of which grammar construct produces it — refuses with a
+    // clean `ParseError` (which `TurtleProgramValidator.validate`
+    // translates to a `.refused` E9 verdict) instead of overflowing the
+    // native stack. Every case below drives the attack THROUGH
+    // `TurtleProgramValidator.validate(program:)`, the real
+    // `draw_with_turtle` entry point — not the raw parser — so this is
+    // the same code path the AI tool actually exercises.
+
+    /// Asserts `TurtleProgramValidator.validate(program:)` refuses
+    /// `program` cleanly (`.refused`) — never crashing and never
+    /// returning `.ok`. Runs on a real 8 MB-stack thread (matching the
+    /// macOS main thread) so a regression in the depth cap crashes the
+    /// test process loudly instead of silently passing on Swift Testing's
+    /// smaller cooperative-thread stack.
+    private func assertValidatorRefusesCleanly(_ program: String, sourceLocation: SourceLocation = #_sourceLocation) async {
+        let verdict = await runOnLargeStack { () -> TurtleProgramValidator.Verdict in
+            TurtleProgramValidator.validate(program: program)
+        }
+        guard case .refused = verdict else {
+            Issue.record("expected .refused, got \(verdict)", sourceLocation: sourceLocation)
+            return
+        }
+    }
+
+    /// Asserts `TurtleProgramValidator.validate(program:)` accepts
+    /// `program` (`.ok`) — the control side of the B1 fix: the parser's
+    /// new depth cap must not reject ordinary, shallow, legitimate turtle
+    /// programs.
+    private func assertValidatorAccepts(_ program: String, sourceLocation: SourceLocation = #_sourceLocation) async {
+        let verdict = await runOnLargeStack { () -> TurtleProgramValidator.Verdict in
+            TurtleProgramValidator.validate(program: program)
+        }
+        guard case .ok = verdict else {
+            Issue.record("expected .ok, got \(verdict)", sourceLocation: sourceLocation)
+            return
+        }
+    }
+
+    /// B1 crash vector 1: a bare unary-minus prefix chain — no
+    /// parenthesis, no `if`/`repeat` — so the A2 pre-scan's token-nesting
+    /// counter never moves. 512 is 2x the parser's 256-level cap.
+    @Test("B1: a 512-deep bare `-` prefix chain refuses cleanly through validate(), not a crash")
+    func bareMinusChainThroughValidatorRefusesCleanly() async {
+        let program = "forward " + String(repeating: "- ", count: 512) + "1"
+        await assertValidatorRefusesCleanly(program)
+    }
+
+    /// B1 crash vector 2a: a bare `not` prefix chain — same blind spot as
+    /// the minus chain.
+    @Test("B1: a 512-deep `not` chain refuses cleanly through validate(), not a crash")
+    func notChainThroughValidatorRefusesCleanly() async {
+        let program = "forward " + String(repeating: "not ", count: 512) + "true"
+        await assertValidatorRefusesCleanly(program)
+    }
+
+    /// B1 crash vector 2b: the `!` spelling of the same `not` chain — the
+    /// lexer maps `!` directly to the `.not` token, so this exercises the
+    /// identical recursive path through `parseNot`.
+    @Test("B1: a 512-deep `!` chain refuses cleanly through validate(), not a crash")
+    func bangChainThroughValidatorRefusesCleanly() async {
+        let program = "forward " + String(repeating: "! ", count: 512) + "true"
+        await assertValidatorRefusesCleanly(program)
+    }
+
+    /// B1 crash vector 3: a chunk `of` chain — `parsePrimary` recurses
+    /// into itself for the chunk's `source` sub-expression, entirely
+    /// inside `parsePrimary`, never touching a `(`/`)`/`if`/`repeat`
+    /// token the A2 pre-scan counts.
+    @Test("B1: a 512-deep `item 1 of` chunk chain refuses cleanly through validate(), not a crash")
+    func chunkOfChainThroughValidatorRefusesCleanly() async {
+        let program = "forward " + String(repeating: "item 1 of ", count: 512) + "x"
+        await assertValidatorRefusesCleanly(program)
+    }
+
+    /// B1 crash vector 4: deeply nested parentheses. 100 levels stays
+    /// under the A2 pre-scan's own 200-level `(`/`)` cap (so this program
+    /// reaches the real parser instead of being refused before it), but
+    /// exceeds the parser-internal B1 cap — one level of paren nesting
+    /// costs 4 depth increments (one each through `parseExpression`,
+    /// `parseNot`, `parseUnary`, `parsePrimary`), so 100 levels reaches
+    /// depth 400, well past the 256 cap. This isolates the NEW B1
+    /// guard specifically, independent of the pre-existing A2 pre-scan
+    /// (which has its own dedicated coverage in
+    /// `TurtleCrossSurfaceEquivalenceTests.deeplyNestedProgramRefusesCleanly`).
+    @Test("B1: 100 levels of nested parens (under A2's 200-cap) still refuses cleanly through validate()")
+    func nestedParensThroughValidatorRefusesCleanly() async {
+        let nested = String(repeating: "(", count: 100) + "1" + String(repeating: ")", count: 100)
+        let program = "forward \(nested)"
+        await assertValidatorRefusesCleanly(program)
+    }
+
+    /// B1 crash vector 5: nested function-call arguments. Each `f(` opens
+    /// a fresh `parseExpression()` descent for the argument list — the
+    /// same 4-increments-per-level cost as explicit parens (both funnel
+    /// through `parsePrimary`'s function-call branch into
+    /// `parseExpression()`). 100 levels stays under A2's 200-level
+    /// `(`/`)` cap (a call's open paren is lexically indistinguishable
+    /// from a grouping paren) but exceeds B1's effective ~64-level
+    /// threshold, again isolating the new parser-internal guard.
+    @Test("B1: 100-deep nested function calls (under A2's 200-cap) still refuse cleanly through validate()")
+    func nestedFunctionCallsThroughValidatorRefusesCleanly() async {
+        let nested = String(repeating: "f(", count: 100) + "1" + String(repeating: ")", count: 100)
+        let program = "forward \(nested)"
+        await assertValidatorRefusesCleanly(program)
+    }
+
+    /// B1 control: ordinary shallow turtle programs — the kind
+    /// `draw_with_turtle` is actually meant to accept — must still
+    /// validate `.ok` after the depth cap lands.
+    @Test("B1 control: `forward -50` still validates .ok")
+    func shallowNegativeNumberStillValidatesOk() async {
+        await assertValidatorAccepts("forward -50")
+    }
+
+    /// B1 control: shallow parenthesized arithmetic still validates `.ok`.
+    @Test("B1 control: `forward (2 + 3) * 4` still validates .ok")
+    func shallowParenthesizedArithmeticStillValidatesOk() async {
+        await assertValidatorAccepts("forward (2 + 3) * 4")
+    }
+
+    /// B1 control: a property `set` on the turtle still validates `.ok`.
+    @Test("B1 control: `set the heading of the turtle to 45` still validates .ok")
+    func shallowPropertySetStillValidatesOk() async {
+        await assertValidatorAccepts("set the heading of the turtle to 45")
     }
 }
