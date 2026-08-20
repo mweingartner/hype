@@ -8732,8 +8732,11 @@ public struct Interpreter: Sendable {
     }
 
     /// Convert a HypeTalk value to a number. Non-numeric strings become 0.
+    /// Canonical implementation lives in `HypeTalkFormat.number(from:)`
+    /// (design.md D2, turtle-graphics) — this is a thin delegation so the
+    /// rule can never fork between the interpreter and other callers.
     private func toNumber(_ value: Value) -> Double {
-        Double(value) ?? 0
+        HypeTalkFormat.number(from: value)
     }
 
     /// Convert a script-derived Double to Int without trapping. NaN -> 0;
@@ -8749,26 +8752,26 @@ public struct Interpreter: Sendable {
 
     /// Format a number, dropping .0 for integers.
     ///
+    /// Canonical implementation lives in `HypeTalkFormat.number(_:)`
+    /// (design.md D2, turtle-graphics) — this is a thin delegation so the
+    /// rule can never fork between the interpreter and other callers.
     /// Uses `Int(exactly:)` so that integral doubles outside Int64 range
     /// (e.g. 1e30) fall through to `String(n)` ("1e+30") rather than
     /// trapping. Behavior for all in-range values is byte-identical to before.
     private func formatNumber(_ n: Double) -> String {
-        if n == n.rounded(.towardZero) && !n.isInfinite && !n.isNaN {
-            if let i = Int(exactly: n.rounded(.towardZero)) {
-                return String(i)
-            }
-        }
-        return String(n)
+        HypeTalkFormat.number(n)
     }
 
     /// Check if a HypeTalk value is truthy.
     ///
+    /// Canonical implementation lives in `HypeTalkFormat.isTruthy(_:)`
+    /// (design.md D2, turtle-graphics) — this is a thin delegation so the
+    /// rule can never fork between the interpreter and other callers.
     /// Classic HyperCard truth: only `"true"` (case-insensitive) and any non-zero
     /// number are truthy. `"yes"`, `"on"`, and other English affirmatives are FALSY.
     /// This matches the HypeTalk guide and classic HyperCard behaviour.
     private func isTruthy(_ value: Value) -> Bool {
-        let lower = value.lowercased()
-        return lower == "true" || (Double(value).map { $0 != 0 } ?? false)
+        HypeTalkFormat.isTruthy(value)
     }
 
     // MARK: - Sprite Area Helpers
