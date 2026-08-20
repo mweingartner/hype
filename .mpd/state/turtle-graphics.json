@@ -4,7 +4,7 @@
   "schema": "mpd",
   "ui": true,
   "kind": "feature",
-  "phase": "security-code",
+  "phase": "design-signoff",
   "gates": {
     "design-mock": {
       "verdict": "pass",
@@ -147,17 +147,17 @@
     "build": {
       "verdict": "pass",
       "by": "Builder",
-      "evidence": "4 delegated Sonnet Builder packages committed, each green: P1 (e29d3db), P2 (3be1180), P3 (4ac845d, cross-surface equivalence byte-identical), P4 (8800f97). Whole tree + HypeTests compile; integrated scripts/mpd-test.sh 3490 passed / 0 failed.",
+      "evidence": "Rebuilt subject after the delegated-Sonnet B1 fix (parser recursion cap, commit 2942a3a). Whole tree compiles; integrated scripts/mpd-test.sh 3500 passed / 0 failed (P1-P4 3490 + 10 B1 robustness tests).",
       "checks": {
-        "tests_passed": 6980,
+        "tests_passed": 7000,
         "command": "scripts/mpd-test.sh"
       },
       "at": "2026-08-20",
-      "attempt": 1,
-      "started_at_epoch_secs": 1787243617,
-      "completed_at_epoch_secs": 1787243627,
+      "attempt": 2,
+      "started_at_epoch_secs": 1787245631,
+      "completed_at_epoch_secs": 1787245652,
       "receipt": {
-        "id": "7f47d54dedbbfb5a9d45c44736ee9244664abd95b60822718a38e1c6cfa71dc5",
+        "id": "3c54b9b14f0bac60304628a907ac6762b480f1123c8a86433a36879ba46cf6c6",
         "schema": 2,
         "phase": "build",
         "disposition": {
@@ -167,10 +167,10 @@
           "schema": 2,
           "values": {
             "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
-            "source": "1296c2a6cb59175a94f1524a34e39847033845d5d4befbff8985b1c28a0b1c2f",
+            "source": "84a01f05e8550e1aec9453e4fa97a72f4fc9b0eb24af7e4b9ac92f185e3d9841",
             "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
             "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
-            "produced-artifact": "1296c2a6cb59175a94f1524a34e39847033845d5d4befbff8985b1c28a0b1c2f"
+            "produced-artifact": "84a01f05e8550e1aec9453e4fa97a72f4fc9b0eb24af7e4b9ac92f185e3d9841"
           }
         }
       },
@@ -185,20 +185,37 @@
       }
     },
     "security-code": {
-      "verdict": "fail",
+      "verdict": "pass",
       "by": "Security",
-      "at": "2026-08-20",
-      "failure_class": "product",
-      "exploitability": {
-        "attacker": "prompt-injection in untrusted content the assistant ingests (or a malfunctioning model) steering a draw_with_turtle call",
-        "capability": "influence over the tool's normal 'program' string input",
-        "boundary": "the A2 pre-parse nesting guard nestingDepthRefusal, whose stated purpose is to refuse pathological programs before the recursive-descent parser crashes",
-        "harm": "a ~16-32KB program of bare prefix tokens (forward + '- 'x16000 + 1) or not/!/chunk-of chains passes the 64KB cap and the depth-0 guard, then overflows the parser stack (SIGBUS) inside validate() BEFORE the allowlist walk or execution — host crash, unsaved-work loss (availability; no sandbox escape)",
-        "fix": "extend nestingDepthRefusal to count consecutive prefix-operator runs (.minus/.not/!/.await) and chunk of-chain depth in the same flat non-recursive pass, refusing above a safe cap (and/or an internal recursion cap in parseUnary/parseNot/parsePrimary); add a robustness test pushing ~2x the cap of bare '- '/'not '/'item 1 of ' chains through validate asserting clean .refused"
+      "evidence": "Delegated Opus re-review of fixed subject (2942a3a): A2/B1 CLOSED via parser recursion cap (256) at all 4 self-recursive entry points; C4/strippingTimesArtifact/C13/C14/masking/secret-scan all MET (unchanged code). External scanners now clean: gitleaks (5 allowlisted), semgrep --config auto 0 findings after clearing 5 PRE-EXISTING repo warnings unrelated to turtle (checkout SHA-pin + justified nosemgrep on loopback Ollama urllib; commit 14ac3ca). All 4 conditions met.",
+      "checks": {
+        "secrets_clean": true,
+        "scanner": "builtin+gitleaks+semgrep"
       },
-      "attempt": 1,
-      "started_at_epoch_secs": 1787243751,
-      "completed_at_epoch_secs": 1787244403,
+      "at": "2026-08-20",
+      "attempt": 2,
+      "started_at_epoch_secs": 1787245774,
+      "completed_at_epoch_secs": 1787252122,
+      "receipt": {
+        "id": "f25e054e6da41516a96a00efb5aa1d3aaacb0c7157bd3914517d5a2e50cc14c0",
+        "schema": 2,
+        "phase": "security-code",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "source": "84a01f05e8550e1aec9453e4fa97a72f4fc9b0eb24af7e4b9ac92f185e3d9841",
+            "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+            "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7",
+            "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+            "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
       "persona_tuning": {
         "base_modified": true,
         "weakened": true
@@ -217,7 +234,7 @@
       "attempt": 1,
       "text": "C4: TurtleProgramValidator applies the allowed-expression walk to EVERY expression position (external-command args, set-value, repeatCount count, repeatWith from/to bounds); functionCall in any position refuses E9, zero parts. Verify in real TurtleProgramValidator.swift + escape tests.",
       "owner": "Security",
-      "closed": false,
+      "closed": true,
       "opened_at_epoch_secs": 1787236060,
       "events": [
         {
@@ -232,6 +249,13 @@
           "at_epoch_secs": 1787243524,
           "reason": "stale evidence rewind",
           "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787252156,
+          "evidence": "All 4 verified MET by delegated Opus Security(code) against real code (commit 2942a3a): C4 every-expression-position allowlist (TurtleProgramValidator isAllowedExpression); C13 instructionCount guard at repeatCount/repeatWith heads (Interpreter.swift:1946,2011); C14 stub-provider ExecutionContext (HypeToolExecutor:5806); A2 parser recursion cap (256) closing the crash vector. Escape/DoS/containment/robustness tests green (3500 passed).",
+          "evidence_digest": "f4e60286ce7aa624c30d93d439bbcaf9a01771c932541fe569b2e2f834a010fc"
         }
       ]
     },
@@ -241,7 +265,7 @@
       "attempt": 1,
       "text": "C13: repeatCount/repeatWith loop heads gain the per-iteration instructionCount+checkCancellation+instructionLimit guard (as repeatForever) so empty-body counted loops are bounded/cancellable. Verify in real Interpreter.swift loop heads + DoS test.",
       "owner": "Security",
-      "closed": false,
+      "closed": true,
       "opened_at_epoch_secs": 1787236060,
       "events": [
         {
@@ -256,6 +280,13 @@
           "at_epoch_secs": 1787243524,
           "reason": "stale evidence rewind",
           "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787252156,
+          "evidence": "All 4 verified MET by delegated Opus Security(code) against real code (commit 2942a3a): C4 every-expression-position allowlist (TurtleProgramValidator isAllowedExpression); C13 instructionCount guard at repeatCount/repeatWith heads (Interpreter.swift:1946,2011); C14 stub-provider ExecutionContext (HypeToolExecutor:5806); A2 parser recursion cap (256) closing the crash vector. Escape/DoS/containment/robustness tests green (3500 passed).",
+          "evidence_digest": "f4e60286ce7aa624c30d93d439bbcaf9a01771c932541fe569b2e2f834a010fc"
         }
       ]
     },
@@ -265,7 +296,7 @@
       "attempt": 1,
       "text": "C14: draw_with_turtle ExecutionContext built with deny-by-default stub providers only (no real file/host/runtime provider). Verify in real HypeToolExecutor.swift + containment test.",
       "owner": "Security",
-      "closed": false,
+      "closed": true,
       "opened_at_epoch_secs": 1787236060,
       "events": [
         {
@@ -280,6 +311,13 @@
           "at_epoch_secs": 1787243524,
           "reason": "stale evidence rewind",
           "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787252156,
+          "evidence": "All 4 verified MET by delegated Opus Security(code) against real code (commit 2942a3a): C4 every-expression-position allowlist (TurtleProgramValidator isAllowedExpression); C13 instructionCount guard at repeatCount/repeatWith heads (Interpreter.swift:1946,2011); C14 stub-provider ExecutionContext (HypeToolExecutor:5806); A2 parser recursion cap (256) closing the crash vector. Escape/DoS/containment/robustness tests green (3500 passed).",
+          "evidence_digest": "f4e60286ce7aa624c30d93d439bbcaf9a01771c932541fe569b2e2f834a010fc"
         }
       ]
     },
@@ -289,7 +327,7 @@
       "attempt": 1,
       "text": "A2: InterpreterFuzzTests turtle corpus includes deeply-nested + ~64KB adversarial programs asserting no crash.",
       "owner": "Security",
-      "closed": false,
+      "closed": true,
       "opened_at_epoch_secs": 1787236060,
       "events": [
         {
@@ -304,6 +342,13 @@
           "at_epoch_secs": 1787243524,
           "reason": "stale evidence rewind",
           "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787252156,
+          "evidence": "All 4 verified MET by delegated Opus Security(code) against real code (commit 2942a3a): C4 every-expression-position allowlist (TurtleProgramValidator isAllowedExpression); C13 instructionCount guard at repeatCount/repeatWith heads (Interpreter.swift:1946,2011); C14 stub-provider ExecutionContext (HypeToolExecutor:5806); A2 parser recursion cap (256) closing the crash vector. Escape/DoS/containment/robustness tests green (3500 passed).",
+          "evidence_digest": "f4e60286ce7aa624c30d93d439bbcaf9a01771c932541fe569b2e2f834a010fc"
         }
       ]
     }
@@ -845,6 +890,94 @@
           "model": "claude-opus-4-8"
         }
       }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "Rebuilt subject after the delegated-Sonnet B1 fix (parser recursion cap, commit 2942a3a). Whole tree compiles; integrated scripts/mpd-test.sh 3500 passed / 0 failed (P1-P4 3490 + 10 B1 robustness tests).",
+        "checks": {
+          "tests_passed": 7000,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787245631,
+        "completed_at_epoch_secs": 1787245652,
+        "receipt": {
+          "id": "3c54b9b14f0bac60304628a907ac6762b480f1123c8a86433a36879ba46cf6c6",
+          "schema": 2,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "84a01f05e8550e1aec9453e4fa97a72f4fc9b0eb24af7e4b9ac92f185e3d9841",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "84a01f05e8550e1aec9453e4fa97a72f4fc9b0eb24af7e4b9ac92f185e3d9841"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Delegated Opus re-review of fixed subject (2942a3a): A2/B1 CLOSED via parser recursion cap (256) at all 4 self-recursive entry points; C4/strippingTimesArtifact/C13/C14/masking/secret-scan all MET (unchanged code). External scanners now clean: gitleaks (5 allowlisted), semgrep --config auto 0 findings after clearing 5 PRE-EXISTING repo warnings unrelated to turtle (checkout SHA-pin + justified nosemgrep on loopback Ollama urllib; commit 14ac3ca). All 4 conditions met.",
+        "checks": {
+          "secrets_clean": true,
+          "scanner": "builtin+gitleaks+semgrep"
+        },
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787245774,
+        "completed_at_epoch_secs": 1787252122,
+        "receipt": {
+          "id": "f25e054e6da41516a96a00efb5aa1d3aaacb0c7157bd3914517d5a2e50cc14c0",
+          "schema": 2,
+          "phase": "security-code",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "84a01f05e8550e1aec9453e4fa97a72f4fc9b0eb24af7e4b9ac92f185e3d9841",
+              "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7",
+              "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+              "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
     }
   ],
   "governance": {
@@ -874,7 +1007,7 @@
   },
   "strict": false,
   "waivers": [],
-  "phase_started_at_epoch_secs": 1787243751,
+  "phase_started_at_epoch_secs": 1787252141,
   "brief_tuning": {
     "design-mock": {
       "attempt": 3,
@@ -904,7 +1037,14 @@
         "weakened": true
       }
     },
-    "security-code": {
+    "build": {
+      "attempt": 2,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "design-signoff": {
       "attempt": 1,
       "record": {
         "base_modified": true,
@@ -973,6 +1113,19 @@
         "security-plan: architecture-plan changed"
       ],
       "at_epoch_secs": 1787243524
+    },
+    {
+      "schema": 1,
+      "stored_phase": "security-code",
+      "rewind_phase": "build",
+      "stale_phases": [
+        "build"
+      ],
+      "reasons": [
+        "build: source changed",
+        "build: produced-artifact changed"
+      ],
+      "at_epoch_secs": 1787245631
     }
   ]
 }
