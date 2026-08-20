@@ -489,6 +489,27 @@
   "strict": false,
   "waivers": [],
   "phase_started_at_epoch_secs": 1787256513,
+  "archive_closure": {
+    "base_commit": "c14840efa75ebf489a6aa2293b1c430b2f8eb7ce",
+    "archive_path": "openspec/changes/archive/2026-08-20-repeatwhile-instruction-guard",
+    "transaction_id": "b2e2076757cd7bc94dae412f280ee7bbda512cf6736885b1b4ea35279c24fec0",
+    "allowed_paths": [
+      ".mpd/state/repeatwhile-instruction-guard.json",
+      "Sources/HypeCore/Script/Interpreter.swift",
+      "Tests/HypeCoreTests/InterpreterFuzzTests.swift",
+      "openspec/changes/archive/2026-08-20-repeatwhile-instruction-guard",
+      "openspec/changes/repeatwhile-instruction-guard"
+    ],
+    "system_paths": [
+      ".mpd/state/repeatwhile-instruction-guard.json",
+      "Sources/HypeCore/Script/Interpreter.swift",
+      "Tests/HypeCoreTests/InterpreterFuzzTests.swift",
+      "openspec/changes/archive/2026-08-20-repeatwhile-instruction-guard",
+      "openspec/changes/repeatwhile-instruction-guard"
+    ],
+    "post_archive_digest": "1fc43b9d0e6838602f7305d10fc307ca481f6e764b04ed768019c328a3666e07",
+    "archived_at": 1787256536
+  },
   "brief_tuning": {
     "architecture": {
       "attempt": 1,
