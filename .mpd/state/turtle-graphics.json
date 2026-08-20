@@ -183,6 +183,31 @@
         "delegated": true,
         "model": "sonnet"
       }
+    },
+    "security-code": {
+      "verdict": "fail",
+      "by": "Security",
+      "at": "2026-08-20",
+      "failure_class": "product",
+      "exploitability": {
+        "attacker": "prompt-injection in untrusted content the assistant ingests (or a malfunctioning model) steering a draw_with_turtle call",
+        "capability": "influence over the tool's normal 'program' string input",
+        "boundary": "the A2 pre-parse nesting guard nestingDepthRefusal, whose stated purpose is to refuse pathological programs before the recursive-descent parser crashes",
+        "harm": "a ~16-32KB program of bare prefix tokens (forward + '- 'x16000 + 1) or not/!/chunk-of chains passes the 64KB cap and the depth-0 guard, then overflows the parser stack (SIGBUS) inside validate() BEFORE the allowlist walk or execution — host crash, unsaved-work loss (availability; no sandbox escape)",
+        "fix": "extend nestingDepthRefusal to count consecutive prefix-operator runs (.minus/.not/!/.await) and chunk of-chain depth in the same flat non-recursive pass, refusing above a safe cap (and/or an internal recursion cap in parseUnary/parseNot/parsePrimary); add a robustness test pushing ~2x the cap of bare '- '/'not '/'item 1 of ' chains through validate asserting clean .refused"
+      },
+      "attempt": 1,
+      "started_at_epoch_secs": 1787243751,
+      "completed_at_epoch_secs": 1787244403,
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "claude-opus-4-8"
+      }
     }
   },
   "conditions": [
@@ -790,6 +815,34 @@
           "schema": 1,
           "delegated": true,
           "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "fail",
+        "by": "Security",
+        "at": "2026-08-20",
+        "failure_class": "product",
+        "exploitability": {
+          "attacker": "prompt-injection in untrusted content the assistant ingests (or a malfunctioning model) steering a draw_with_turtle call",
+          "capability": "influence over the tool's normal 'program' string input",
+          "boundary": "the A2 pre-parse nesting guard nestingDepthRefusal, whose stated purpose is to refuse pathological programs before the recursive-descent parser crashes",
+          "harm": "a ~16-32KB program of bare prefix tokens (forward + '- 'x16000 + 1) or not/!/chunk-of chains passes the 64KB cap and the depth-0 guard, then overflows the parser stack (SIGBUS) inside validate() BEFORE the allowlist walk or execution — host crash, unsaved-work loss (availability; no sandbox escape)",
+          "fix": "extend nestingDepthRefusal to count consecutive prefix-operator runs (.minus/.not/!/.await) and chunk of-chain depth in the same flat non-recursive pass, refusing above a safe cap (and/or an internal recursion cap in parseUnary/parseNot/parsePrimary); add a robustness test pushing ~2x the cap of bare '- '/'not '/'item 1 of ' chains through validate asserting clean .refused"
+        },
+        "attempt": 1,
+        "started_at_epoch_secs": 1787243751,
+        "completed_at_epoch_secs": 1787244403,
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
         }
       }
     }
