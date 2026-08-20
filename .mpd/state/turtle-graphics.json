@@ -4,7 +4,7 @@
   "schema": "mpd",
   "ui": true,
   "kind": "feature",
-  "phase": "design-signoff",
+  "phase": "test",
   "gates": {
     "design-mock": {
       "verdict": "pass",
@@ -213,6 +213,41 @@
             "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
             "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
             "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "design-signoff": {
+      "verdict": "pass",
+      "by": "Designer",
+      "evidence": "Delegated Opus Design Sign-off: PASS WITH NOTES. All 20 acceptance criteria realized in built code + asserted by tests (spot-verified 1-5 semantics, 6-10 output/renderer parity across all 3 sites, 11-14 state/persistence, 15 errors, 16-19 AI+cross-surface byte-identical, 20 fuzz/metamorphic). Both Design-Review corrections confirmed: three-renderer unification (export no longer black-fills open strokes) + partial-state d2. Vocabulary/property/error-copy consistent, single ErrorCopy owner, no second geometry impl, discoverability present (guide section + turtle_graphics skill). 2 non-blocking notes (skill snake_case correct; on-forward shadowing intentional). No blocking issues.",
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787252141,
+      "completed_at_epoch_secs": 1787252415,
+      "receipt": {
+        "id": "1da8a70f24a01b8be0810f3b621dd3f71bbb9a700e1c0b96a46811980fd0ebb0",
+        "schema": 2,
+        "phase": "design-signoff",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+            "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+            "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7"
           }
         }
       },
@@ -978,6 +1013,44 @@
           "model": "claude-opus-4-8"
         }
       }
+    },
+    {
+      "phase": "design-signoff",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "Delegated Opus Design Sign-off: PASS WITH NOTES. All 20 acceptance criteria realized in built code + asserted by tests (spot-verified 1-5 semantics, 6-10 output/renderer parity across all 3 sites, 11-14 state/persistence, 15 errors, 16-19 AI+cross-surface byte-identical, 20 fuzz/metamorphic). Both Design-Review corrections confirmed: three-renderer unification (export no longer black-fills open strokes) + partial-state d2. Vocabulary/property/error-copy consistent, single ErrorCopy owner, no second geometry impl, discoverability present (guide section + turtle_graphics skill). 2 non-blocking notes (skill snake_case correct; on-forward shadowing intentional). No blocking issues.",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787252141,
+        "completed_at_epoch_secs": 1787252415,
+        "receipt": {
+          "id": "1da8a70f24a01b8be0810f3b621dd3f71bbb9a700e1c0b96a46811980fd0ebb0",
+          "schema": 2,
+          "phase": "design-signoff",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
     }
   ],
   "governance": {
@@ -1007,7 +1080,7 @@
   },
   "strict": false,
   "waivers": [],
-  "phase_started_at_epoch_secs": 1787252141,
+  "phase_started_at_epoch_secs": 1787252415,
   "brief_tuning": {
     "design-mock": {
       "attempt": 3,
@@ -1045,6 +1118,13 @@
       }
     },
     "design-signoff": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "test": {
       "attempt": 1,
       "record": {
         "base_modified": true,
