@@ -28,40 +28,40 @@
 
 ## 2. P2 — HypeTalk front-end (ends green)
 
-- [ ] 2.1 Parser gates in `Sources/HypeCore/Script/Parser.swift`:
+- [x] 2.1 Parser gates in `Sources/HypeCore/Script/Parser.swift`:
       zero-arg turtle verbs in `isKnownZeroArgumentExternalCommand`;
       turtle verbs in `isKnownExternalCommand`; `.minus` lookahead gated
       on `TurtleVocabulary.isTurtleVerb` in
       `shouldParseExternalCommandStatement`.
-- [ ] 2.2 Interpreter: add `Environment.turtle`; turtle leaf helpers
+- [x] 2.2 Interpreter: add `Environment.turtle`; turtle leaf helpers
       (`turtleEngine`, `syncTurtle`, `applyTurtleOutcome`,
       `executeTurtleCommand`, `flushTurtleAtRunEnd`,
       `flushTurtleForNavigation`).
-- [ ] 2.3 Intercepts: `.externalCommand` (after user-handler dispatch,
+- [x] 2.3 Intercepts: `.externalCommand` (after user-handler dispatch,
       before classic builtins); `.resetCmd` turtle branch (bare-word
       fallback); `.set` turtle-target branch; `evaluateProperty`
       turtle-target branch.
-- [ ] 2.4 Flush hooks: all `executeAsyncImpl` exit paths that return a
+- [x] 2.4 Flush hooks: all `executeAsyncImpl` exit paths that return a
       document (normal, passMessage, exitHandler, showAllCards,
       cancelled); navigation flush at `.go`, `.goInStack`, `.pop`.
-- [ ] 2.4b **(Security C13)** Add the per-iteration
+- [x] 2.4b **(Security C13)** Add the per-iteration
       `instructionCount += 1` + `try context.checkCancellation()` +
       `instructionLimit` guard (as `.repeatForever` already has) to the
       `.repeatCount` and `.repeatWith` loop heads
       (`Interpreter.swift:1763–1841`), so empty-/non-emitting-body counted
       loops are bounded and cancellable.
-- [ ] 2.5 Write `Tests/HypeCoreTests/TurtleScriptingTests.swift`
+- [x] 2.5 Write `Tests/HypeCoreTests/TurtleScriptingTests.swift`
       (criteria 1, 3, 4, 11–13, interpreter half of 15, REPL walk,
       navigation flush, `on forward` shadowing; capturing runtime double
       for E8 partial state).
-- [ ] 2.6 Extend `Tests/HypeCoreTests/InterpreterFuzzTests.swift`: turtle
+- [x] 2.6 Extend `Tests/HypeCoreTests/InterpreterFuzzTests.swift`: turtle
       statement family in the grammar fuzzer + metamorphic relations
       (`right d`/`left d`, `fd n`/`bk n`, mod-360, square closure, `clean`
       idempotence); **(Security A2)** deeply-nested + ~64 KB adversarial
       programs assert no crash; **(Security C13)** a huge-count empty-body
       `repeat` terminates with "Instruction limit exceeded". Suite green
       (criterion 20).
-- [ ] 2.7 `swift test` green.
+- [x] 2.7 `swift test` green.
 
 ## 3. P3 — AI front-end (ends green)
 
