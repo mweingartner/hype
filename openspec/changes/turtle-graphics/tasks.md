@@ -2,29 +2,29 @@
 
 ## 1. P1 — Engine, number canon, colors (ends green)
 
-- [ ] 1.1 Create `Sources/HypeCore/Script/HypeTalkFormat.swift`
+- [x] 1.1 Create `Sources/HypeCore/Script/HypeTalkFormat.swift`
       (`number(_:)`, `number(from:)`, `isTruthy(_:)`); delegate
       `Interpreter.formatNumber` / `toNumber` / `isTruthy` to it
       (byte-identical behavior).
-- [ ] 1.2 Create `Sources/HypeCore/Script/TurtleEngine.swift`: `Canvas`,
+- [x] 1.2 Create `Sources/HypeCore/Script/TurtleEngine.swift`: `Canvas`,
       `ScalarState` (+ `encoded`/`init?(encoded:)`), `Command`,
       `Emission`/`FrameRect`, `Outcome`, `TurtleError` (LocalizedError),
       `ErrorCopy` (all E-strings), limits, `perform`, `endRun`,
       `propertyValue`, `setProperty`, cardinal-snapped trig, §5.4
       circle/arc, §5.1 frame math, §5.5 atomic limit checks.
-- [ ] 1.3 Add `TurtleVocabulary` (verb map incl. abbreviations,
+- [x] 1.3 Add `TurtleVocabulary` (verb map incl. abbreviations,
       `zeroArgumentVerbs`, `isTurtleVerb`).
-- [ ] 1.4 Create `Sources/HypeCore/Script/TurtlePartApplier.swift`
+- [x] 1.4 Create `Sources/HypeCore/Script/TurtlePartApplier.swift`
       (deletion by prefix, smallest-free-N naming, sortKey via
       `nextPartSortOrdinal`); change `nextPartSortOrdinal` in
       `Sources/HypeCore/Models/PartDuplication.swift` to `internal`.
-- [ ] 1.5 Extend `Sources/HypeCore/Models/HexColor.swift` with the 16-name
+- [x] 1.5 Extend `Sources/HypeCore/Models/HexColor.swift` with the 16-name
       table (17 keys with `grey`), lookup after the empty check, before hex.
-- [ ] 1.6 Write `Tests/HypeCoreTests/TurtleEngineTests.swift` (criteria
+- [x] 1.6 Write `Tests/HypeCoreTests/TurtleEngineTests.swift` (criteria
       1–3, 5–9, engine half of 15, encoding round-trip, limits).
-- [ ] 1.7 Extend `Tests/HypeCoreTests/PartPropertyDispatchTests.swift`
+- [x] 1.7 Extend `Tests/HypeCoreTests/PartPropertyDispatchTests.swift`
       for named colors (criterion 19 unit level) + garbage-still-errors.
-- [ ] 1.8 `swift test` green.
+- [x] 1.8 `swift test` green.
 
 ## 2. P2 — HypeTalk front-end (ends green)
 

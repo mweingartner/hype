@@ -621,6 +621,13 @@
         "base_modified": true,
         "weakened": true
       }
+    },
+    "build": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
     }
   },
   "freshness_invalidations": [
