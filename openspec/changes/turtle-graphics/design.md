@@ -396,6 +396,29 @@ Nested dispatches (`send`, implicit command handlers) are their own runs:
 their flush emits their own part; scalar state round-trips through
 scriptGlobals (Deviations d12).
 
+9. **Bounded-loop DoS guard (Security C13).** The `.repeatCount`
+   (`Interpreter.swift:1763–1781`) and `.repeatWith` (`:1803–1841`) loop
+   heads currently have **no** per-iteration `instructionCount` increment
+   and **no** `checkCancellation`, unlike `.repeatForever` (`:1743–1746`).
+   So an empty- or non-emitting-body loop with a huge literal count
+   (`repeat 999999999999 times / end repeat`; `clampedInt` clamps to
+   `Int.max`) executes zero body statements, never increments
+   `instructionCount`, never reaches a cancellation point → an unbounded,
+   uncancellable spin. E8 does **not** bound it (E8 counts only *emitted*
+   parts/points, not iterations). The turtle validator permits empty repeat
+   bodies, so `draw_with_turtle` newly reaches this. Fix: at each of the two
+   loop heads add the guard `.repeatForever` already has —
+   `instructionCount += 1; try context.checkCancellation(); if instructionCount
+   > context.instructionLimit { throw ScriptError("Instruction limit
+   exceeded", …) }` — so every iteration counts and is cancellable
+   regardless of body. This hardens all `repeat`-bearing scripts, not just
+   turtle. (Correction to **design-mock §7.1**, which says loop iterations
+   are "capped by the §5.5 point/part limits" — that is wrong; the real
+   bound is `context.instructionLimit` (default 1,000,000,
+   `Interpreter.swift:1224–1228`), which this guard extends to empty-body
+   counted loops. `beginFill`/movement-only loops were already bounded by
+   the per-body-statement increment.)
+
 ### D7. AI front-end
 
 **Validator** — new file
@@ -422,15 +445,31 @@ allowed construct is single-line-headed: simple statement = 1 segment,
 maps to an exact line. Allowlist:
 
 - `.externalCommand(name:arguments:)` with `TurtleVocabulary.isTurtleVerb`
-  and argument expressions from the allowed expression set;
-- `.set(property:of:to:)` where `of` is the turtle form;
+  and **every** argument expression from the allowed expression set;
+- `.set(property:of:to:)` where `of` is the turtle form **and the value
+  expression is validated** against the allowed expression set;
 - `.resetCmd(expr)` where expr is the bare word / literal `turtle`;
-- `.repeatCount` and `.repeatWith` (bodies validated recursively);
+- `.repeatCount` (**the count expression is validated**) and `.repeatWith`
+  (**the from/to bound expressions are validated**); in both, the loop body
+  is validated recursively;
 - allowed expressions (recursive): `.literal`, `.variable`,
   `.unary(.negate, _)`, `.binary` with arithmetic ops
   (+ − * / mod div ^), and `.propertyAccess(_, turtle-target)`.
   **`functionCall` is expressly disallowed** (a user function could smuggle
   arbitrary script into an argument); everything else refuses.
+
+> **Security (plan) — C4, load-bearing (delegated Opus).** The
+> allowed-expression validator MUST run on **every expression position in
+> every allowed statement** — external-command arguments, the `set` value
+> expression, and the `.repeatCount` count and `.repeatWith` from/to bounds
+> — not only "arguments" and "bodies". These three positions each reach
+> `evaluate(...)` (which invokes user functions): `repeatCount` count
+> (`Interpreter.swift:1764`), `repeatWith` from/to (`:1804–1805`), and the
+> `set … of the turtle to <expr>` value. Leaving any unvalidated lets
+> `repeat foo() times …`, `repeat with i = 1 to foo() …`, or
+> `set the heading of the turtle to foo()` smuggle a `functionCall` past
+> the allowlist and run an arbitrary user handler — defeating the sandbox
+> (contained only by stub providers to document-mutation). See Condition 4.
 
 **Tool schema** — `HypeTools.swift`: `makeTool(name: "draw_with_turtle",
 description: <§7.1 text verbatim>, params: ["program": ("string",
@@ -452,7 +491,9 @@ Flow: validate (refusal returns the E9/cap string, zero mutation) →
 snapshot existing part IDs → `Handler(name: "drawWithTurtle", handlerType:
 .message, params: [], body: statements, line: 1)` →
 `ExecutionContext(targetId: currentCardId, currentCardId: currentCardId,
-document: document)` (stub providers, no runtime) →
+document: document)` (**deny-by-default stub providers only** —
+`StubFileAccessProvider`, `StubHostApplicationProvider`,
+`StubAIScriptingProvider`, `runtimeProvider: nil`; Security C14) →
 `await Interpreter().executeAsync(...)`. On `.error` → return
 `result.error!.message` verbatim, document untouched (all-or-nothing on
 this surface — Deviations d2). On `.cancelled` → `"Turtle drawing was
@@ -468,6 +509,17 @@ final sentence, and an unnamed card rendered as `card <number>`
 (Deviations d13). Handler shadowing (`on forward` in stack scripts)
 applies identically on both surfaces — equivalence-preserving; noted for
 Security.
+
+> **Security (plan) — C14, provider containment (delegated Opus).** A
+> validated `forward 100` can run an arbitrary `on forward` stack handler
+> (dispatch precedence, `Interpreter.swift:2369`). Under local-trusted-user
+> the stack author == the handler author, so no authority is gained — but
+> the containment that makes this safe is that the executor's
+> `ExecutionContext` uses deny-by-default providers, so a shadowed
+> handler's blast radius is document-mutation only (which the authoring
+> tool already permits), never filesystem/network/host/runtime. The Builder
+> MUST construct the tool's context with stub providers only and never wire
+> real file/host/runtime providers into it. See Condition 14.
 
 ### D8. Renderer alignment (§5.2 + criterion 14)
 
@@ -593,7 +645,14 @@ bullets, and one pattern (`turtle-square-flower`) using the §8 snippets.
   summary, present in `allTools` with the §7.1 description, absent from
   `RuntimeAIToolCatalog`) and criterion 17 (E9 verbatim, zero
   parts, including `set the name of button 1 …` and `repeat while` shapes
-  and the 64 KB cap).
+  and the 64 KB cap). **Security C4 escape cases (mandatory):**
+  `repeat foo() times / end repeat`, `repeat with i = 1 to foo() / end repeat`,
+  and `set the heading of the turtle to foo()` each refuse with E9 and
+  create zero parts (proves every expression position — count, from/to,
+  set-value — is validated, not just args/bodies). **Security C14
+  containment:** a stub-`ExecutionContext` test that a shadowed `on forward`
+  handler doing `write "x" to file "…"` is denied by the stub file provider
+  (document mutation only).
 - `Tests/HypeCoreTests/ShapeRendererFreeformTests.swift` +
   `Tests/HypeTests/ShapePartNodeFreeformTests.swift` +
   `Tests/HypeCoreTests/TargetRuntimeFreeformTests.swift` — criterion 10
@@ -619,7 +678,12 @@ bullets, and one pattern (`turtle-square-flower`) using the §8 snippets.
   4×(fd L, rt 90) returns home with first == last; `clean` twice ≡ once.
   Standing invariants for the harness: heading ∈ [0,360); every emitted
   part carries a reserved-prefix name; all pathData finite and within
-  ±1,000,000.
+  ±1,000,000. **Security A2 (parser robustness):** the corpus includes
+  deeply-nested expressions (e.g. ~thousands of nested parens) and
+  maximum-length (~64 KB) programs, asserting no crash — the deterministic
+  backstop for the allowlist walk. **Security C13 (DoS):** a huge-count
+  empty-body `repeat` (e.g. `repeat 1000000000 times / end repeat`)
+  terminates with "Instruction limit exceeded" rather than hanging.
 - `Tests/HypeCoreTests/HypeTalkGuideTests.swift` — guide contains the
   Turtle graphics section and every §4 verb; skill `turtle_graphics`
   listed; pattern resolves.
@@ -709,11 +773,20 @@ bullets, and one pattern (`turtle-square-flower`) using the §8 snippets.
    Only `TurtleEngine.ErrorCopy` composes turtle error text; the
    interpreter wraps messages into `ScriptError` unaltered; the executor
    returns them verbatim. Tests assert full-string equality.
-4. **AI allowlist is all-or-nothing before any mutation.** The 64 KB cap
-   and `TurtleProgramValidator` run before any document access; a refusal
-   or parse failure creates zero parts and performs zero mutation; E9
-   names the first offending line. `functionCall` expressions never pass
-   validation.
+4. **AI allowlist is all-or-nothing before any mutation, and validates
+   EVERY expression position.** The 64 KB cap and `TurtleProgramValidator`
+   run before any document access; a refusal or parse failure creates zero
+   parts and performs zero mutation; E9 names the first offending line. The
+   allowed-expression validator MUST be applied to **every** expression
+   position in every allowed statement — external-command arguments, the
+   `set` value expression, and the `.repeatCount` count and `.repeatWith`
+   from/to bound expressions — not only arguments and loop bodies. A
+   `functionCall` (or any non-arithmetic / non-turtle-property expression)
+   in **any** position refuses with E9 and creates zero parts. (Security
+   C4 — the load-bearing sandbox boundary. Evidence: criterion-17 tests
+   proving `repeat foo() times`, `repeat with i = 1 to foo()`, and
+   `set the heading of the turtle to foo()` each refuse with E9 and create
+   zero parts.)
 5. **`HexColor` change is strictly additive.** Existing hex acceptance,
    normalization, and the `""` sentinel are byte-identical; the two
    existing error-copy strings are unchanged; chart color paths
@@ -749,3 +822,24 @@ bullets, and one pattern (`turtle-square-flower`) using the §8 snippets.
 12. **Hot-path neutrality:** scripts that never touch the turtle incur at
     most one nil check per run end/navigation — no engine allocation, no
     extra scriptGlobals writes, no per-statement cost.
+13. **Bounded-loop DoS guard (Security C13).** Add the per-iteration guard
+    `.repeatForever` already has (`instructionCount += 1` +
+    `try context.checkCancellation()` + `instructionLimit` check) to the
+    `.repeatCount` and `.repeatWith` loop heads (`Interpreter.swift:1763–1841`),
+    so every iteration counts toward `context.instructionLimit` and is
+    cancellable **regardless of body** — an empty- or non-emitting-body loop
+    with a huge count cannot spin unbounded or uncancellably (E8 counts only
+    emitted parts/points, not iterations). Evidence: a test that a huge-count
+    empty-body `repeat` terminates with "Instruction limit exceeded" and, on
+    the `draw_with_turtle` surface, returns that error with zero mutation.
+    Do not weaken the existing default `instructionLimit`.
+14. **Provider containment for the AI tool (Security C14).** The
+    `draw_with_turtle` `ExecutionContext` is constructed with deny-by-default
+    providers only (`StubFileAccessProvider`, `StubHostApplicationProvider`,
+    `StubAIScriptingProvider`, `runtimeProvider: nil`) — never wired to real
+    file/host/runtime providers — so neither a turtle verb nor a shadowed
+    `on forward` handler can reach the filesystem, network, host shell, or
+    runtime through the tool. Document mutation of the passed
+    `inout HypeDocument` is the only permitted side effect. Evidence: a test
+    that a shadowed `on forward` handler attempting `write … to file` is
+    denied via the stub file provider.

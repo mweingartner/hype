@@ -4,7 +4,7 @@
   "schema": "mpd",
   "ui": true,
   "kind": "feature",
-  "phase": "security-plan",
+  "phase": "build",
   "gates": {
     "design-mock": {
       "verdict": "pass",
@@ -43,13 +43,13 @@
     "architecture": {
       "verdict": "pass",
       "by": "Architect",
-      "evidence": "openspec/changes/turtle-graphics/design.md (original plan delegated-Fable; Design-Review-mandated third-renderer inclusion integrated + code-verified here: TargetRuntimeShapeView folded into §5.2 open/closed contract via shared RenderGeometry.freeformIsOpenStroke, module reachability confirmed (Sources/HypeCore/Export in HypeCore), normalizedPathPoints scaling left unchanged per N3; manifest +2 paths=24, proposal/tasks/spec updated)",
+      "evidence": "design.md — Security(plan)-mandated fixes integrated + code-verified: C4 sandbox boundary (D7 + Condition 4 = validate EVERY expression position incl. repeatCount/repeatWith bounds + set-value, functionCall refuses everywhere), C13 DoS guard (D6.9 + Condition 13 = per-iteration instructionCount/checkCancellation on repeatCount/repeatWith heads 1763-1841), C14 provider containment (Condition 14 = stub providers only), design-mock §7.1 iteration-cap claim corrected to cite instructionLimit; spec.md AI-tool requirement + 2 scenarios; tasks 2.4b/2.6/3.1/3.3/3.4. Original plan delegated-Fable + delegated-Opus Designer third-renderer.",
       "at": "2026-08-20",
-      "attempt": 2,
-      "started_at_epoch_secs": 1787235149,
-      "completed_at_epoch_secs": 1787235187,
+      "attempt": 3,
+      "started_at_epoch_secs": 1787235987,
+      "completed_at_epoch_secs": 1787236024,
       "receipt": {
-        "id": "142aff4f631f938d1de1fffefe3f41419b832793b2d1a831c7e46570804606b0",
+        "id": "1baba9d9c3d86b45cc2357486d07cd98c09e1d37e47bb6f4aaf513c1c1ff5951",
         "schema": 2,
         "phase": "architecture",
         "disposition": {
@@ -60,7 +60,7 @@
           "values": {
             "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
             "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
-            "architecture-plan": "551e4adc20ce9addc29953a10d6ea4573f0dc9deb9dfa7aba7d3ee0ea2baf5c8"
+            "architecture-plan": "08a3dc985ee8e0fa75f61b01c19cbf14c1b3229bed2b1b0c034abb9357f992a7"
           }
         }
       },
@@ -77,13 +77,13 @@
     "design-review": {
       "verdict": "pass",
       "by": "Designer",
-      "evidence": "Delegated Opus Designer review (verdict: PASS WITH REQUIRED REVISIONS): ruled ACCEPT on 13/14 deviations, REJECTED d9 deferral — found a BLOCKING defect that the deployed/exported runtime (TargetRuntimeControlViews.swift:1263,1299) renders a fillColor='' freeform as a solid-black blob (Color(hex:'')→opaque black). All required revisions applied: REV-1 (design.md d9→INCLUDE + D8 third site + Condition 6), REV-2 (design-mock.md §5.2/criterion10 = 3 sites), REV-3 (design-mock.md §5.5/criterion15 HypeTalk-vs-AI partial-state reconciliation); spec + proposal + tasks + manifest updated.",
+      "evidence": "No design-intent change since the delegated-Opus Design Review (that verdict stands, preserved in history); rewound only because Security(plan)-mandated implementation conditions (C4/C13/C14) were added to design.md/spec.md/tasks.md. Those are security/correctness constraints, not design decisions — already reviewed by the delegated-Opus Security(plan) persona.",
       "at": "2026-08-20",
-      "attempt": 1,
-      "started_at_epoch_secs": 1787235187,
-      "completed_at_epoch_secs": 1787235208,
+      "attempt": 2,
+      "started_at_epoch_secs": 1787236024,
+      "completed_at_epoch_secs": 1787236040,
       "receipt": {
-        "id": "659d301cd5f16d98f28ba839157ed935ba6157bbf93ac9b7d0e74165e7b31eb3",
+        "id": "e9ce6789a4ac8b932d80582c1a44066b0c55ec4be1d7b50a6122c55a6621496a",
         "schema": 2,
         "phase": "design-review",
         "disposition": {
@@ -95,7 +95,42 @@
             "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
             "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
             "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
-            "architecture-plan": "551e4adc20ce9addc29953a10d6ea4573f0dc9deb9dfa7aba7d3ee0ea2baf5c8"
+            "architecture-plan": "08a3dc985ee8e0fa75f61b01c19cbf14c1b3229bed2b1b0c034abb9357f992a7"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "security-plan": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Plan review PASS (delegated Opus Security): sandbox sound for local-trusted-user; all plan-level fixes integrated (C4/C13/C14 into design.md/spec.md/tasks.md, mock §7.1 corrected). 4 open conditions (security-plan.1-.4) ride forward to be verified at Security(code) against real validator/executor/loop-heads and block archive until resolved.",
+      "at": "2026-08-20",
+      "attempt": 2,
+      "started_at_epoch_secs": 1787236040,
+      "completed_at_epoch_secs": 1787236106,
+      "receipt": {
+        "id": "074d1b581c525d70cb6abafade2a275cdce9b79b62109f3b87928c64c2125e44",
+        "schema": 2,
+        "phase": "security-plan",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+            "architecture-plan": "08a3dc985ee8e0fa75f61b01c19cbf14c1b3229bed2b1b0c034abb9357f992a7",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
           }
         }
       },
@@ -110,7 +145,80 @@
       }
     }
   },
-  "conditions": [],
+  "conditions": [
+    {
+      "id": "security-plan.1",
+      "phase": "security-plan",
+      "attempt": 1,
+      "text": "C4: TurtleProgramValidator applies the allowed-expression walk to EVERY expression position (external-command args, set-value, repeatCount count, repeatWith from/to bounds); functionCall in any position refuses E9, zero parts. Verify in real TurtleProgramValidator.swift + escape tests.",
+      "owner": "Security",
+      "closed": false,
+      "opened_at_epoch_secs": 1787236060,
+      "events": [
+        {
+          "kind": "opened",
+          "by": "Security",
+          "at_epoch_secs": 1787236060,
+          "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
+          "evidence_digest": "e3fcb8725a9ed37caf90010f08df1976f732b185514e98e99bab98cdc5786e4c"
+        }
+      ]
+    },
+    {
+      "id": "security-plan.2",
+      "phase": "security-plan",
+      "attempt": 1,
+      "text": "C13: repeatCount/repeatWith loop heads gain the per-iteration instructionCount+checkCancellation+instructionLimit guard (as repeatForever) so empty-body counted loops are bounded/cancellable. Verify in real Interpreter.swift loop heads + DoS test.",
+      "owner": "Security",
+      "closed": false,
+      "opened_at_epoch_secs": 1787236060,
+      "events": [
+        {
+          "kind": "opened",
+          "by": "Security",
+          "at_epoch_secs": 1787236060,
+          "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
+          "evidence_digest": "e3fcb8725a9ed37caf90010f08df1976f732b185514e98e99bab98cdc5786e4c"
+        }
+      ]
+    },
+    {
+      "id": "security-plan.3",
+      "phase": "security-plan",
+      "attempt": 1,
+      "text": "C14: draw_with_turtle ExecutionContext built with deny-by-default stub providers only (no real file/host/runtime provider). Verify in real HypeToolExecutor.swift + containment test.",
+      "owner": "Security",
+      "closed": false,
+      "opened_at_epoch_secs": 1787236060,
+      "events": [
+        {
+          "kind": "opened",
+          "by": "Security",
+          "at_epoch_secs": 1787236060,
+          "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
+          "evidence_digest": "e3fcb8725a9ed37caf90010f08df1976f732b185514e98e99bab98cdc5786e4c"
+        }
+      ]
+    },
+    {
+      "id": "security-plan.4",
+      "phase": "security-plan",
+      "attempt": 1,
+      "text": "A2: InterpreterFuzzTests turtle corpus includes deeply-nested + ~64KB adversarial programs asserting no crash.",
+      "owner": "Security",
+      "closed": false,
+      "opened_at_epoch_secs": 1787236060,
+      "events": [
+        {
+          "kind": "opened",
+          "by": "Security",
+          "at_epoch_secs": 1787236060,
+          "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
+          "evidence_digest": "e3fcb8725a9ed37caf90010f08df1976f732b185514e98e99bab98cdc5786e4c"
+        }
+      ]
+    }
+  ],
   "task_deferrals": [],
   "history": [
     {
@@ -330,6 +438,140 @@
           "model": "claude-opus-4-8"
         }
       }
+    },
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "design.md — Security(plan)-mandated fixes integrated + code-verified: C4 sandbox boundary (D7 + Condition 4 = validate EVERY expression position incl. repeatCount/repeatWith bounds + set-value, functionCall refuses everywhere), C13 DoS guard (D6.9 + Condition 13 = per-iteration instructionCount/checkCancellation on repeatCount/repeatWith heads 1763-1841), C14 provider containment (Condition 14 = stub providers only), design-mock §7.1 iteration-cap claim corrected to cite instructionLimit; spec.md AI-tool requirement + 2 scenarios; tasks 2.4b/2.6/3.1/3.3/3.4. Original plan delegated-Fable + delegated-Opus Designer third-renderer.",
+        "at": "2026-08-20",
+        "attempt": 3,
+        "started_at_epoch_secs": 1787235987,
+        "completed_at_epoch_secs": 1787236024,
+        "receipt": {
+          "id": "1baba9d9c3d86b45cc2357486d07cd98c09e1d37e47bb6f4aaf513c1c1ff5951",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "architecture-plan": "08a3dc985ee8e0fa75f61b01c19cbf14c1b3229bed2b1b0c034abb9357f992a7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "design-review",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "No design-intent change since the delegated-Opus Design Review (that verdict stands, preserved in history); rewound only because Security(plan)-mandated implementation conditions (C4/C13/C14) were added to design.md/spec.md/tasks.md. Those are security/correctness constraints, not design decisions — already reviewed by the delegated-Opus Security(plan) persona.",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787236024,
+        "completed_at_epoch_secs": 1787236040,
+        "receipt": {
+          "id": "e9ce6789a4ac8b932d80582c1a44066b0c55ec4be1d7b50a6122c55a6621496a",
+          "schema": 2,
+          "phase": "design-review",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+              "architecture-plan": "08a3dc985ee8e0fa75f61b01c19cbf14c1b3229bed2b1b0c034abb9357f992a7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "conditional-pass",
+        "by": "Security",
+        "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787236040,
+        "completed_at_epoch_secs": 1787236060,
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Plan review PASS (delegated Opus Security): sandbox sound for local-trusted-user; all plan-level fixes integrated (C4/C13/C14 into design.md/spec.md/tasks.md, mock §7.1 corrected). 4 open conditions (security-plan.1-.4) ride forward to be verified at Security(code) against real validator/executor/loop-heads and block archive until resolved.",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787236040,
+        "completed_at_epoch_secs": 1787236106,
+        "receipt": {
+          "id": "074d1b581c525d70cb6abafade2a275cdce9b79b62109f3b87928c64c2125e44",
+          "schema": 2,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+              "architecture-plan": "08a3dc985ee8e0fa75f61b01c19cbf14c1b3229bed2b1b0c034abb9357f992a7",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
     }
   ],
   "governance": {
@@ -350,7 +592,7 @@
   },
   "strict": false,
   "waivers": [],
-  "phase_started_at_epoch_secs": 1787235209,
+  "phase_started_at_epoch_secs": 1787236106,
   "brief_tuning": {
     "design-mock": {
       "attempt": 3,
@@ -359,8 +601,22 @@
         "weakened": true
       }
     },
+    "architecture": {
+      "attempt": 3,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "design-review": {
+      "attempt": 2,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
     "security-plan": {
-      "attempt": 1,
+      "attempt": 2,
       "record": {
         "base_modified": true,
         "weakened": true
@@ -398,6 +654,20 @@
         "architecture: governance changed"
       ],
       "at_epoch_secs": 1787235132
+    },
+    {
+      "schema": 1,
+      "stored_phase": "security-plan",
+      "rewind_phase": "architecture",
+      "stale_phases": [
+        "architecture",
+        "design-review"
+      ],
+      "reasons": [
+        "architecture: architecture-plan changed",
+        "design-review: architecture-plan changed"
+      ],
+      "at_epoch_secs": 1787235987
     }
   ]
 }

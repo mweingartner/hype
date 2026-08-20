@@ -44,6 +44,12 @@
 - [ ] 2.4 Flush hooks: all `executeAsyncImpl` exit paths that return a
       document (normal, passMessage, exitHandler, showAllCards,
       cancelled); navigation flush at `.go`, `.goInStack`, `.pop`.
+- [ ] 2.4b **(Security C13)** Add the per-iteration
+      `instructionCount += 1` + `try context.checkCancellation()` +
+      `instructionLimit` guard (as `.repeatForever` already has) to the
+      `.repeatCount` and `.repeatWith` loop heads
+      (`Interpreter.swift:1763–1841`), so empty-/non-emitting-body counted
+      loops are bounded and cancellable.
 - [ ] 2.5 Write `Tests/HypeCoreTests/TurtleScriptingTests.swift`
       (criteria 1, 3, 4, 11–13, interpreter half of 15, REPL walk,
       navigation flush, `on forward` shadowing; capturing runtime double
@@ -51,7 +57,10 @@
 - [ ] 2.6 Extend `Tests/HypeCoreTests/InterpreterFuzzTests.swift`: turtle
       statement family in the grammar fuzzer + metamorphic relations
       (`right d`/`left d`, `fd n`/`bk n`, mod-360, square closure, `clean`
-      idempotence). Suite green (criterion 20).
+      idempotence); **(Security A2)** deeply-nested + ~64 KB adversarial
+      programs assert no crash; **(Security C13)** a huge-count empty-body
+      `repeat` terminates with "Instruction limit exceeded". Suite green
+      (criterion 20).
 - [ ] 2.7 `swift test` green.
 
 ## 3. P3 — AI front-end (ends green)
@@ -59,6 +68,11 @@
 - [ ] 3.1 Create `Sources/HypeCore/Script/TurtleProgramValidator.swift`
       (64 KB cap, real Lexer/Parser, structural allowlist, token-segment
       line cursor, E9 composition via `TurtleEngine.ErrorCopy`).
+      **(Security C4)** The allowed-expression validator runs on EVERY
+      expression position — external-command args, the `set` value
+      expression, and the `.repeatCount` count and `.repeatWith` from/to
+      bounds — not just args/bodies; `functionCall` in any position refuses
+      with E9.
 - [ ] 3.2 `Sources/HypeCore/AI/HypeTools.swift`: `draw_with_turtle` tool
       (§7.1 description, required `program`); add to
       `cardControlAuthoringTools` and `spriteSceneAuthoringTools`
@@ -67,12 +81,19 @@
       `case "draw_with_turtle"` → `executeDrawWithTurtle` (validate →
       snapshot → synthetic Handler → `Interpreter.executeAsync` → apply
       `modifiedDocument` on success only → §7.1 summary; error strings
-      verbatim).
+      verbatim). **(Security C14)** Construct the `ExecutionContext` with
+      deny-by-default stub providers only (`StubFileAccessProvider`,
+      `StubHostApplicationProvider`, `StubAIScriptingProvider`,
+      `runtimeProvider: nil`).
 - [ ] 3.4 Write
       `Tests/HypeCoreTests/TurtleCrossSurfaceEquivalenceTests.swift`
       (criteria 16, 17, 18 — §8 garden program, byte-identical part
       fields, identical E1 string, E9 zero-parts, catalog
-      presence/absence, size cap).
+      presence/absence, size cap). **(Security C4)** escape cases:
+      `repeat foo() times`, `repeat with i = 1 to foo()`,
+      `set the heading of the turtle to foo()` each refuse E9, zero parts.
+      **(Security C14)** a shadowed `on forward` handler doing
+      `write … to file` is denied by the stub file provider.
 - [ ] 3.5 `swift test` green.
 
 ## 4. P4 — Renderers and discovery (ends green)

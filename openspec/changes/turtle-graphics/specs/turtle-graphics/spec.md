@@ -206,11 +206,33 @@ validate an allowlist — turtle commands, turtle property sets, `reset
 turtle`, `--` comments, and `repeat N times` / `repeat with i = a to b`
 loops with arithmetic-only expressions — before any mutation; any other
 statement SHALL refuse with E9 naming the first offending line, creating
-zero parts. Valid programs SHALL execute through the same interpreter,
-engine, and part-emission path as HypeTalk, mutating the document through
-the executor's standard `inout HypeDocument` path, and return a compact
-summary naming each created part and the final turtle state. Engine errors
-SHALL return the engine string verbatim.
+zero parts. The allowed-expression validator SHALL be applied to **every**
+expression position in every allowed statement — external-command
+arguments, the `set` value expression, and the `repeatCount` count and
+`repeatWith` from/to bound expressions; a `functionCall` (or any
+non-arithmetic / non-turtle-property expression) in **any** position SHALL
+refuse with E9 and create zero parts. Valid programs SHALL execute through
+the same interpreter, engine, and part-emission path as HypeTalk, on an
+`ExecutionContext` built with deny-by-default stub providers only (no real
+file/host/runtime provider), mutating the document through the executor's
+standard `inout HypeDocument` path, and return a compact summary naming
+each created part and the final turtle state. Engine errors SHALL return
+the engine string verbatim. Loop iterations SHALL be bounded and
+cancellable by `context.instructionLimit` regardless of body (so an
+empty-body counted loop cannot spin unbounded).
+
+#### Scenario: Function call in any position refuses (sandbox boundary)
+
+- **WHEN** a program contains `repeat foo() times`, `repeat with i = 1 to
+  foo()`, or `set the heading of the turtle to foo()`
+- **THEN** the tool refuses with E9 and creates zero parts — no user
+  function is invoked
+
+#### Scenario: Empty-body counted loop is bounded, not a hang
+
+- **WHEN** a program is `repeat 1000000000 times` / `end repeat`
+- **THEN** execution terminates with an "Instruction limit exceeded" error
+  (not an unbounded spin) and, on the tool surface, mutates nothing
 
 #### Scenario: Non-turtle statement refuses all-or-nothing
 
