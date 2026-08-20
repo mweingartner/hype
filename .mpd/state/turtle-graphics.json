@@ -4,7 +4,7 @@
   "schema": "mpd",
   "ui": true,
   "kind": "feature",
-  "phase": "build",
+  "phase": "security-code",
   "gates": {
     "design-mock": {
       "verdict": "pass",
@@ -43,13 +43,13 @@
     "architecture": {
       "verdict": "pass",
       "by": "Architect",
-      "evidence": "design.md — Security(plan)-mandated fixes integrated + code-verified: C4 sandbox boundary (D7 + Condition 4 = validate EVERY expression position incl. repeatCount/repeatWith bounds + set-value, functionCall refuses everywhere), C13 DoS guard (D6.9 + Condition 13 = per-iteration instructionCount/checkCancellation on repeatCount/repeatWith heads 1763-1841), C14 provider containment (Condition 14 = stub providers only), design-mock §7.1 iteration-cap claim corrected to cite instructionLimit; spec.md AI-tool requirement + 2 scenarios; tasks 2.4b/2.6/3.1/3.3/3.4. Original plan delegated-Fable + delegated-Opus Designer third-renderer.",
+      "evidence": "Mechanical rewind only — Build packages marked tasks.md 1.1-4.8 done; design decisions D1-D10, 14 Conditions for Builder, and both spec deltas byte-identical to the reviewed plan (delegated-Fable + Opus-Designer third-renderer + Opus-Security C4/C13/C14, all code-verified during Build).",
       "at": "2026-08-20",
-      "attempt": 3,
-      "started_at_epoch_secs": 1787235987,
-      "completed_at_epoch_secs": 1787236024,
+      "attempt": 4,
+      "started_at_epoch_secs": 1787243524,
+      "completed_at_epoch_secs": 1787243603,
       "receipt": {
-        "id": "1baba9d9c3d86b45cc2357486d07cd98c09e1d37e47bb6f4aaf513c1c1ff5951",
+        "id": "7def8ab026cbfb5917bcb29bc518336da852dd73c978fcc8a4f711249cc31b95",
         "schema": 2,
         "phase": "architecture",
         "disposition": {
@@ -60,7 +60,7 @@
           "values": {
             "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
             "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
-            "architecture-plan": "08a3dc985ee8e0fa75f61b01c19cbf14c1b3229bed2b1b0c034abb9357f992a7"
+            "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7"
           }
         }
       },
@@ -77,13 +77,13 @@
     "design-review": {
       "verdict": "pass",
       "by": "Designer",
-      "evidence": "No design-intent change since the delegated-Opus Design Review (that verdict stands, preserved in history); rewound only because Security(plan)-mandated implementation conditions (C4/C13/C14) were added to design.md/spec.md/tasks.md. Those are security/correctness constraints, not design decisions — already reviewed by the delegated-Opus Security(plan) persona.",
+      "evidence": "Mechanical rewind (tasks.md checkboxes); no design-intent change since the delegated-Opus Design Review, whose verdict + all applied revisions stand.",
       "at": "2026-08-20",
-      "attempt": 2,
-      "started_at_epoch_secs": 1787236024,
-      "completed_at_epoch_secs": 1787236040,
+      "attempt": 3,
+      "started_at_epoch_secs": 1787243603,
+      "completed_at_epoch_secs": 1787243609,
       "receipt": {
-        "id": "e9ce6789a4ac8b932d80582c1a44066b0c55ec4be1d7b50a6122c55a6621496a",
+        "id": "646fd611fc27591abac0545bb87189ec4f1d57ff0c2e9be651deb9f18712c9f4",
         "schema": 2,
         "phase": "design-review",
         "disposition": {
@@ -95,7 +95,7 @@
             "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
             "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
             "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
-            "architecture-plan": "08a3dc985ee8e0fa75f61b01c19cbf14c1b3229bed2b1b0c034abb9357f992a7"
+            "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7"
           }
         }
       },
@@ -112,13 +112,13 @@
     "security-plan": {
       "verdict": "pass",
       "by": "Security",
-      "evidence": "Plan review PASS (delegated Opus Security): sandbox sound for local-trusted-user; all plan-level fixes integrated (C4/C13/C14 into design.md/spec.md/tasks.md, mock §7.1 corrected). 4 open conditions (security-plan.1-.4) ride forward to be verified at Security(code) against real validator/executor/loop-heads and block archive until resolved.",
+      "evidence": "Mechanical rewind (tasks.md checkboxes); delegated-Opus Security(plan) review stands; the 4 open conditions (C4/C13/C14/A2) persist and are verified at Security(code).",
       "at": "2026-08-20",
-      "attempt": 2,
-      "started_at_epoch_secs": 1787236040,
-      "completed_at_epoch_secs": 1787236106,
+      "attempt": 3,
+      "started_at_epoch_secs": 1787243609,
+      "completed_at_epoch_secs": 1787243617,
       "receipt": {
-        "id": "074d1b581c525d70cb6abafade2a275cdce9b79b62109f3b87928c64c2125e44",
+        "id": "6b7b20cf1731c1c4a255136b100cd66b86632beb516f070a8715ee6cf17eb46c",
         "schema": 2,
         "phase": "security-plan",
         "disposition": {
@@ -129,7 +129,7 @@
           "values": {
             "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
             "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
-            "architecture-plan": "08a3dc985ee8e0fa75f61b01c19cbf14c1b3229bed2b1b0c034abb9357f992a7",
+            "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7",
             "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
           }
         }
@@ -142,6 +142,46 @@
         "schema": 1,
         "delegated": true,
         "model": "claude-opus-4-8"
+      }
+    },
+    "build": {
+      "verdict": "pass",
+      "by": "Builder",
+      "evidence": "4 delegated Sonnet Builder packages committed, each green: P1 (e29d3db), P2 (3be1180), P3 (4ac845d, cross-surface equivalence byte-identical), P4 (8800f97). Whole tree + HypeTests compile; integrated scripts/mpd-test.sh 3490 passed / 0 failed.",
+      "checks": {
+        "tests_passed": 6980,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787243617,
+      "completed_at_epoch_secs": 1787243627,
+      "receipt": {
+        "id": "7f47d54dedbbfb5a9d45c44736ee9244664abd95b60822718a38e1c6cfa71dc5",
+        "schema": 2,
+        "phase": "build",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "source": "1296c2a6cb59175a94f1524a34e39847033845d5d4befbff8985b1c28a0b1c2f",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "1296c2a6cb59175a94f1524a34e39847033845d5d4befbff8985b1c28a0b1c2f"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "sonnet"
       }
     }
   },
@@ -161,6 +201,12 @@
           "at_epoch_secs": 1787236060,
           "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
           "evidence_digest": "e3fcb8725a9ed37caf90010f08df1976f732b185514e98e99bab98cdc5786e4c"
+        },
+        {
+          "kind": "reopened",
+          "at_epoch_secs": 1787243524,
+          "reason": "stale evidence rewind",
+          "rewind_phase": "architecture"
         }
       ]
     },
@@ -179,6 +225,12 @@
           "at_epoch_secs": 1787236060,
           "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
           "evidence_digest": "e3fcb8725a9ed37caf90010f08df1976f732b185514e98e99bab98cdc5786e4c"
+        },
+        {
+          "kind": "reopened",
+          "at_epoch_secs": 1787243524,
+          "reason": "stale evidence rewind",
+          "rewind_phase": "architecture"
         }
       ]
     },
@@ -197,6 +249,12 @@
           "at_epoch_secs": 1787236060,
           "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
           "evidence_digest": "e3fcb8725a9ed37caf90010f08df1976f732b185514e98e99bab98cdc5786e4c"
+        },
+        {
+          "kind": "reopened",
+          "at_epoch_secs": 1787243524,
+          "reason": "stale evidence rewind",
+          "rewind_phase": "architecture"
         }
       ]
     },
@@ -215,6 +273,12 @@
           "at_epoch_secs": 1787236060,
           "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
           "evidence_digest": "e3fcb8725a9ed37caf90010f08df1976f732b185514e98e99bab98cdc5786e4c"
+        },
+        {
+          "kind": "reopened",
+          "at_epoch_secs": 1787243524,
+          "reason": "stale evidence rewind",
+          "rewind_phase": "architecture"
         }
       ]
     }
@@ -572,12 +636,177 @@
           "model": "claude-opus-4-8"
         }
       }
+    },
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "Mechanical rewind only — Build packages marked tasks.md 1.1-4.8 done; design decisions D1-D10, 14 Conditions for Builder, and both spec deltas byte-identical to the reviewed plan (delegated-Fable + Opus-Designer third-renderer + Opus-Security C4/C13/C14, all code-verified during Build).",
+        "at": "2026-08-20",
+        "attempt": 4,
+        "started_at_epoch_secs": 1787243524,
+        "completed_at_epoch_secs": 1787243603,
+        "receipt": {
+          "id": "7def8ab026cbfb5917bcb29bc518336da852dd73c978fcc8a4f711249cc31b95",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "design-review",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "Mechanical rewind (tasks.md checkboxes); no design-intent change since the delegated-Opus Design Review, whose verdict + all applied revisions stand.",
+        "at": "2026-08-20",
+        "attempt": 3,
+        "started_at_epoch_secs": 1787243603,
+        "completed_at_epoch_secs": 1787243609,
+        "receipt": {
+          "id": "646fd611fc27591abac0545bb87189ec4f1d57ff0c2e9be651deb9f18712c9f4",
+          "schema": 2,
+          "phase": "design-review",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Mechanical rewind (tasks.md checkboxes); delegated-Opus Security(plan) review stands; the 4 open conditions (C4/C13/C14/A2) persist and are verified at Security(code).",
+        "at": "2026-08-20",
+        "attempt": 3,
+        "started_at_epoch_secs": 1787243609,
+        "completed_at_epoch_secs": 1787243617,
+        "receipt": {
+          "id": "6b7b20cf1731c1c4a255136b100cd66b86632beb516f070a8715ee6cf17eb46c",
+          "schema": 2,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "4 delegated Sonnet Builder packages committed, each green: P1 (e29d3db), P2 (3be1180), P3 (4ac845d, cross-surface equivalence byte-identical), P4 (8800f97). Whole tree + HypeTests compile; integrated scripts/mpd-test.sh 3490 passed / 0 failed.",
+        "checks": {
+          "tests_passed": 6980,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787243617,
+        "completed_at_epoch_secs": 1787243627,
+        "receipt": {
+          "id": "7f47d54dedbbfb5a9d45c44736ee9244664abd95b60822718a38e1c6cfa71dc5",
+          "schema": 2,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "1296c2a6cb59175a94f1524a34e39847033845d5d4befbff8985b1c28a0b1c2f",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "1296c2a6cb59175a94f1524a34e39847033845d5d4befbff8985b1c28a0b1c2f"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
     }
   ],
   "governance": {
     "risk": "medium",
     "threat_profile": "local-trusted-user",
-    "reconciliations": []
+    "reconciliations": [
+      {
+        "kind": "continue",
+        "reason": "tasks.md checkbox updates by the Build packages (marking 1.1-4.8 done) changed the architecture-artifact hash and rewound the gate; no design/security substance changed — design decisions D1-D10, all Conditions, and both spec deltas are byte-identical to the passed review. Mechanical re-gate only.",
+        "phase": "architecture",
+        "authorized_attempt": 4,
+        "at_epoch_secs": 1787243584,
+        "consumed": true
+      }
+    ]
   },
   "risk_assessment": {
     "classifier_version": 3,
@@ -592,7 +821,7 @@
   },
   "strict": false,
   "waivers": [],
-  "phase_started_at_epoch_secs": 1787236106,
+  "phase_started_at_epoch_secs": 1787243751,
   "brief_tuning": {
     "design-mock": {
       "attempt": 3,
@@ -602,27 +831,27 @@
       }
     },
     "architecture": {
-      "attempt": 3,
+      "attempt": 4,
       "record": {
         "base_modified": true,
         "weakened": true
       }
     },
     "design-review": {
-      "attempt": 2,
+      "attempt": 3,
       "record": {
         "base_modified": true,
         "weakened": true
       }
     },
     "security-plan": {
-      "attempt": 2,
+      "attempt": 3,
       "record": {
         "base_modified": true,
         "weakened": true
       }
     },
-    "build": {
+    "security-code": {
       "attempt": 1,
       "record": {
         "base_modified": true,
@@ -675,6 +904,22 @@
         "design-review: architecture-plan changed"
       ],
       "at_epoch_secs": 1787235987
+    },
+    {
+      "schema": 1,
+      "stored_phase": "build",
+      "rewind_phase": "architecture",
+      "stale_phases": [
+        "architecture",
+        "design-review",
+        "security-plan"
+      ],
+      "reasons": [
+        "architecture: architecture-plan changed",
+        "design-review: architecture-plan changed",
+        "security-plan: architecture-plan changed"
+      ],
+      "at_epoch_secs": 1787243524
     }
   ]
 }
