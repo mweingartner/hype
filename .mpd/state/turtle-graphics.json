@@ -1,0 +1,245 @@
+{
+  "format": 2,
+  "change": "turtle-graphics",
+  "schema": "mpd",
+  "ui": true,
+  "kind": "feature",
+  "phase": "design-review",
+  "gates": {
+    "design-mock": {
+      "verdict": "pass",
+      "by": "Designer",
+      "evidence": "openspec/changes/turtle-graphics/design-mock.md (unchanged delegated Fable Designer spec; re-recorded after Architect finalized the 22-file manifest — scope-hash rewind, no design change)",
+      "at": "2026-08-20",
+      "attempt": 2,
+      "started_at_epoch_secs": 1787202003,
+      "completed_at_epoch_secs": 1787202050,
+      "receipt": {
+        "id": "dc829790d7db68d1382af3ee2693bc6491370fb9842d80b378ddca1f4bb58ab3",
+        "schema": 2,
+        "phase": "design-mock",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "99b9b014e2bcee1de8b0c8844859db7ee721209476b546e69f7a8a7b0dc6ea56",
+            "governance": "0869236e0dffb3b0a7579343720054bd74fa3c41bc5e6ec87c4cfa71b7864bf0",
+            "design-mock-artifact": "6297778f15fd2be804349741fc4215be9a06fb5d46aa96218610e826a79eb609"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "claude-fable-5"
+      }
+    },
+    "architecture": {
+      "verdict": "pass",
+      "by": "Architect",
+      "evidence": "openspec/changes/turtle-graphics/{design.md (12 Conditions for Builder; one-engine, no-format-change, all-or-nothing AI allowlist, additive HexColor, renderer contract), proposal.md, specs/turtle-graphics/spec.md (## ADDED, 8 requirements), specs/part-properties/spec.md (## MODIFIED), tasks.md, manifest.json (22 paths + 3 shared)}",
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787202050,
+      "completed_at_epoch_secs": 1787202064,
+      "receipt": {
+        "id": "720d97ec105b1ce3f88fed80333bc9888c3ea735e22d98ea22969bb0b15a7462",
+        "schema": 2,
+        "phase": "architecture",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "99b9b014e2bcee1de8b0c8844859db7ee721209476b546e69f7a8a7b0dc6ea56",
+            "governance": "0869236e0dffb3b0a7579343720054bd74fa3c41bc5e6ec87c4cfa71b7864bf0",
+            "architecture-plan": "4f531c0eba95970d37891315ad3be60ab586be8c70e0098828c0814c566718e2"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "claude-fable-5"
+      }
+    }
+  },
+  "conditions": [],
+  "task_deferrals": [],
+  "history": [
+    {
+      "phase": "design-mock",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "openspec/changes/turtle-graphics/design-mock.md (Logo vocabulary, vector freeform output, one TurtleEngine behind HypeTalk + draw_with_turtle AI tool, 20 acceptance criteria incl. cross-surface equivalence)",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787197325,
+        "completed_at_epoch_secs": 1787198116,
+        "receipt": {
+          "id": "8bdc45e73d664995c7e75ca16a4206c40a6c1881625b47319ed6c2a76fb70dc5",
+          "schema": 2,
+          "phase": "design-mock",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "67bd8cba344a85deeb4f198a431d4afe79ce519fce3306e513e1575e2cf09db5",
+              "governance": "6f47e1d549df5197b7256256fdc802d49f098d92610aba249e483d643d377787",
+              "design-mock-artifact": "6297778f15fd2be804349741fc4215be9a06fb5d46aa96218610e826a79eb609"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        }
+      }
+    },
+    {
+      "phase": "design-mock",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "openspec/changes/turtle-graphics/design-mock.md (unchanged delegated Fable Designer spec; re-recorded after Architect finalized the 22-file manifest — scope-hash rewind, no design change)",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787202003,
+        "completed_at_epoch_secs": 1787202050,
+        "receipt": {
+          "id": "dc829790d7db68d1382af3ee2693bc6491370fb9842d80b378ddca1f4bb58ab3",
+          "schema": 2,
+          "phase": "design-mock",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "99b9b014e2bcee1de8b0c8844859db7ee721209476b546e69f7a8a7b0dc6ea56",
+              "governance": "0869236e0dffb3b0a7579343720054bd74fa3c41bc5e6ec87c4cfa71b7864bf0",
+              "design-mock-artifact": "6297778f15fd2be804349741fc4215be9a06fb5d46aa96218610e826a79eb609"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-fable-5"
+        }
+      }
+    },
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "openspec/changes/turtle-graphics/{design.md (12 Conditions for Builder; one-engine, no-format-change, all-or-nothing AI allowlist, additive HexColor, renderer contract), proposal.md, specs/turtle-graphics/spec.md (## ADDED, 8 requirements), specs/part-properties/spec.md (## MODIFIED), tasks.md, manifest.json (22 paths + 3 shared)}",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787202050,
+        "completed_at_epoch_secs": 1787202064,
+        "receipt": {
+          "id": "720d97ec105b1ce3f88fed80333bc9888c3ea735e22d98ea22969bb0b15a7462",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "99b9b014e2bcee1de8b0c8844859db7ee721209476b546e69f7a8a7b0dc6ea56",
+              "governance": "0869236e0dffb3b0a7579343720054bd74fa3c41bc5e6ec87c4cfa71b7864bf0",
+              "architecture-plan": "4f531c0eba95970d37891315ad3be60ab586be8c70e0098828c0814c566718e2"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-fable-5"
+        }
+      }
+    }
+  ],
+  "governance": {
+    "risk": "medium",
+    "threat_profile": "local-trusted-user",
+    "reconciliations": []
+  },
+  "risk_assessment": {
+    "classifier_version": 3,
+    "requested": "medium",
+    "derived": "high",
+    "effective": "high",
+    "reasons": [
+      "parser-or-untrusted-input: Sources/HypeCore/Script/Parser.swift",
+      "process-execution: Sources/HypeCore/AI/HypeToolExecutor.swift"
+    ],
+    "signal_digest": "136f0773d07e0b70f0392098e0dfb11e7aecfd73ca664800f394df5932aeb990"
+  },
+  "strict": false,
+  "waivers": [],
+  "phase_started_at_epoch_secs": 1787202065,
+  "brief_tuning": {
+    "design-mock": {
+      "attempt": 2,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "architecture": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "design-review": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    }
+  },
+  "freshness_invalidations": [
+    {
+      "schema": 1,
+      "stored_phase": "architecture",
+      "rewind_phase": "design-mock",
+      "stale_phases": [
+        "design-mock"
+      ],
+      "reasons": [
+        "design-mock: scope changed",
+        "design-mock: governance changed"
+      ],
+      "at_epoch_secs": 1787202003
+    }
+  ]
+}

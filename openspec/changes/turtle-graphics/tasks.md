@@ -1,0 +1,105 @@
+# Tasks — turtle-graphics
+
+## 1. P1 — Engine, number canon, colors (ends green)
+
+- [ ] 1.1 Create `Sources/HypeCore/Script/HypeTalkFormat.swift`
+      (`number(_:)`, `number(from:)`, `isTruthy(_:)`); delegate
+      `Interpreter.formatNumber` / `toNumber` / `isTruthy` to it
+      (byte-identical behavior).
+- [ ] 1.2 Create `Sources/HypeCore/Script/TurtleEngine.swift`: `Canvas`,
+      `ScalarState` (+ `encoded`/`init?(encoded:)`), `Command`,
+      `Emission`/`FrameRect`, `Outcome`, `TurtleError` (LocalizedError),
+      `ErrorCopy` (all E-strings), limits, `perform`, `endRun`,
+      `propertyValue`, `setProperty`, cardinal-snapped trig, §5.4
+      circle/arc, §5.1 frame math, §5.5 atomic limit checks.
+- [ ] 1.3 Add `TurtleVocabulary` (verb map incl. abbreviations,
+      `zeroArgumentVerbs`, `isTurtleVerb`).
+- [ ] 1.4 Create `Sources/HypeCore/Script/TurtlePartApplier.swift`
+      (deletion by prefix, smallest-free-N naming, sortKey via
+      `nextPartSortOrdinal`); change `nextPartSortOrdinal` in
+      `Sources/HypeCore/Models/PartDuplication.swift` to `internal`.
+- [ ] 1.5 Extend `Sources/HypeCore/Models/HexColor.swift` with the 16-name
+      table (17 keys with `grey`), lookup after the empty check, before hex.
+- [ ] 1.6 Write `Tests/HypeCoreTests/TurtleEngineTests.swift` (criteria
+      1–3, 5–9, engine half of 15, encoding round-trip, limits).
+- [ ] 1.7 Extend `Tests/HypeCoreTests/PartPropertyDispatchTests.swift`
+      for named colors (criterion 19 unit level) + garbage-still-errors.
+- [ ] 1.8 `swift test` green.
+
+## 2. P2 — HypeTalk front-end (ends green)
+
+- [ ] 2.1 Parser gates in `Sources/HypeCore/Script/Parser.swift`:
+      zero-arg turtle verbs in `isKnownZeroArgumentExternalCommand`;
+      turtle verbs in `isKnownExternalCommand`; `.minus` lookahead gated
+      on `TurtleVocabulary.isTurtleVerb` in
+      `shouldParseExternalCommandStatement`.
+- [ ] 2.2 Interpreter: add `Environment.turtle`; turtle leaf helpers
+      (`turtleEngine`, `syncTurtle`, `applyTurtleOutcome`,
+      `executeTurtleCommand`, `flushTurtleAtRunEnd`,
+      `flushTurtleForNavigation`).
+- [ ] 2.3 Intercepts: `.externalCommand` (after user-handler dispatch,
+      before classic builtins); `.resetCmd` turtle branch (bare-word
+      fallback); `.set` turtle-target branch; `evaluateProperty`
+      turtle-target branch.
+- [ ] 2.4 Flush hooks: all `executeAsyncImpl` exit paths that return a
+      document (normal, passMessage, exitHandler, showAllCards,
+      cancelled); navigation flush at `.go`, `.goInStack`, `.pop`.
+- [ ] 2.5 Write `Tests/HypeCoreTests/TurtleScriptingTests.swift`
+      (criteria 1, 3, 4, 11–13, interpreter half of 15, REPL walk,
+      navigation flush, `on forward` shadowing; capturing runtime double
+      for E8 partial state).
+- [ ] 2.6 Extend `Tests/HypeCoreTests/InterpreterFuzzTests.swift`: turtle
+      statement family in the grammar fuzzer + metamorphic relations
+      (`right d`/`left d`, `fd n`/`bk n`, mod-360, square closure, `clean`
+      idempotence). Suite green (criterion 20).
+- [ ] 2.7 `swift test` green.
+
+## 3. P3 — AI front-end (ends green)
+
+- [ ] 3.1 Create `Sources/HypeCore/Script/TurtleProgramValidator.swift`
+      (64 KB cap, real Lexer/Parser, structural allowlist, token-segment
+      line cursor, E9 composition via `TurtleEngine.ErrorCopy`).
+- [ ] 3.2 `Sources/HypeCore/AI/HypeTools.swift`: `draw_with_turtle` tool
+      (§7.1 description, required `program`); add to
+      `cardControlAuthoringTools` and `spriteSceneAuthoringTools`
+      allowlists. Runtime catalog untouched.
+- [ ] 3.3 `Sources/HypeCore/AI/HypeToolExecutor.swift`:
+      `case "draw_with_turtle"` → `executeDrawWithTurtle` (validate →
+      snapshot → synthetic Handler → `Interpreter.executeAsync` → apply
+      `modifiedDocument` on success only → §7.1 summary; error strings
+      verbatim).
+- [ ] 3.4 Write
+      `Tests/HypeCoreTests/TurtleCrossSurfaceEquivalenceTests.swift`
+      (criteria 16, 17, 18 — §8 garden program, byte-identical part
+      fields, identical E1 string, E9 zero-parts, catalog
+      presence/absence, size cap).
+- [ ] 3.5 `swift test` green.
+
+## 4. P4 — Renderers and discovery (ends green)
+
+- [ ] 4.1 `Sources/HypeCore/Rendering/RenderGeometry.swift`:
+      `freeformIsOpenStroke(_:)` + `freeformLocalPoints(_:)` (public).
+- [ ] 4.2 `Sources/HypeCore/Rendering/ShapeRenderer.swift` `.freeform`:
+      shared contract, no y-flip, round caps/joins, open vs closed
+      branches.
+- [ ] 4.3 `Sources/Hype/SpriteKit/ShapePartNode.swift` `.freeform`: shared
+      contract ((x, −y) locals, `.clear` fill on open branch, round
+      caps/joins).
+- [ ] 4.4 Write `Tests/HypeCoreTests/ShapeRendererFreeformTests.swift` and
+      `Tests/HypeTests/ShapePartNodeFreeformTests.swift` (criteria 10, 14;
+      `#FFFFFF` legacy regression).
+- [ ] 4.5 `Sources/HypeCore/AI/HypeTalkGuide.swift`: `## Turtle graphics`
+      section (§4 vocabulary, defaults, part contract, error copy, R12
+      note).
+- [ ] 4.6 `Sources/HypeCore/AI/HypeTalkSkillCatalog.swift`: skill
+      `turtle_graphics` (case, descriptor, guidance bullets, one pattern).
+- [ ] 4.7 Extend `Tests/HypeCoreTests/HypeTalkGuideTests.swift` (section +
+      verbs present; skill listed).
+- [ ] 4.8 Full `swift test` green.
+
+## 5. Later phases (not Build)
+
+- [ ] 5.1 Documentation phase: `HypeTalk-LLM-Context.md` turtle section
+      (strict subset of the guide); Turtle Garden example stack for the
+      Tester (design-mock §8).
+- [ ] 5.2 Design Review: rule on deviations d1–d14 in `design.md`.
