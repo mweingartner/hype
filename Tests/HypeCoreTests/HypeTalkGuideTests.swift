@@ -32,9 +32,9 @@ struct HypeTalkGuideTests {
         #expect(HypeTalkGuide.llmContext.count > 500)
     }
 
-    @Test("guide stays under the 80 KB budget so it is cheap to ship on every request")
+    @Test("guide stays under the 84 KB budget so it is cheap to ship on every request")
     func guideStaysUnderBudget() {
-        // Budget: 80 KB (≈ 20000 tokens). History:
+        // Budget: 84 KB (≈ 21000 tokens). History:
         //   32 KB → 64 KB (2026-05-05): grammar-coverage expansion
         //     (Operators & Precedence, Constants, Built-in Functions,
         //      Stub commands table, control-flow and chunk expansion,
@@ -58,15 +58,21 @@ struct HypeTalkGuideTests {
         //         open/save/close/print/edit script (desktop-app only)
         //     Stub table shrank (removed rows now documented elsewhere);
         //     two stale AVOID bullets corrected. Net: ~78 KB.
+        //   80 KB → 84 KB (2026-08-20, turtle-graphics D10): new
+        //     "## Turtle graphics" section — the §4 vocabulary (movement,
+        //     pen, fill, drawing primitives, canvas/reset), coordinate
+        //     and heading rules, defaults, the part-output contract and
+        //     naming, the `of the turtle` property surface, the R12
+        //     pen-vs-pencil note, and engine error copy. Net: ~82 KB.
         //
-        // At ~78 KB it's ≈16% of a 128K-context model — within typical
+        // At ~82 KB it's ≈16% of a 128K-context model — within typical
         // chat budgets. Documenting real command surface accurately
         // prevents the AI from refusing or mis-generating working commands,
         // which is the explicit reason for this increase.
         //
         // Raise the budget deliberately if future additions justify
         // it, but only with an accompanying note on the tradeoff.
-        #expect(HypeTalkGuide.llmContext.count < 81920,
+        #expect(HypeTalkGuide.llmContext.count < 86016,
                 "HypeTalkGuide.llmContext is \(HypeTalkGuide.llmContext.count) characters — bump the budget intentionally if this is expected")
     }
 
@@ -132,6 +138,7 @@ struct HypeTalkGuideTests {
             "## Navigation",
             "## Dialogs",
             "## Sprite scenes",
+            "## Turtle graphics",
             "## Canonical patterns",
             "## Generation rules",
         ]
@@ -389,6 +396,99 @@ struct HypeTalkGuideTests {
                 "guide still has stale do-is-no-op AVOID bullet")
         #expect(!text.contains("both are stubs"),
                 "guide still has stale find-is-stub AVOID bullet")
+    }
+
+    // MARK: - Turtle graphics (turtle-graphics D10)
+
+    @Test("guide's Turtle graphics section covers every §4 verb and abbreviation")
+    func guideDocumentsTurtleVocabulary() {
+        let text = HypeTalkGuide.llmContext
+        #expect(text.contains("## Turtle graphics"), "guide is missing the Turtle graphics section")
+
+        // Movement (§4.1) — canonical form and abbreviation.
+        let movement = [
+            "forward", "fd", "back", "bk", "right", "rt", "left", "lt",
+            "setHeading", "setH", "setPos", "setXY", "home",
+        ]
+        for verb in movement {
+            #expect(text.contains(verb), "guide is missing turtle movement verb '\(verb)'")
+        }
+
+        // Pen (§4.2).
+        let pen = ["penUp", "pu", "penDown", "pd", "setPenColor", "setPenWidth", "setPenSize"]
+        for verb in pen {
+            #expect(text.contains(verb), "guide is missing turtle pen verb '\(verb)'")
+        }
+
+        // Fill (§4.3).
+        let fill = ["setFillColor", "beginFill", "endFill"]
+        for verb in fill {
+            #expect(text.contains(verb), "guide is missing turtle fill verb '\(verb)'")
+        }
+
+        // Drawing primitives (§4.4).
+        let primitives = ["circle", "arc", "dot"]
+        for verb in primitives {
+            #expect(text.contains(verb), "guide is missing turtle drawing primitive '\(verb)'")
+        }
+
+        // Canvas and reset (§4.5).
+        let canvas = ["clean", "clearScreen", "cs", "reset turtle"]
+        for verb in canvas {
+            #expect(text.contains(verb), "guide is missing turtle canvas verb '\(verb)'")
+        }
+
+        // Turtle state property surface (§4.6).
+        let properties = [
+            "the position of the turtle", "the xcor of the turtle", "the ycor of the turtle",
+            "the heading of the turtle", "the penDown of the turtle", "the penColor of the turtle",
+            "the penWidth of the turtle", "the fillColor of the turtle", "the filling of the turtle",
+        ]
+        for property in properties {
+            #expect(text.contains(property), "guide is missing turtle property '\(property)'")
+        }
+    }
+
+    @Test("guide's Turtle graphics section states defaults, coordinates, and the R12 pen-vs-pencil note")
+    func guideDocumentsTurtleDefaultsAndRulings() {
+        let text = HypeTalkGuide.llmContext
+        #expect(text.contains("penColor \"#000000\""), "guide is missing the default pen color")
+        #expect(text.contains("penWidth 2"), "guide is missing the default pen width")
+        #expect(text.contains("fillColor \"#000000\""), "guide is missing the default fill color")
+        #expect(text.contains("0 = up"), "guide is missing the heading-zero convention")
+        #expect(text.contains("clockwise"), "guide is missing the clockwise heading convention")
+        #expect(text.contains("card center"), "guide is missing the home-position rule")
+        #expect(text.contains("turtle path"), "guide is missing the emitted-part naming contract")
+        #expect(text.contains("turtle fill"), "guide is missing the emitted-part naming contract")
+        #expect(text.contains("turtle dot"), "guide is missing the emitted-part naming contract")
+        #expect(text.contains("pencilsize"), "guide is missing the R12 pen-vs-pencil note")
+        #expect(text.contains("pencilcolor"), "guide is missing the R12 pen-vs-pencil note")
+    }
+
+    @Test("turtle_graphics skill is listed, related to draw_with_turtle, and its pattern resolves")
+    func turtleGraphicsSkillIsDiscoverable() {
+        let list = HypeTalkSkillCatalog.compactSkillList()
+        #expect(list.contains("turtle_graphics"), "skill catalog is missing the turtle_graphics skill")
+
+        guard let descriptor = HypeTalkSkillCatalog.descriptor(for: "turtle_graphics") else {
+            Issue.record("turtle_graphics skill descriptor not found")
+            return
+        }
+        #expect(descriptor.id == .turtleGraphics)
+        #expect(descriptor.relatedTools.contains("draw_with_turtle"), "turtle_graphics skill should reference draw_with_turtle")
+        #expect(descriptor.relatedTools.contains("get_card_parts"), "turtle_graphics skill should reference get_card_parts")
+        #expect(descriptor.relatedTools.contains("check_script"), "turtle_graphics skill should reference check_script")
+        for trigger in ["turtle", "logo", "draw", "forward", "pen", "vector drawing"] {
+            #expect(descriptor.triggers.contains(trigger), "turtle_graphics skill is missing trigger '\(trigger)'")
+        }
+
+        guard let pattern = HypeTalkSkillCatalog.pattern(for: "turtle-square-flower") else {
+            Issue.record("turtle-square-flower pattern not found")
+            return
+        }
+        #expect(pattern.skillID == .turtleGraphics)
+        #expect(pattern.script.contains("circle 22"), "turtle pattern should draw the flower's circles")
+        #expect(pattern.script.contains("repeat 4 times"), "turtle pattern should draw the square")
     }
 
     // MARK: - Drop-in verification for AIChatPanel

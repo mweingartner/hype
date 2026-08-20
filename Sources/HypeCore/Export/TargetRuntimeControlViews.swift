@@ -1260,9 +1260,27 @@ private struct TargetRuntimeShapeView: View {
             let rect = CGRect(origin: .zero, size: proxy.size)
             Canvas { context, size in
                 let path = shapePath(in: CGRect(origin: .zero, size: size))
-                context.fill(path, with: .color(Color(hex: part.fillColor)))
+                // §5.2 / D8 / N3: an open freeform stroke (`fillColor ""`)
+                // never fills. Without this gate `Color(hex: "")` resolves
+                // to opaque black, so an open pen trail would otherwise
+                // render as a solid black polygon in every deployed
+                // stack. `normalizedPathPoints`'s stretch-to-fit geometry
+                // below is intentionally left unchanged (N3) — only this
+                // open/closed + fill/no-fill decision is unified here.
+                let isOpenFreeformStroke = part.shapeType == .freeform && RenderGeometry.freeformIsOpenStroke(part)
+                if !isOpenFreeformStroke {
+                    context.fill(path, with: .color(Color(hex: part.fillColor)))
+                }
                 if part.strokeWidth > 0 {
-                    context.stroke(path, with: .color(Color(hex: part.strokeColor)), lineWidth: part.strokeWidth)
+                    if isOpenFreeformStroke {
+                        context.stroke(
+                            path,
+                            with: .color(Color(hex: part.strokeColor)),
+                            style: StrokeStyle(lineWidth: part.strokeWidth, lineCap: .round, lineJoin: .round)
+                        )
+                    } else {
+                        context.stroke(path, with: .color(Color(hex: part.strokeColor)), lineWidth: part.strokeWidth)
+                    }
                 }
             }
             .contentShape(Path(rect))
@@ -1296,7 +1314,9 @@ private struct TargetRuntimeShapeView: View {
             for point in points.dropFirst() {
                 path.addLine(to: point)
             }
-            path.closeSubpath()
+            if !RenderGeometry.freeformIsOpenStroke(part) {
+                path.closeSubpath()
+            }
             return path
         }
     }

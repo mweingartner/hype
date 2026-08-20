@@ -98,14 +98,38 @@ public enum ShapeRenderer {
             }
 
         case .freeform:
-            if part.pathData.count >= 2 {
-                let canvasHeight = rect.minY + rect.height + part.top
-                ctx.move(to: CGPoint(x: part.pathData[0].x, y: canvasHeight - part.pathData[0].y))
-                for i in 1..<part.pathData.count {
-                    ctx.addLine(to: CGPoint(x: part.pathData[i].x, y: canvasHeight - part.pathData[i].y))
+            // §5.2 / D8: local points are already anchored to the tight
+            // path bounding box, so drawing at rect.origin + local point
+            // both fixes the historical vertical mirroring (no y-flip,
+            // unlike .line above) and makes the drawing translate
+            // rigidly whenever the frame moves (criterion 14).
+            let localPoints = RenderGeometry.freeformLocalPoints(part)
+            if localPoints.count >= 2 {
+                let points = localPoints.map { CGPoint(x: rect.minX + $0.x, y: rect.minY + $0.y) }
+                func addPolylinePath() {
+                    ctx.move(to: points[0])
+                    for point in points.dropFirst() { ctx.addLine(to: point) }
                 }
-                ctx.closePath()
-                ctx.fillPath()
+                if RenderGeometry.freeformIsOpenStroke(part) {
+                    // Open pen trail: never closed, never filled.
+                    if part.strokeWidth > 0 {
+                        addPolylinePath()
+                        ctx.setLineCap(.round)
+                        ctx.setLineJoin(.round)
+                        ctx.strokePath()
+                    }
+                } else {
+                    addPolylinePath()
+                    ctx.closePath()
+                    ctx.fillPath()
+                    if part.strokeWidth > 0 {
+                        addPolylinePath()
+                        ctx.closePath()
+                        ctx.setLineCap(.round)
+                        ctx.setLineJoin(.round)
+                        ctx.strokePath()
+                    }
+                }
             }
         }
 

@@ -10,6 +10,7 @@ public enum HypeTalkSkillID: String, Codable, CaseIterable, Sendable, Hashable, 
     case spriteSceneScripting = "sprite_scene_scripting"
     case debuggingFlow = "debugging_flow"
     case styleReuseReadability = "style_reuse_readability"
+    case turtleGraphics = "turtle_graphics"
 
     public var id: String { rawValue }
 }
@@ -143,6 +144,14 @@ public struct HypeTalkSkillCatalog: Sendable {
             supportedScopes: ["part", "card", "background", "stack", "scene"],
             relatedTools: ["review_hypetalk_script", "get_hypetalk_pattern", "check_script"]
         ),
+        HypeTalkSkillDescriptor(
+            id: .turtleGraphics,
+            title: "Turtle Graphics",
+            summary: "Draw vector shapes on the card with the classic Logo turtle -- forward/back, turns, pen, fill, and drawing primitives -- becoming editable, inspectable shape parts.",
+            triggers: ["turtle", "logo", "draw", "forward", "pen", "vector drawing"],
+            supportedScopes: ["part", "card", "background", "stack"],
+            relatedTools: ["draw_with_turtle", "get_card_parts", "check_script"]
+        ),
     ]
 
     public static let patterns: [HypeTalkPattern] = [
@@ -223,6 +232,44 @@ public struct HypeTalkSkillCatalog: Sendable {
             end mouseUp
             """,
             notes: ["Remove or replace diagnostics after confirming the route."]
+        ),
+        HypeTalkPattern(
+            id: "turtle-square-flower",
+            skillID: .turtleGraphics,
+            title: "Square then a ring of circles",
+            summary: "Reset the turtle, draw a square trail, then draw a ring of circles ('flower') without moving the drawn trail.",
+            script: """
+            on mouseUp
+              reset turtle
+              clearScreen
+
+              -- a blue square
+              setPenColor "blue"
+              setPenWidth 3
+              repeat 4 times
+                forward 120
+                right 90
+              end repeat
+
+              -- a ring of circles, drawn with the pen lifted between petals
+              penUp
+              home
+              setPenColor "purple"
+              repeat 12 times
+                forward 45
+                penDown
+                circle 22
+                penUp
+                back 45
+                right 30
+              end repeat
+            end mouseUp
+            """,
+            notes: [
+                "Attach to a button; `reset turtle`/`clearScreen` make each run reproducible.",
+                "The square is one repeat-driven trail (one `.freeform` part); each `circle` call emits its own part immediately without moving the turtle.",
+                "The same commands run unchanged through the `draw_with_turtle` AI tool -- pass the body without the `on mouseUp`/`end mouseUp` wrapper.",
+            ]
         ),
     ]
 
@@ -491,6 +538,12 @@ public struct HypeTalkSkillCatalog: Sendable {
             return [
                 "Use readable names, short handlers, and comments for non-obvious logic.",
                 "Avoid duplicated object scripts; extract repeated behavior into a custom handler.",
+            ]
+        case .turtleGraphics:
+            return [
+                "Use the same turtle vocabulary (forward/back, right/left, setHeading, setPos, home, penUp/penDown, setPenColor/setPenWidth, setFillColor, beginFill/endFill, circle, arc, dot, clean/clearScreen, reset turtle) in HypeTalk and in the draw_with_turtle tool -- one engine behind both surfaces, so scripted and AI-drawn output are equivalent.",
+                "Every flush becomes an ordinary, editable `.freeform` or `.oval` shape part named `turtle path N` / `turtle fill N` / `turtle dot N`; use get_card_parts to inspect what was actually drawn rather than assuming geometry.",
+                "Heading 0 points up and turns clockwise in card coordinates (top-left origin, y-down); read/write turtle state only via `of the turtle` -- it is distinct from the raster paint tool's `pencilsize`/`pencilcolor`.",
             ]
         }
     }

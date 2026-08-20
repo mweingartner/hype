@@ -302,6 +302,39 @@ Runtime object properties:
 - `listener <id>`: `status`, `state`, `host`, `port`, `transport`, `callbackMessage`
 - `connection <id>`: `status`, `state`, `host`, `remoteAddress`, `port`, `remotePort`, `lastData`, `body`, `error`
 
+## Turtle graphics
+
+Classic Logo turtle; one turtle, `the turtle`, per open stack session. Case-insensitive; numeric args coerce via toNumber (garbage -> 0); colors accept `#RRGGBB`/`#RRGGBBAA` or a classic name (red, blue, ...).
+```
+forward n / fd n              back n / bk n
+right deg / rt deg            left deg / lt deg
+setHeading deg / setH deg     setPos x, y / setXY x, y
+home
+penUp / pu                    penDown / pd
+setPenColor c                 setPenWidth w / setPenSize w
+setFillColor c
+beginFill                     endFill
+circle r                      arc deg, r
+dot                           dot d
+clean                         clearScreen / cs
+reset turtle
+```
+Coordinates are card coordinates (top-left origin, y-down) -- same as `the loc`/`drag`. Heading is degrees, 0 = up, clockwise positive, normalized [0, 360). Defaults: pen down, penColor "#000000", penWidth 2, fillColor "#000000", home = card center, heading 0. Turtle state also reads/writes via `the <prop> of the turtle`: `position` (alias loc, location), `xcor`/`ycor` (read-only), `heading`, `penDown`, `penColor`, `penWidth`, `fillColor`, `filling` (read-only).
+
+Every flush emits an ordinary shape part -- `.freeform` for strokes/fills, `.oval` for dots -- named `turtle path N` / `turtle fill N` / `turtle dot N` (N = smallest free integer per prefix per card); these are real parts `get_card_parts` sees and HypeTalk can select/move/script.
+
+```
+on mouseUp
+  setPenColor "blue"
+  repeat 4 times
+    forward 100
+    right 90
+  end repeat
+end mouseUp
+```
+
+The AI tool `draw_with_turtle` accepts the same vocabulary (plus `repeat` loops) as a standalone program string and executes through the identical engine — see `draw_with_turtle` in the tool catalog.
+
 ## SpriteKit (Sprite Scenes)
 
 ### Creating Scenes & Nodes

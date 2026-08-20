@@ -883,3 +883,76 @@ struct ChartSinglePathTests {
         #expect(result.status == .error)
     }
 }
+
+// MARK: - Named colors (design.md D9, turtle-graphics; criterion 19, unit level)
+
+@Suite("HexColor named-color table — additive 16-name lookup")
+struct NamedColorTests {
+    @Test("every classic color name resolves to its canonical #RRGGBB, case-insensitively")
+    func namedColorsResolve() {
+        let expected: [(String, String)] = [
+            ("black", "#000000"),
+            ("white", "#FFFFFF"),
+            ("red", "#FF0000"),
+            ("green", "#008000"),
+            ("blue", "#0000FF"),
+            ("yellow", "#FFFF00"),
+            ("orange", "#FFA500"),
+            ("purple", "#800080"),
+            ("pink", "#FFC0CB"),
+            ("brown", "#A52A2A"),
+            ("gray", "#808080"),
+            ("grey", "#808080"),
+            ("cyan", "#00FFFF"),
+            ("magenta", "#FF00FF"),
+            ("lime", "#00FF00"),
+            ("navy", "#000080"),
+            ("teal", "#008080"),
+        ]
+        for (name, hex) in expected {
+            #expect(HexColor.normalized(name) == hex, "\(name) should resolve to \(hex)")
+            #expect(HexColor.normalized(name.uppercased()) == hex, "\(name.uppercased()) should resolve case-insensitively")
+        }
+    }
+
+    @Test("gray and grey are the same color (D9)")
+    func grayGreyAreEquivalent() {
+        #expect(HexColor.normalized("gray") == HexColor.normalized("grey"))
+    }
+
+    @Test("a name with surrounding whitespace still resolves")
+    func trimmedNameResolves() {
+        #expect(HexColor.normalized("  red  ") == "#FF0000")
+    }
+
+    @Test("garbage and near-miss names still return nil")
+    func garbageNamesStillReturnNil() {
+        #expect(HexColor.normalized("reddish") == nil)
+        #expect(HexColor.normalized("blurple") == nil)
+        #expect(HexColor.normalized("crimson") == nil) // not in the fixed 16-name table
+        #expect(HexColor.normalized("re d") == nil)
+    }
+
+    @Test("existing hex and \"\" behavior is byte-identical after the name table addition")
+    func hexAndEmptyBehaviorUnchanged() {
+        #expect(HexColor.normalized("") == "")
+        #expect(HexColor.normalized("#ff0000") == "#FF0000")
+        #expect(HexColor.normalized("ff0000") == "#FF0000")
+        #expect(HexColor.normalized("aabbccdd") == "#AABBCCDD")
+        #expect(HexColor.normalized("#12") == nil)
+    }
+
+    @Test("a named color resolves identically through the HypeTalk setPenColor-style dispatch (fillColor)")
+    func namedColorResolvesThroughHypeTalkDispatch() async {
+        var (doc, cardId) = freshDoc()
+        let shape = Part(partType: .shape, cardId: cardId, name: "s", left: 0, top: 0, width: 100, height: 40)
+        doc.addPart(shape)
+        let result = await run("""
+        on openCard
+          set the fillcolor of shape "s" to "red"
+        end openCard
+        """, cardId: cardId, doc: doc)
+        #expect(result.status == .completed, "Script error: \(result.error?.message ?? "")")
+        #expect(result.modifiedDocument?.parts.first { $0.name == "s" }?.fillColor == "#FF0000")
+    }
+}

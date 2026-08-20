@@ -1,0 +1,2149 @@
+{
+  "format": 2,
+  "change": "turtle-graphics",
+  "schema": "mpd",
+  "ui": true,
+  "kind": "feature",
+  "phase": "done",
+  "gates": {
+    "design-mock": {
+      "verdict": "pass",
+      "by": "Designer",
+      "evidence": "openspec/changes/turtle-graphics/design-mock.md (revised in Design Review by delegated Opus Designer: §5.2 renderer contract now spans all THREE freeform render sites incl. deployed/exported TargetRuntimeShapeView; §5.5 + criteria 10/15 reconciled for HypeTalk partial-state vs all-or-nothing AI surface)",
+      "at": "2026-08-20",
+      "attempt": 3,
+      "started_at_epoch_secs": 1787235132,
+      "completed_at_epoch_secs": 1787235149,
+      "receipt": {
+        "id": "e8235577ca567655069b1bc3779f73230176c1f14d0785122dea83d39bbb9293",
+        "schema": 2,
+        "phase": "design-mock",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+            "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "architecture": {
+      "verdict": "pass",
+      "by": "Architect",
+      "evidence": "Mechanical rewind (tasks.md completion + Documentation subset doc); design.md decisions/Conditions/spec deltas byte-identical to the reviewed plan.",
+      "at": "2026-08-20",
+      "attempt": 5,
+      "started_at_epoch_secs": 1787254370,
+      "completed_at_epoch_secs": 1787254379,
+      "receipt": {
+        "id": "bf976193fa1eb904bd76099530f7da3b0fd91de93952417d6f1a6d0d2fc2dcc0",
+        "schema": 2,
+        "phase": "architecture",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+            "architecture-plan": "4ae2df17d29a4d9c25e028c982843ad2008e35f46b5e09ad9654e1136d19f80e"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "design-review": {
+      "verdict": "pass",
+      "by": "Designer",
+      "evidence": "Mechanical rewind; design intent unchanged since delegated-Opus Design Review.",
+      "at": "2026-08-20",
+      "attempt": 4,
+      "started_at_epoch_secs": 1787254380,
+      "completed_at_epoch_secs": 1787254419,
+      "receipt": {
+        "id": "d896b675334368d61b658d60eae9c57af608867844aba74ea3e20bb65680db47",
+        "schema": 2,
+        "phase": "design-review",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+            "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+            "architecture-plan": "4ae2df17d29a4d9c25e028c982843ad2008e35f46b5e09ad9654e1136d19f80e"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "security-plan": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Mechanical rewind; delegated-Opus Security(plan) review stands; 4 conditions resolved at Security(code).",
+      "at": "2026-08-20",
+      "attempt": 4,
+      "started_at_epoch_secs": 1787254419,
+      "completed_at_epoch_secs": 1787254425,
+      "receipt": {
+        "id": "fda905abe545d78dba5c900e09743422a48dc8d90006b19237a8882e2a01c476",
+        "schema": 2,
+        "phase": "security-plan",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+            "architecture-plan": "4ae2df17d29a4d9c25e028c982843ad2008e35f46b5e09ad9654e1136d19f80e",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "build": {
+      "verdict": "pass",
+      "by": "Builder",
+      "evidence": "Subject after Documentation doc-section + tasks marks (no production/test-logic change); whole tree + HypeTests compile; scripts/mpd-test.sh 3521 passed / 0 failed.",
+      "checks": {
+        "tests_passed": 7042,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-08-20",
+      "attempt": 4,
+      "started_at_epoch_secs": 1787254425,
+      "completed_at_epoch_secs": 1787254433,
+      "receipt": {
+        "id": "78183782a7dedde5b7ea445b090797b3a8da7bb1cf1c3d606942f62eaa6f1e63",
+        "schema": 2,
+        "phase": "build",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "source": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "sonnet"
+      }
+    },
+    "security-code": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Mechanical rewind; production code unchanged since delegated-Opus review (B1 fixed, 4 conditions verified+resolved); scanners re-run clean (gitleaks allowlisted, semgrep 0).",
+      "checks": {
+        "secrets_clean": true,
+        "scanner": "builtin+gitleaks+semgrep"
+      },
+      "at": "2026-08-20",
+      "attempt": 4,
+      "started_at_epoch_secs": 1787254555,
+      "completed_at_epoch_secs": 1787254572,
+      "receipt": {
+        "id": "fb42805b33bb9e55660d1715b3ae6aee7fcdfb2b6ec2794eb4c71618f7472ddd",
+        "schema": 2,
+        "phase": "security-code",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "source": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+            "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+            "architecture-plan": "4ae2df17d29a4d9c25e028c982843ad2008e35f46b5e09ad9654e1136d19f80e",
+            "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+            "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "design-signoff": {
+      "verdict": "pass",
+      "by": "Designer",
+      "evidence": "Mechanical rewind; implementation byte-identical to the delegated-Opus Design Sign-off (all 20 criteria realized).",
+      "at": "2026-08-20",
+      "attempt": 3,
+      "started_at_epoch_secs": 1787254592,
+      "completed_at_epoch_secs": 1787254599,
+      "receipt": {
+        "id": "f51f178b5fdf675868495a62d8dacfc48b3b38618d383dd82dafd1e4785828bd",
+        "schema": 2,
+        "phase": "design-signoff",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+            "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+            "architecture-plan": "4ae2df17d29a4d9c25e028c982843ad2008e35f46b5e09ad9654e1136d19f80e"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "test": {
+      "verdict": "pass",
+      "by": "Tester",
+      "evidence": "Mechanical rewind (Documentation doc + tasks marks); test suite unchanged since the delegated-Opus Tester deepening. scripts/mpd-test.sh 3521 passed / 0 failed.",
+      "checks": {
+        "tests_passed": 7042,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-08-20",
+      "attempt": 2,
+      "started_at_epoch_secs": 1787254600,
+      "completed_at_epoch_secs": 1787254607,
+      "receipt": {
+        "id": "1cbcc98add26a2868a9603a59ed8fcde112771993312014f742e02382d7d1a53",
+        "schema": 2,
+        "phase": "test",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "source": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+            "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "documentation": {
+      "verdict": "pass",
+      "by": "Documenter",
+      "evidence": "documentation.md (commit f500270): all 5 sections (Purpose/Value/Scope/Functional/Usage) with real content, no placeholders; 6 usage examples from spec scenarios; verified against shipped code (incl. nestingTooDeep guard, literal tool-summary wording, 16 hex values). HypeTalk-LLM-Context.md strict-subset turtle section (5066216). Delegated Sonnet documenter. Suite green 3521.",
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787254729,
+      "completed_at_epoch_secs": 1787254741,
+      "receipt": {
+        "id": "54a63ceb220a8d6759289dc9e0442401272cd8e9dde1808f3b931247c939a765",
+        "schema": 2,
+        "phase": "documentation",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "shipped-behavior": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+            "documentation": "09b411deb691d0b9015edffcf0ad3af3d8dfd390b00814e2894b28acc460a080"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "sonnet"
+      }
+    },
+    "doc-validation": {
+      "verdict": "pass",
+      "by": "Architect & Designer",
+      "evidence": "Dual delegated-Opus validation, both PASS. Architect lens: every factual claim byte-accurate vs shipped code (vocabulary=TurtleVocabulary, E1-E9+property errors=ErrorCopy verbatim, conventions, output contract, scope guardrails all TRUE/not overstated, 6 usage examples trace correctly incl. the draw_with_turtle summary, 16 named-color hex values match). Designer lens: purpose/value/representation accurate in domain language, editable-parts-not-pixels conveyed, fast path obvious, no misrepresentation. Non-blocking cosmetic notes only (E2 dot 'diameter' wording; add repeat-with example; R12 note) — documentation.md is an archived change artifact.",
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787254741,
+      "completed_at_epoch_secs": 1787255092,
+      "receipt": {
+        "id": "ed5fb72e480598b2ac1b8f6d3ee236780f7af356d5c47efacbea2522c9eb71ac",
+        "schema": 2,
+        "phase": "doc-validation",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "shipped-behavior": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+            "documentation": "09b411deb691d0b9015edffcf0ad3af3d8dfd390b00814e2894b28acc460a080",
+            "persona-tuning": "e48b22dd7aa27e02a9a0ad38c98bc07383c61deeb896eb2872208db4f07324b8"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "deploy": {
+      "verdict": "pass",
+      "by": "main-session",
+      "evidence": "All 10 gates passed + 4 conditions closed. Deploy authorized by the task ('deploy the turtle model natively') + standing deploy-to-Applications default. scripts/mpd-deploy.sh: build → bundle → local-codesign → install /Applications/Hype.app (DEVELOPER_DIR=Xcode-beta).",
+      "checks": {
+        "command": "scripts/mpd-deploy.sh"
+      },
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787255092,
+      "completed_at_epoch_secs": 1787255159,
+      "receipt": {
+        "id": "ada1d31d996458a2b97e8238ef083c172454816e3714546d764b2f1a2f125224",
+        "schema": 2,
+        "phase": "deploy",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "source": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+            "produced-artifact": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+            "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+          }
+        }
+      }
+    }
+  },
+  "conditions": [
+    {
+      "id": "security-plan.1",
+      "phase": "security-plan",
+      "attempt": 1,
+      "text": "C4: TurtleProgramValidator applies the allowed-expression walk to EVERY expression position (external-command args, set-value, repeatCount count, repeatWith from/to bounds); functionCall in any position refuses E9, zero parts. Verify in real TurtleProgramValidator.swift + escape tests.",
+      "owner": "Security",
+      "closed": true,
+      "opened_at_epoch_secs": 1787236060,
+      "events": [
+        {
+          "kind": "opened",
+          "by": "Security",
+          "at_epoch_secs": 1787236060,
+          "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
+          "evidence_digest": "e3fcb8725a9ed37caf90010f08df1976f732b185514e98e99bab98cdc5786e4c"
+        },
+        {
+          "kind": "reopened",
+          "at_epoch_secs": 1787243524,
+          "reason": "stale evidence rewind",
+          "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787252156,
+          "evidence": "All 4 verified MET by delegated Opus Security(code) against real code (commit 2942a3a): C4 every-expression-position allowlist (TurtleProgramValidator isAllowedExpression); C13 instructionCount guard at repeatCount/repeatWith heads (Interpreter.swift:1946,2011); C14 stub-provider ExecutionContext (HypeToolExecutor:5806); A2 parser recursion cap (256) closing the crash vector. Escape/DoS/containment/robustness tests green (3500 passed).",
+          "evidence_digest": "f4e60286ce7aa624c30d93d439bbcaf9a01771c932541fe569b2e2f834a010fc"
+        },
+        {
+          "kind": "reopened",
+          "at_epoch_secs": 1787254370,
+          "reason": "stale evidence rewind",
+          "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787255133,
+          "evidence": "Re-resolved after the mechanical re-gate cascade re-opened them; all 4 verified MET in code by delegated Opus Security(code) (production byte-identical): C4 every-expression-position allowlist, C13 loop-head instructionCount guard, C14 stub-provider ExecutionContext, A2 parser recursion cap + nesting guard. Suite green 3521.",
+          "evidence_digest": "171253c7114d7bc0c94e8f4448bda34990cb7e9b965bcc6e965e5480ce48a082"
+        }
+      ]
+    },
+    {
+      "id": "security-plan.2",
+      "phase": "security-plan",
+      "attempt": 1,
+      "text": "C13: repeatCount/repeatWith loop heads gain the per-iteration instructionCount+checkCancellation+instructionLimit guard (as repeatForever) so empty-body counted loops are bounded/cancellable. Verify in real Interpreter.swift loop heads + DoS test.",
+      "owner": "Security",
+      "closed": true,
+      "opened_at_epoch_secs": 1787236060,
+      "events": [
+        {
+          "kind": "opened",
+          "by": "Security",
+          "at_epoch_secs": 1787236060,
+          "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
+          "evidence_digest": "e3fcb8725a9ed37caf90010f08df1976f732b185514e98e99bab98cdc5786e4c"
+        },
+        {
+          "kind": "reopened",
+          "at_epoch_secs": 1787243524,
+          "reason": "stale evidence rewind",
+          "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787252156,
+          "evidence": "All 4 verified MET by delegated Opus Security(code) against real code (commit 2942a3a): C4 every-expression-position allowlist (TurtleProgramValidator isAllowedExpression); C13 instructionCount guard at repeatCount/repeatWith heads (Interpreter.swift:1946,2011); C14 stub-provider ExecutionContext (HypeToolExecutor:5806); A2 parser recursion cap (256) closing the crash vector. Escape/DoS/containment/robustness tests green (3500 passed).",
+          "evidence_digest": "f4e60286ce7aa624c30d93d439bbcaf9a01771c932541fe569b2e2f834a010fc"
+        },
+        {
+          "kind": "reopened",
+          "at_epoch_secs": 1787254370,
+          "reason": "stale evidence rewind",
+          "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787255133,
+          "evidence": "Re-resolved after the mechanical re-gate cascade re-opened them; all 4 verified MET in code by delegated Opus Security(code) (production byte-identical): C4 every-expression-position allowlist, C13 loop-head instructionCount guard, C14 stub-provider ExecutionContext, A2 parser recursion cap + nesting guard. Suite green 3521.",
+          "evidence_digest": "171253c7114d7bc0c94e8f4448bda34990cb7e9b965bcc6e965e5480ce48a082"
+        }
+      ]
+    },
+    {
+      "id": "security-plan.3",
+      "phase": "security-plan",
+      "attempt": 1,
+      "text": "C14: draw_with_turtle ExecutionContext built with deny-by-default stub providers only (no real file/host/runtime provider). Verify in real HypeToolExecutor.swift + containment test.",
+      "owner": "Security",
+      "closed": true,
+      "opened_at_epoch_secs": 1787236060,
+      "events": [
+        {
+          "kind": "opened",
+          "by": "Security",
+          "at_epoch_secs": 1787236060,
+          "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
+          "evidence_digest": "e3fcb8725a9ed37caf90010f08df1976f732b185514e98e99bab98cdc5786e4c"
+        },
+        {
+          "kind": "reopened",
+          "at_epoch_secs": 1787243524,
+          "reason": "stale evidence rewind",
+          "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787252156,
+          "evidence": "All 4 verified MET by delegated Opus Security(code) against real code (commit 2942a3a): C4 every-expression-position allowlist (TurtleProgramValidator isAllowedExpression); C13 instructionCount guard at repeatCount/repeatWith heads (Interpreter.swift:1946,2011); C14 stub-provider ExecutionContext (HypeToolExecutor:5806); A2 parser recursion cap (256) closing the crash vector. Escape/DoS/containment/robustness tests green (3500 passed).",
+          "evidence_digest": "f4e60286ce7aa624c30d93d439bbcaf9a01771c932541fe569b2e2f834a010fc"
+        },
+        {
+          "kind": "reopened",
+          "at_epoch_secs": 1787254370,
+          "reason": "stale evidence rewind",
+          "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787255133,
+          "evidence": "Re-resolved after the mechanical re-gate cascade re-opened them; all 4 verified MET in code by delegated Opus Security(code) (production byte-identical): C4 every-expression-position allowlist, C13 loop-head instructionCount guard, C14 stub-provider ExecutionContext, A2 parser recursion cap + nesting guard. Suite green 3521.",
+          "evidence_digest": "171253c7114d7bc0c94e8f4448bda34990cb7e9b965bcc6e965e5480ce48a082"
+        }
+      ]
+    },
+    {
+      "id": "security-plan.4",
+      "phase": "security-plan",
+      "attempt": 1,
+      "text": "A2: InterpreterFuzzTests turtle corpus includes deeply-nested + ~64KB adversarial programs asserting no crash.",
+      "owner": "Security",
+      "closed": true,
+      "opened_at_epoch_secs": 1787236060,
+      "events": [
+        {
+          "kind": "opened",
+          "by": "Security",
+          "at_epoch_secs": 1787236060,
+          "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
+          "evidence_digest": "e3fcb8725a9ed37caf90010f08df1976f732b185514e98e99bab98cdc5786e4c"
+        },
+        {
+          "kind": "reopened",
+          "at_epoch_secs": 1787243524,
+          "reason": "stale evidence rewind",
+          "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787252156,
+          "evidence": "All 4 verified MET by delegated Opus Security(code) against real code (commit 2942a3a): C4 every-expression-position allowlist (TurtleProgramValidator isAllowedExpression); C13 instructionCount guard at repeatCount/repeatWith heads (Interpreter.swift:1946,2011); C14 stub-provider ExecutionContext (HypeToolExecutor:5806); A2 parser recursion cap (256) closing the crash vector. Escape/DoS/containment/robustness tests green (3500 passed).",
+          "evidence_digest": "f4e60286ce7aa624c30d93d439bbcaf9a01771c932541fe569b2e2f834a010fc"
+        },
+        {
+          "kind": "reopened",
+          "at_epoch_secs": 1787254370,
+          "reason": "stale evidence rewind",
+          "rewind_phase": "architecture"
+        },
+        {
+          "kind": "resolved",
+          "by": "Security (code)",
+          "at_epoch_secs": 1787255133,
+          "evidence": "Re-resolved after the mechanical re-gate cascade re-opened them; all 4 verified MET in code by delegated Opus Security(code) (production byte-identical): C4 every-expression-position allowlist, C13 loop-head instructionCount guard, C14 stub-provider ExecutionContext, A2 parser recursion cap + nesting guard. Suite green 3521.",
+          "evidence_digest": "171253c7114d7bc0c94e8f4448bda34990cb7e9b965bcc6e965e5480ce48a082"
+        }
+      ]
+    }
+  ],
+  "task_deferrals": [],
+  "history": [
+    {
+      "phase": "design-mock",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "openspec/changes/turtle-graphics/design-mock.md (Logo vocabulary, vector freeform output, one TurtleEngine behind HypeTalk + draw_with_turtle AI tool, 20 acceptance criteria incl. cross-surface equivalence)",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787197325,
+        "completed_at_epoch_secs": 1787198116,
+        "receipt": {
+          "id": "8bdc45e73d664995c7e75ca16a4206c40a6c1881625b47319ed6c2a76fb70dc5",
+          "schema": 2,
+          "phase": "design-mock",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "67bd8cba344a85deeb4f198a431d4afe79ce519fce3306e513e1575e2cf09db5",
+              "governance": "6f47e1d549df5197b7256256fdc802d49f098d92610aba249e483d643d377787",
+              "design-mock-artifact": "6297778f15fd2be804349741fc4215be9a06fb5d46aa96218610e826a79eb609"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        }
+      }
+    },
+    {
+      "phase": "design-mock",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "openspec/changes/turtle-graphics/design-mock.md (unchanged delegated Fable Designer spec; re-recorded after Architect finalized the 22-file manifest — scope-hash rewind, no design change)",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787202003,
+        "completed_at_epoch_secs": 1787202050,
+        "receipt": {
+          "id": "dc829790d7db68d1382af3ee2693bc6491370fb9842d80b378ddca1f4bb58ab3",
+          "schema": 2,
+          "phase": "design-mock",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "99b9b014e2bcee1de8b0c8844859db7ee721209476b546e69f7a8a7b0dc6ea56",
+              "governance": "0869236e0dffb3b0a7579343720054bd74fa3c41bc5e6ec87c4cfa71b7864bf0",
+              "design-mock-artifact": "6297778f15fd2be804349741fc4215be9a06fb5d46aa96218610e826a79eb609"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-fable-5"
+        }
+      }
+    },
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "openspec/changes/turtle-graphics/{design.md (12 Conditions for Builder; one-engine, no-format-change, all-or-nothing AI allowlist, additive HexColor, renderer contract), proposal.md, specs/turtle-graphics/spec.md (## ADDED, 8 requirements), specs/part-properties/spec.md (## MODIFIED), tasks.md, manifest.json (22 paths + 3 shared)}",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787202050,
+        "completed_at_epoch_secs": 1787202064,
+        "receipt": {
+          "id": "720d97ec105b1ce3f88fed80333bc9888c3ea735e22d98ea22969bb0b15a7462",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "99b9b014e2bcee1de8b0c8844859db7ee721209476b546e69f7a8a7b0dc6ea56",
+              "governance": "0869236e0dffb3b0a7579343720054bd74fa3c41bc5e6ec87c4cfa71b7864bf0",
+              "architecture-plan": "4f531c0eba95970d37891315ad3be60ab586be8c70e0098828c0814c566718e2"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-fable-5"
+        }
+      }
+    },
+    {
+      "phase": "design-mock",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "openspec/changes/turtle-graphics/design-mock.md (revised in Design Review by delegated Opus Designer: §5.2 renderer contract now spans all THREE freeform render sites incl. deployed/exported TargetRuntimeShapeView; §5.5 + criteria 10/15 reconciled for HypeTalk partial-state vs all-or-nothing AI surface)",
+        "at": "2026-08-20",
+        "attempt": 3,
+        "started_at_epoch_secs": 1787235132,
+        "completed_at_epoch_secs": 1787235149,
+        "receipt": {
+          "id": "e8235577ca567655069b1bc3779f73230176c1f14d0785122dea83d39bbb9293",
+          "schema": 2,
+          "phase": "design-mock",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "openspec/changes/turtle-graphics/design.md (original plan delegated-Fable; Design-Review-mandated third-renderer inclusion integrated + code-verified here: TargetRuntimeShapeView folded into §5.2 open/closed contract via shared RenderGeometry.freeformIsOpenStroke, module reachability confirmed (Sources/HypeCore/Export in HypeCore), normalizedPathPoints scaling left unchanged per N3; manifest +2 paths=24, proposal/tasks/spec updated)",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787235149,
+        "completed_at_epoch_secs": 1787235187,
+        "receipt": {
+          "id": "142aff4f631f938d1de1fffefe3f41419b832793b2d1a831c7e46570804606b0",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "architecture-plan": "551e4adc20ce9addc29953a10d6ea4573f0dc9deb9dfa7aba7d3ee0ea2baf5c8"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "design-review",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "Delegated Opus Designer review (verdict: PASS WITH REQUIRED REVISIONS): ruled ACCEPT on 13/14 deviations, REJECTED d9 deferral — found a BLOCKING defect that the deployed/exported runtime (TargetRuntimeControlViews.swift:1263,1299) renders a fillColor='' freeform as a solid-black blob (Color(hex:'')→opaque black). All required revisions applied: REV-1 (design.md d9→INCLUDE + D8 third site + Condition 6), REV-2 (design-mock.md §5.2/criterion10 = 3 sites), REV-3 (design-mock.md §5.5/criterion15 HypeTalk-vs-AI partial-state reconciliation); spec + proposal + tasks + manifest updated.",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787235187,
+        "completed_at_epoch_secs": 1787235208,
+        "receipt": {
+          "id": "659d301cd5f16d98f28ba839157ed935ba6157bbf93ac9b7d0e74165e7b31eb3",
+          "schema": 2,
+          "phase": "design-review",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+              "architecture-plan": "551e4adc20ce9addc29953a10d6ea4573f0dc9deb9dfa7aba7d3ee0ea2baf5c8"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "design.md — Security(plan)-mandated fixes integrated + code-verified: C4 sandbox boundary (D7 + Condition 4 = validate EVERY expression position incl. repeatCount/repeatWith bounds + set-value, functionCall refuses everywhere), C13 DoS guard (D6.9 + Condition 13 = per-iteration instructionCount/checkCancellation on repeatCount/repeatWith heads 1763-1841), C14 provider containment (Condition 14 = stub providers only), design-mock §7.1 iteration-cap claim corrected to cite instructionLimit; spec.md AI-tool requirement + 2 scenarios; tasks 2.4b/2.6/3.1/3.3/3.4. Original plan delegated-Fable + delegated-Opus Designer third-renderer.",
+        "at": "2026-08-20",
+        "attempt": 3,
+        "started_at_epoch_secs": 1787235987,
+        "completed_at_epoch_secs": 1787236024,
+        "receipt": {
+          "id": "1baba9d9c3d86b45cc2357486d07cd98c09e1d37e47bb6f4aaf513c1c1ff5951",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "architecture-plan": "08a3dc985ee8e0fa75f61b01c19cbf14c1b3229bed2b1b0c034abb9357f992a7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "design-review",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "No design-intent change since the delegated-Opus Design Review (that verdict stands, preserved in history); rewound only because Security(plan)-mandated implementation conditions (C4/C13/C14) were added to design.md/spec.md/tasks.md. Those are security/correctness constraints, not design decisions — already reviewed by the delegated-Opus Security(plan) persona.",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787236024,
+        "completed_at_epoch_secs": 1787236040,
+        "receipt": {
+          "id": "e9ce6789a4ac8b932d80582c1a44066b0c55ec4be1d7b50a6122c55a6621496a",
+          "schema": 2,
+          "phase": "design-review",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+              "architecture-plan": "08a3dc985ee8e0fa75f61b01c19cbf14c1b3229bed2b1b0c034abb9357f992a7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "conditional-pass",
+        "by": "Security",
+        "evidence": "Delegated Opus Security(plan) review: CONDITIONAL PASS. Sandbox sound for local-trusted-user (strict allowlist, content-free parts, authoring-catalog-only, stub providers) — no BLOCKING finding with an external attacker. Plan-level fixes integrated into design.md/spec.md/tasks.md (C4/C13/C14 + mock §7.1 correction). Remaining conditions are code-level, to be verified at Security(code) against the real validator/executor/loop-heads.",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787236040,
+        "completed_at_epoch_secs": 1787236060,
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Plan review PASS (delegated Opus Security): sandbox sound for local-trusted-user; all plan-level fixes integrated (C4/C13/C14 into design.md/spec.md/tasks.md, mock §7.1 corrected). 4 open conditions (security-plan.1-.4) ride forward to be verified at Security(code) against real validator/executor/loop-heads and block archive until resolved.",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787236040,
+        "completed_at_epoch_secs": 1787236106,
+        "receipt": {
+          "id": "074d1b581c525d70cb6abafade2a275cdce9b79b62109f3b87928c64c2125e44",
+          "schema": 2,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+              "architecture-plan": "08a3dc985ee8e0fa75f61b01c19cbf14c1b3229bed2b1b0c034abb9357f992a7",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "Mechanical rewind only — Build packages marked tasks.md 1.1-4.8 done; design decisions D1-D10, 14 Conditions for Builder, and both spec deltas byte-identical to the reviewed plan (delegated-Fable + Opus-Designer third-renderer + Opus-Security C4/C13/C14, all code-verified during Build).",
+        "at": "2026-08-20",
+        "attempt": 4,
+        "started_at_epoch_secs": 1787243524,
+        "completed_at_epoch_secs": 1787243603,
+        "receipt": {
+          "id": "7def8ab026cbfb5917bcb29bc518336da852dd73c978fcc8a4f711249cc31b95",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "design-review",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "Mechanical rewind (tasks.md checkboxes); no design-intent change since the delegated-Opus Design Review, whose verdict + all applied revisions stand.",
+        "at": "2026-08-20",
+        "attempt": 3,
+        "started_at_epoch_secs": 1787243603,
+        "completed_at_epoch_secs": 1787243609,
+        "receipt": {
+          "id": "646fd611fc27591abac0545bb87189ec4f1d57ff0c2e9be651deb9f18712c9f4",
+          "schema": 2,
+          "phase": "design-review",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Mechanical rewind (tasks.md checkboxes); delegated-Opus Security(plan) review stands; the 4 open conditions (C4/C13/C14/A2) persist and are verified at Security(code).",
+        "at": "2026-08-20",
+        "attempt": 3,
+        "started_at_epoch_secs": 1787243609,
+        "completed_at_epoch_secs": 1787243617,
+        "receipt": {
+          "id": "6b7b20cf1731c1c4a255136b100cd66b86632beb516f070a8715ee6cf17eb46c",
+          "schema": 2,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "4 delegated Sonnet Builder packages committed, each green: P1 (e29d3db), P2 (3be1180), P3 (4ac845d, cross-surface equivalence byte-identical), P4 (8800f97). Whole tree + HypeTests compile; integrated scripts/mpd-test.sh 3490 passed / 0 failed.",
+        "checks": {
+          "tests_passed": 6980,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787243617,
+        "completed_at_epoch_secs": 1787243627,
+        "receipt": {
+          "id": "7f47d54dedbbfb5a9d45c44736ee9244664abd95b60822718a38e1c6cfa71dc5",
+          "schema": 2,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "1296c2a6cb59175a94f1524a34e39847033845d5d4befbff8985b1c28a0b1c2f",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "1296c2a6cb59175a94f1524a34e39847033845d5d4befbff8985b1c28a0b1c2f"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "fail",
+        "by": "Security",
+        "at": "2026-08-20",
+        "failure_class": "product",
+        "exploitability": {
+          "attacker": "prompt-injection in untrusted content the assistant ingests (or a malfunctioning model) steering a draw_with_turtle call",
+          "capability": "influence over the tool's normal 'program' string input",
+          "boundary": "the A2 pre-parse nesting guard nestingDepthRefusal, whose stated purpose is to refuse pathological programs before the recursive-descent parser crashes",
+          "harm": "a ~16-32KB program of bare prefix tokens (forward + '- 'x16000 + 1) or not/!/chunk-of chains passes the 64KB cap and the depth-0 guard, then overflows the parser stack (SIGBUS) inside validate() BEFORE the allowlist walk or execution — host crash, unsaved-work loss (availability; no sandbox escape)",
+          "fix": "extend nestingDepthRefusal to count consecutive prefix-operator runs (.minus/.not/!/.await) and chunk of-chain depth in the same flat non-recursive pass, refusing above a safe cap (and/or an internal recursion cap in parseUnary/parseNot/parsePrimary); add a robustness test pushing ~2x the cap of bare '- '/'not '/'item 1 of ' chains through validate asserting clean .refused"
+        },
+        "attempt": 1,
+        "started_at_epoch_secs": 1787243751,
+        "completed_at_epoch_secs": 1787244403,
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "Rebuilt subject after the delegated-Sonnet B1 fix (parser recursion cap, commit 2942a3a). Whole tree compiles; integrated scripts/mpd-test.sh 3500 passed / 0 failed (P1-P4 3490 + 10 B1 robustness tests).",
+        "checks": {
+          "tests_passed": 7000,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787245631,
+        "completed_at_epoch_secs": 1787245652,
+        "receipt": {
+          "id": "3c54b9b14f0bac60304628a907ac6762b480f1123c8a86433a36879ba46cf6c6",
+          "schema": 2,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "84a01f05e8550e1aec9453e4fa97a72f4fc9b0eb24af7e4b9ac92f185e3d9841",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "84a01f05e8550e1aec9453e4fa97a72f4fc9b0eb24af7e4b9ac92f185e3d9841"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Delegated Opus re-review of fixed subject (2942a3a): A2/B1 CLOSED via parser recursion cap (256) at all 4 self-recursive entry points; C4/strippingTimesArtifact/C13/C14/masking/secret-scan all MET (unchanged code). External scanners now clean: gitleaks (5 allowlisted), semgrep --config auto 0 findings after clearing 5 PRE-EXISTING repo warnings unrelated to turtle (checkout SHA-pin + justified nosemgrep on loopback Ollama urllib; commit 14ac3ca). All 4 conditions met.",
+        "checks": {
+          "secrets_clean": true,
+          "scanner": "builtin+gitleaks+semgrep"
+        },
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787245774,
+        "completed_at_epoch_secs": 1787252122,
+        "receipt": {
+          "id": "f25e054e6da41516a96a00efb5aa1d3aaacb0c7157bd3914517d5a2e50cc14c0",
+          "schema": 2,
+          "phase": "security-code",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "84a01f05e8550e1aec9453e4fa97a72f4fc9b0eb24af7e4b9ac92f185e3d9841",
+              "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7",
+              "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+              "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "design-signoff",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "Delegated Opus Design Sign-off: PASS WITH NOTES. All 20 acceptance criteria realized in built code + asserted by tests (spot-verified 1-5 semantics, 6-10 output/renderer parity across all 3 sites, 11-14 state/persistence, 15 errors, 16-19 AI+cross-surface byte-identical, 20 fuzz/metamorphic). Both Design-Review corrections confirmed: three-renderer unification (export no longer black-fills open strokes) + partial-state d2. Vocabulary/property/error-copy consistent, single ErrorCopy owner, no second geometry impl, discoverability present (guide section + turtle_graphics skill). 2 non-blocking notes (skill snake_case correct; on-forward shadowing intentional). No blocking issues.",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787252141,
+        "completed_at_epoch_secs": 1787252415,
+        "receipt": {
+          "id": "1da8a70f24a01b8be0810f3b621dd3f71bbb9a700e1c0b96a46811980fd0ebb0",
+          "schema": 2,
+          "phase": "design-signoff",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "Subject after Test-phase coverage additions (commit 8941df4, delegated Sonnet+Opus test work). Whole tree + HypeTests compile; scripts/mpd-test.sh 3521 passed / 0 failed.",
+        "checks": {
+          "tests_passed": 7042,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 3,
+        "started_at_epoch_secs": 1787253510,
+        "completed_at_epoch_secs": 1787253526,
+        "receipt": {
+          "id": "61d03e5c0213e64d39772bec97b0c6afb945561ad95051f5d70d5491ecee4161",
+          "schema": 2,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Mechanical rewind from Test-phase test-file additions (commit 8941df4) — production code (validator/executor/parser/engine) byte-identical to the delegated Opus Security(code) review that found+fixed B1 and verified all 4 conditions. Deterministic scanners re-run on the augmented tree (gitleaks allowlisted, semgrep 0). No new production code to review.",
+        "checks": {
+          "secrets_clean": true,
+          "scanner": "builtin+gitleaks+semgrep"
+        },
+        "at": "2026-08-20",
+        "attempt": 3,
+        "started_at_epoch_secs": 1787253649,
+        "completed_at_epoch_secs": 1787253689,
+        "receipt": {
+          "id": "693370dd6133ebad4e72504db974e7db1aeefd5627a747dcc826608b12bbc680",
+          "schema": 2,
+          "phase": "security-code",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992",
+              "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7",
+              "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+              "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "design-signoff",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "Mechanical rewind from Test-phase test additions (8941df4); implementation byte-identical to the delegated Opus Design Sign-off (PASS WITH NOTES; all 20 criteria realized, 3 renderers unified, discoverability present). Only test coverage was deepened.",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787253710,
+        "completed_at_epoch_secs": 1787253717,
+        "receipt": {
+          "id": "1da8a70f24a01b8be0810f3b621dd3f71bbb9a700e1c0b96a46811980fd0ebb0",
+          "schema": 2,
+          "phase": "design-signoff",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "test",
+      "record": {
+        "verdict": "pass",
+        "by": "Tester",
+        "evidence": "Delegated Opus Tester (commit 8941df4): +~50 cases deepening property/metamorphic (heading-normalization oracle, N-gon closure N∈{3..12}, circle/arc tolerance, arc360≡circle, determinism, ScalarState round-trip), resource/limit bounds (200-part +1, exactly-50000-point atomic E8 boundary), performance-by-count, accessibility parity, edge cases. scripts/mpd-test.sh 3521 passed / 0 failed. Non-blocking note: unclamped curve-vertex radius → finite-but-large pathData on pathological input (footgun; positions clamp as the spec requires).",
+        "checks": {
+          "tests_passed": 7042,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787253718,
+        "completed_at_epoch_secs": 1787253730,
+        "receipt": {
+          "id": "da0693c49ba4318e17054c6a1e080f79716815701b38dc774a8069b596752a6c",
+          "schema": 2,
+          "phase": "test",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992",
+              "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "Mechanical rewind (tasks.md completion + Documentation subset doc); design.md decisions/Conditions/spec deltas byte-identical to the reviewed plan.",
+        "at": "2026-08-20",
+        "attempt": 5,
+        "started_at_epoch_secs": 1787254370,
+        "completed_at_epoch_secs": 1787254379,
+        "receipt": {
+          "id": "bf976193fa1eb904bd76099530f7da3b0fd91de93952417d6f1a6d0d2fc2dcc0",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "architecture-plan": "4ae2df17d29a4d9c25e028c982843ad2008e35f46b5e09ad9654e1136d19f80e"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "design-review",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "Mechanical rewind; design intent unchanged since delegated-Opus Design Review.",
+        "at": "2026-08-20",
+        "attempt": 4,
+        "started_at_epoch_secs": 1787254380,
+        "completed_at_epoch_secs": 1787254419,
+        "receipt": {
+          "id": "d896b675334368d61b658d60eae9c57af608867844aba74ea3e20bb65680db47",
+          "schema": 2,
+          "phase": "design-review",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+              "architecture-plan": "4ae2df17d29a4d9c25e028c982843ad2008e35f46b5e09ad9654e1136d19f80e"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Mechanical rewind; delegated-Opus Security(plan) review stands; 4 conditions resolved at Security(code).",
+        "at": "2026-08-20",
+        "attempt": 4,
+        "started_at_epoch_secs": 1787254419,
+        "completed_at_epoch_secs": 1787254425,
+        "receipt": {
+          "id": "fda905abe545d78dba5c900e09743422a48dc8d90006b19237a8882e2a01c476",
+          "schema": 2,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+              "architecture-plan": "4ae2df17d29a4d9c25e028c982843ad2008e35f46b5e09ad9654e1136d19f80e",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "Subject after Documentation doc-section + tasks marks (no production/test-logic change); whole tree + HypeTests compile; scripts/mpd-test.sh 3521 passed / 0 failed.",
+        "checks": {
+          "tests_passed": 7042,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 4,
+        "started_at_epoch_secs": 1787254425,
+        "completed_at_epoch_secs": 1787254433,
+        "receipt": {
+          "id": "78183782a7dedde5b7ea445b090797b3a8da7bb1cf1c3d606942f62eaa6f1e63",
+          "schema": 2,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Mechanical rewind; production code unchanged since delegated-Opus review (B1 fixed, 4 conditions verified+resolved); scanners re-run clean (gitleaks allowlisted, semgrep 0).",
+        "checks": {
+          "secrets_clean": true,
+          "scanner": "builtin+gitleaks+semgrep"
+        },
+        "at": "2026-08-20",
+        "attempt": 4,
+        "started_at_epoch_secs": 1787254555,
+        "completed_at_epoch_secs": 1787254572,
+        "receipt": {
+          "id": "fb42805b33bb9e55660d1715b3ae6aee7fcdfb2b6ec2794eb4c71618f7472ddd",
+          "schema": 2,
+          "phase": "security-code",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+              "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+              "architecture-plan": "4ae2df17d29a4d9c25e028c982843ad2008e35f46b5e09ad9654e1136d19f80e",
+              "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+              "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "design-signoff",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "Mechanical rewind; implementation byte-identical to the delegated-Opus Design Sign-off (all 20 criteria realized).",
+        "at": "2026-08-20",
+        "attempt": 3,
+        "started_at_epoch_secs": 1787254592,
+        "completed_at_epoch_secs": 1787254599,
+        "receipt": {
+          "id": "f51f178b5fdf675868495a62d8dacfc48b3b38618d383dd82dafd1e4785828bd",
+          "schema": 2,
+          "phase": "design-signoff",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+              "architecture-plan": "4ae2df17d29a4d9c25e028c982843ad2008e35f46b5e09ad9654e1136d19f80e"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "test",
+      "record": {
+        "verdict": "pass",
+        "by": "Tester",
+        "evidence": "Mechanical rewind (Documentation doc + tasks marks); test suite unchanged since the delegated-Opus Tester deepening. scripts/mpd-test.sh 3521 passed / 0 failed.",
+        "checks": {
+          "tests_passed": 7042,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787254600,
+        "completed_at_epoch_secs": 1787254607,
+        "receipt": {
+          "id": "1cbcc98add26a2868a9603a59ed8fcde112771993312014f742e02382d7d1a53",
+          "schema": 2,
+          "phase": "test",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+              "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "documentation",
+      "record": {
+        "verdict": "pass",
+        "by": "Documenter",
+        "evidence": "documentation.md (commit f500270): all 5 sections (Purpose/Value/Scope/Functional/Usage) with real content, no placeholders; 6 usage examples from spec scenarios; verified against shipped code (incl. nestingTooDeep guard, literal tool-summary wording, 16 hex values). HypeTalk-LLM-Context.md strict-subset turtle section (5066216). Delegated Sonnet documenter. Suite green 3521.",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787254729,
+        "completed_at_epoch_secs": 1787254741,
+        "receipt": {
+          "id": "54a63ceb220a8d6759289dc9e0442401272cd8e9dde1808f3b931247c939a765",
+          "schema": 2,
+          "phase": "documentation",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "shipped-behavior": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+              "documentation": "09b411deb691d0b9015edffcf0ad3af3d8dfd390b00814e2894b28acc460a080"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "doc-validation",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect & Designer",
+        "evidence": "Dual delegated-Opus validation, both PASS. Architect lens: every factual claim byte-accurate vs shipped code (vocabulary=TurtleVocabulary, E1-E9+property errors=ErrorCopy verbatim, conventions, output contract, scope guardrails all TRUE/not overstated, 6 usage examples trace correctly incl. the draw_with_turtle summary, 16 named-color hex values match). Designer lens: purpose/value/representation accurate in domain language, editable-parts-not-pixels conveyed, fast path obvious, no misrepresentation. Non-blocking cosmetic notes only (E2 dot 'diameter' wording; add repeat-with example; R12 note) — documentation.md is an archived change artifact.",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787254741,
+        "completed_at_epoch_secs": 1787255092,
+        "receipt": {
+          "id": "ed5fb72e480598b2ac1b8f6d3ee236780f7af356d5c47efacbea2522c9eb71ac",
+          "schema": 2,
+          "phase": "doc-validation",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "shipped-behavior": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+              "documentation": "09b411deb691d0b9015edffcf0ad3af3d8dfd390b00814e2894b28acc460a080",
+              "persona-tuning": "e48b22dd7aa27e02a9a0ad38c98bc07383c61deeb896eb2872208db4f07324b8"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "deploy",
+      "record": {
+        "verdict": "pass",
+        "by": "main-session",
+        "evidence": "All 10 gates passed + 4 conditions closed. Deploy authorized by the task ('deploy the turtle model natively') + standing deploy-to-Applications default. scripts/mpd-deploy.sh: build → bundle → local-codesign → install /Applications/Hype.app (DEVELOPER_DIR=Xcode-beta).",
+        "checks": {
+          "command": "scripts/mpd-deploy.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787255092,
+        "completed_at_epoch_secs": 1787255159,
+        "receipt": {
+          "id": "ada1d31d996458a2b97e8238ef083c172454816e3714546d764b2f1a2f125224",
+          "schema": 2,
+          "phase": "deploy",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+              "produced-artifact": "bd1fb27e826c12644b4a8e40567934412c201d18043915bae2d28b5807fca275",
+              "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "governance": {
+    "risk": "medium",
+    "threat_profile": "local-trusted-user",
+    "reconciliations": [
+      {
+        "kind": "continue",
+        "reason": "tasks.md checkbox updates by the Build packages (marking 1.1-4.8 done) changed the architecture-artifact hash and rewound the gate; no design/security substance changed — design decisions D1-D10, all Conditions, and both spec deltas are byte-identical to the passed review. Mechanical re-gate only.",
+        "phase": "architecture",
+        "authorized_attempt": 4,
+        "at_epoch_secs": 1787243584,
+        "consumed": true
+      },
+      {
+        "kind": "continue",
+        "reason": "Mechanical rewind: tasks.md 5.1/5.2 marked done + Documentation-phase HypeTalk-LLM-Context.md subset section. Zero change to design decisions, Conditions, or spec deltas — all byte-identical to the reviewed/passed plan. No re-drive of substance.",
+        "phase": "architecture",
+        "authorized_attempt": 5,
+        "at_epoch_secs": 1787254379,
+        "consumed": true
+      },
+      {
+        "kind": "continue",
+        "reason": "Mechanical rewind cascade from tasks.md completion-marking + Documentation subset doc; design intent unchanged since the delegated-Opus Design Review. Bookkeeping re-record, not a re-review.",
+        "phase": "design-review",
+        "authorized_attempt": 4,
+        "at_epoch_secs": 1787254419,
+        "consumed": true
+      },
+      {
+        "kind": "continue",
+        "reason": "Mechanical rewind cascade (tasks.md/doc); delegated-Opus Security(plan) review + its conditions stand, conditions already resolved at Security(code).",
+        "phase": "security-plan",
+        "authorized_attempt": 4,
+        "at_epoch_secs": 1787254424,
+        "consumed": true
+      },
+      {
+        "kind": "continue",
+        "reason": "Mechanical rewind: Documentation added the HypeTalk-LLM-Context.md subset section (manifest file, non-compiled) + tasks.md marks; no production/test-logic change. Build subject re-validated deterministically.",
+        "phase": "build",
+        "authorized_attempt": 4,
+        "at_epoch_secs": 1787254432,
+        "consumed": true
+      },
+      {
+        "kind": "continue",
+        "reason": "Mechanical rewind cascade; production code byte-identical to the delegated-Opus Security(code) review that found+fixed B1 and verified all 4 (now-resolved) conditions. Only doc/tasks/test files changed downstream; scanners re-validate deterministically.",
+        "phase": "security-code",
+        "authorized_attempt": 4,
+        "at_epoch_secs": 1787254572,
+        "consumed": true
+      }
+    ]
+  },
+  "risk_assessment": {
+    "classifier_version": 3,
+    "requested": "medium",
+    "derived": "high",
+    "effective": "high",
+    "reasons": [
+      "parser-or-untrusted-input: Sources/HypeCore/Script/Parser.swift",
+      "process-execution: Sources/HypeCore/AI/HypeToolExecutor.swift"
+    ],
+    "signal_digest": "935c4fd5b2721caf3ea392cbf71b8ad916539b4d29c95daba55ed037322daa5c"
+  },
+  "strict": false,
+  "waivers": [],
+  "phase_started_at_epoch_secs": 1787255162,
+  "archive_closure": {
+    "base_commit": "7bb5bb8168f0b13f74b8edde4a5377c44885c47b",
+    "archive_path": "openspec/changes/archive/2026-08-20-turtle-graphics",
+    "transaction_id": "322fce740d07f961af052a18b90647b8a7a1a9789284f332f7c4956e20292a82",
+    "allowed_paths": [
+      ".mpd/state/turtle-graphics.json",
+      "HypeTalk-LLM-Context.md",
+      "Sources/Hype/SpriteKit/ShapePartNode.swift",
+      "Sources/HypeCore/AI/HypeTalkGuide.swift",
+      "Sources/HypeCore/AI/HypeTalkSkillCatalog.swift",
+      "Sources/HypeCore/AI/HypeToolExecutor.swift",
+      "Sources/HypeCore/AI/HypeTools.swift",
+      "Sources/HypeCore/Export/TargetRuntimeControlViews.swift",
+      "Sources/HypeCore/Models/HexColor.swift",
+      "Sources/HypeCore/Models/PartDuplication.swift",
+      "Sources/HypeCore/Rendering/RenderGeometry.swift",
+      "Sources/HypeCore/Rendering/ShapeRenderer.swift",
+      "Sources/HypeCore/Script/AST.swift",
+      "Sources/HypeCore/Script/HypeTalkFormat.swift",
+      "Sources/HypeCore/Script/Interpreter.swift",
+      "Sources/HypeCore/Script/Parser.swift",
+      "Sources/HypeCore/Script/TurtleEngine.swift",
+      "Sources/HypeCore/Script/TurtlePartApplier.swift",
+      "Sources/HypeCore/Script/TurtleProgramValidator.swift",
+      "Tests/HypeCoreTests/HypeTalkGuideTests.swift",
+      "Tests/HypeCoreTests/InterpreterFuzzTests.swift",
+      "Tests/HypeCoreTests/PartPropertyDispatchTests.swift",
+      "Tests/HypeCoreTests/ShapeRendererFreeformTests.swift",
+      "Tests/HypeCoreTests/TargetRuntimeFreeformTests.swift",
+      "Tests/HypeCoreTests/TurtleCrossSurfaceEquivalenceTests.swift",
+      "Tests/HypeCoreTests/TurtleEngineTests.swift",
+      "Tests/HypeCoreTests/TurtleScriptingTests.swift",
+      "Tests/HypeTests/ShapePartNodeFreeformTests.swift",
+      "docs/turtle-graphics.md",
+      "openspec/changes/archive/2026-08-20-turtle-graphics",
+      "openspec/changes/turtle-graphics",
+      "openspec/specs/part-properties/spec.md",
+      "openspec/specs/turtle-graphics/spec.md"
+    ],
+    "system_paths": [
+      ".mpd/state/turtle-graphics.json",
+      "HypeTalk-LLM-Context.md",
+      "Sources/Hype/SpriteKit/ShapePartNode.swift",
+      "Sources/HypeCore/AI/HypeTalkGuide.swift",
+      "Sources/HypeCore/AI/HypeTalkSkillCatalog.swift",
+      "Sources/HypeCore/AI/HypeToolExecutor.swift",
+      "Sources/HypeCore/AI/HypeTools.swift",
+      "Sources/HypeCore/Export/TargetRuntimeControlViews.swift",
+      "Sources/HypeCore/Models/HexColor.swift",
+      "Sources/HypeCore/Models/PartDuplication.swift",
+      "Sources/HypeCore/Rendering/RenderGeometry.swift",
+      "Sources/HypeCore/Rendering/ShapeRenderer.swift",
+      "Sources/HypeCore/Script/AST.swift",
+      "Sources/HypeCore/Script/HypeTalkFormat.swift",
+      "Sources/HypeCore/Script/Interpreter.swift",
+      "Sources/HypeCore/Script/Parser.swift",
+      "Sources/HypeCore/Script/TurtleEngine.swift",
+      "Sources/HypeCore/Script/TurtlePartApplier.swift",
+      "Sources/HypeCore/Script/TurtleProgramValidator.swift",
+      "Tests/HypeCoreTests/HypeTalkGuideTests.swift",
+      "Tests/HypeCoreTests/InterpreterFuzzTests.swift",
+      "Tests/HypeCoreTests/PartPropertyDispatchTests.swift",
+      "Tests/HypeCoreTests/ShapeRendererFreeformTests.swift",
+      "Tests/HypeCoreTests/TargetRuntimeFreeformTests.swift",
+      "Tests/HypeCoreTests/TurtleCrossSurfaceEquivalenceTests.swift",
+      "Tests/HypeCoreTests/TurtleEngineTests.swift",
+      "Tests/HypeCoreTests/TurtleScriptingTests.swift",
+      "Tests/HypeTests/ShapePartNodeFreeformTests.swift",
+      "docs/turtle-graphics.md",
+      "openspec/changes/archive/2026-08-20-turtle-graphics",
+      "openspec/changes/turtle-graphics",
+      "openspec/specs/part-properties/spec.md",
+      "openspec/specs/turtle-graphics/spec.md"
+    ],
+    "post_archive_digest": "e9fbcfeb586bafa3784a7bf39735f5726077c2c1a3db48b866195dd66e65c07e",
+    "archived_at": 1787255197
+  },
+  "brief_tuning": {
+    "design-mock": {
+      "attempt": 3,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "architecture": {
+      "attempt": 5,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "design-review": {
+      "attempt": 4,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "security-plan": {
+      "attempt": 4,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "build": {
+      "attempt": 4,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "security-code": {
+      "attempt": 4,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "design-signoff": {
+      "attempt": 3,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "test": {
+      "attempt": 2,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "documentation": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "doc-validation": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    }
+  },
+  "freshness_invalidations": [
+    {
+      "schema": 1,
+      "stored_phase": "architecture",
+      "rewind_phase": "design-mock",
+      "stale_phases": [
+        "design-mock"
+      ],
+      "reasons": [
+        "design-mock: scope changed",
+        "design-mock: governance changed"
+      ],
+      "at_epoch_secs": 1787202003
+    },
+    {
+      "schema": 1,
+      "stored_phase": "design-review",
+      "rewind_phase": "design-mock",
+      "stale_phases": [
+        "design-mock",
+        "architecture"
+      ],
+      "reasons": [
+        "design-mock: scope changed",
+        "design-mock: design-mock-artifact changed",
+        "design-mock: governance changed",
+        "architecture: scope changed",
+        "architecture: architecture-plan changed",
+        "architecture: governance changed"
+      ],
+      "at_epoch_secs": 1787235132
+    },
+    {
+      "schema": 1,
+      "stored_phase": "security-plan",
+      "rewind_phase": "architecture",
+      "stale_phases": [
+        "architecture",
+        "design-review"
+      ],
+      "reasons": [
+        "architecture: architecture-plan changed",
+        "design-review: architecture-plan changed"
+      ],
+      "at_epoch_secs": 1787235987
+    },
+    {
+      "schema": 1,
+      "stored_phase": "build",
+      "rewind_phase": "architecture",
+      "stale_phases": [
+        "architecture",
+        "design-review",
+        "security-plan"
+      ],
+      "reasons": [
+        "architecture: architecture-plan changed",
+        "design-review: architecture-plan changed",
+        "security-plan: architecture-plan changed"
+      ],
+      "at_epoch_secs": 1787243524
+    },
+    {
+      "schema": 1,
+      "stored_phase": "security-code",
+      "rewind_phase": "build",
+      "stale_phases": [
+        "build"
+      ],
+      "reasons": [
+        "build: source changed",
+        "build: produced-artifact changed"
+      ],
+      "at_epoch_secs": 1787245631
+    },
+    {
+      "schema": 1,
+      "stored_phase": "test",
+      "rewind_phase": "build",
+      "stale_phases": [
+        "build",
+        "security-code"
+      ],
+      "reasons": [
+        "build: source changed",
+        "build: produced-artifact changed",
+        "security-code: source changed"
+      ],
+      "at_epoch_secs": 1787253510
+    },
+    {
+      "schema": 1,
+      "stored_phase": "documentation",
+      "rewind_phase": "build",
+      "stale_phases": [
+        "build",
+        "security-code",
+        "test"
+      ],
+      "reasons": [
+        "build: source changed",
+        "build: produced-artifact changed",
+        "security-code: source changed",
+        "test: source changed",
+        "test: produced-artifact changed"
+      ],
+      "at_epoch_secs": 1787254280
+    },
+    {
+      "schema": 1,
+      "stored_phase": "build",
+      "rewind_phase": "architecture",
+      "stale_phases": [
+        "architecture",
+        "design-review",
+        "security-plan"
+      ],
+      "reasons": [
+        "architecture: architecture-plan changed",
+        "design-review: architecture-plan changed",
+        "security-plan: architecture-plan changed"
+      ],
+      "at_epoch_secs": 1787254370
+    }
+  ]
+}

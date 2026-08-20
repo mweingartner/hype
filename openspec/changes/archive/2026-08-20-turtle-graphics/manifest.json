@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "paths": [
+    "Sources/HypeCore/Script/TurtleEngine.swift",
+    "Sources/HypeCore/Script/TurtlePartApplier.swift",
+    "Sources/HypeCore/Script/TurtleProgramValidator.swift",
+    "Sources/HypeCore/Script/HypeTalkFormat.swift",
+    "Sources/HypeCore/Script/AST.swift",
+    "Sources/HypeCore/Script/Parser.swift",
+    "Sources/HypeCore/Script/Interpreter.swift",
+    "Sources/HypeCore/Rendering/ShapeRenderer.swift",
+    "Sources/HypeCore/Rendering/RenderGeometry.swift",
+    "Sources/HypeCore/Export/TargetRuntimeControlViews.swift",
+    "Sources/Hype/SpriteKit/ShapePartNode.swift",
+    "Sources/HypeCore/AI/HypeTools.swift",
+    "Sources/HypeCore/AI/HypeToolExecutor.swift",
+    "Sources/HypeCore/AI/HypeTalkGuide.swift",
+    "Sources/HypeCore/AI/HypeTalkSkillCatalog.swift",
+    "HypeTalk-LLM-Context.md",
+    "Tests/HypeCoreTests/TurtleEngineTests.swift",
+    "Tests/HypeCoreTests/TurtleScriptingTests.swift",
+    "Tests/HypeCoreTests/TurtleCrossSurfaceEquivalenceTests.swift",
+    "Tests/HypeCoreTests/InterpreterFuzzTests.swift",
+    "Tests/HypeCoreTests/HypeTalkGuideTests.swift",
+    "Tests/HypeCoreTests/ShapeRendererFreeformTests.swift",
+    "Tests/HypeCoreTests/TargetRuntimeFreeformTests.swift",
+    "Tests/HypeTests/ShapePartNodeFreeformTests.swift"
+  ],
+  "shared_paths": [
+    "Sources/HypeCore/Models/HexColor.swift",
+    "Sources/HypeCore/Models/PartDuplication.swift",
+    "Tests/HypeCoreTests/PartPropertyDispatchTests.swift"
+  ]
+}

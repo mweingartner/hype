@@ -227,6 +227,7 @@ def ollama_chat_messages(
         payload["tools"] = tools
     body = _json.dumps(payload).encode()
 
+    # nosemgrep: python.lang.security.audit.insecure-transport.urllib.insecure-request-object.insecure-request-object -- loopback-only Ollama endpoint (http://localhost); TLS is not applicable over the loopback interface.
     req = urllib.request.Request(
         "http://localhost:11434/api/chat",
         data=body,
@@ -239,6 +240,7 @@ def ollama_chat_messages(
         # had nothing to do with model accuracy. Tournament runs
         # don't care about per-prompt latency tail; we care about
         # measuring correctness once the model actually responds.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- req wraps a hardcoded localhost URL constant, not attacker-controlled input; no file:// / scheme-injection surface.
         with urllib.request.urlopen(req, timeout=240) as resp:
             payload = _json.loads(resp.read().decode())
     except urllib.error.URLError as e:

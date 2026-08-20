@@ -103,7 +103,11 @@ public extension HypeDocument {
         return result
     }
 
-    private func nextPartSortOrdinal() -> Int {
+    /// Internal (not `private`) so `TurtlePartApplier` (same module,
+    /// `Sources/HypeCore/Script/TurtlePartApplier.swift`) can sort-key
+    /// turtle-drawn parts the same way every other part-creation path
+    /// does.
+    func nextPartSortOrdinal() -> Int {
         let ordinals = parts.compactMap { part -> Int? in
             guard part.sortKey.hasPrefix("a") else { return nil }
             return Int(part.sortKey.dropFirst())
