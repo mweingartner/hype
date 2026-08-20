@@ -65,7 +65,7 @@
 
 ## 3. P3 — AI front-end (ends green)
 
-- [ ] 3.1 Create `Sources/HypeCore/Script/TurtleProgramValidator.swift`
+- [x] 3.1 Create `Sources/HypeCore/Script/TurtleProgramValidator.swift`
       (64 KB cap, real Lexer/Parser, structural allowlist, token-segment
       line cursor, E9 composition via `TurtleEngine.ErrorCopy`).
       **(Security C4)** The allowed-expression validator runs on EVERY
@@ -73,11 +73,11 @@
       expression, and the `.repeatCount` count and `.repeatWith` from/to
       bounds — not just args/bodies; `functionCall` in any position refuses
       with E9.
-- [ ] 3.2 `Sources/HypeCore/AI/HypeTools.swift`: `draw_with_turtle` tool
+- [x] 3.2 `Sources/HypeCore/AI/HypeTools.swift`: `draw_with_turtle` tool
       (§7.1 description, required `program`); add to
       `cardControlAuthoringTools` and `spriteSceneAuthoringTools`
       allowlists. Runtime catalog untouched.
-- [ ] 3.3 `Sources/HypeCore/AI/HypeToolExecutor.swift`:
+- [x] 3.3 `Sources/HypeCore/AI/HypeToolExecutor.swift`:
       `case "draw_with_turtle"` → `executeDrawWithTurtle` (validate →
       snapshot → synthetic Handler → `Interpreter.executeAsync` → apply
       `modifiedDocument` on success only → §7.1 summary; error strings
@@ -85,7 +85,7 @@
       deny-by-default stub providers only (`StubFileAccessProvider`,
       `StubHostApplicationProvider`, `StubAIScriptingProvider`,
       `runtimeProvider: nil`).
-- [ ] 3.4 Write
+- [x] 3.4 Write
       `Tests/HypeCoreTests/TurtleCrossSurfaceEquivalenceTests.swift`
       (criteria 16, 17, 18 — §8 garden program, byte-identical part
       fields, identical E1 string, E9 zero-parts, catalog
@@ -94,7 +94,7 @@
       `set the heading of the turtle to foo()` each refuse E9, zero parts.
       **(Security C14)** a shadowed `on forward` handler doing
       `write … to file` is denied by the stub file provider.
-- [ ] 3.5 `swift test` green.
+- [x] 3.5 `swift test` green.
 
 ## 4. P4 — Renderers and discovery (ends green)
 
