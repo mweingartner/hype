@@ -915,6 +915,44 @@ struct TurtleSecurityRobustnessTests {
         #expect(result?.message == "Instruction limit exceeded")
     }
 
+    /// C13 completion — `.repeatWhile` was the one repeat form still missing
+    /// the guard. `repeat while true` with an empty body executes zero body
+    /// statements, so without a per-iteration guard at the loop head it would
+    /// spin unbounded and uncancellably (the per-statement guard in
+    /// `executeStatement` never fires on an empty body). It must now terminate
+    /// with the instruction-limit error like the other three repeat forms.
+    @Test("repeat while true / end repeat (empty body) terminates with the instruction-limit error")
+    func emptyBodyRepeatWhileIsBounded() {
+        let result = execTurtleHandler("""
+        on test
+          repeat while true
+          end repeat
+          return "unreachable"
+        end test
+        """)
+        #expect(result?.errored == true)
+        #expect(result?.message == "Instruction limit exceeded")
+    }
+
+    /// Control for the `.repeatWhile` guard: a loop that terminates within
+    /// the instruction limit must still complete normally and return its
+    /// result — the guard fires only on the same global `instructionLimit`
+    /// that already bounds every other loop form, so no false positive.
+    @Test("a normally-terminating repeat while completes without falsely hitting the limit")
+    func boundedRepeatWhileCompletes() {
+        let result = execTurtleHandler("""
+        on test
+          put 0 into i
+          repeat while i < 5
+            add 1 to i
+          end repeat
+          return i
+        end test
+        """)
+        #expect(result?.errored == false)
+        #expect(result?.message == "5")
+    }
+
     // MARK: - Security B1 (parser-internal recursion-depth cap)
     //
     // The A2 pre-parse token-nesting guard (`nestingDepthRefusal`, above
