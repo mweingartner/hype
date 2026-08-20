@@ -443,6 +443,13 @@ public struct Parser: Sendable {
         if next.type == .lparen {
             return Self.isKnownExternalCommand(current.value)
         }
+        if next.type == .minus {
+            // `forward -50` / `arc -90, 50` must parse as a turtle
+            // command (its argument is a unary-negate expression);
+            // every other `identifier - expr` line keeps its existing
+            // expression parse (design.md D5.3, turtle-graphics).
+            return TurtleVocabulary.isTurtleVerb(current.value.lowercased())
+        }
         switch next.type {
         case .string, .integer, .float, .identifier, .true, .false, .comma,
              .the, .it, .me, .this, .empty, .await,
@@ -459,25 +466,27 @@ public struct Parser: Sendable {
     }
 
     private static func isKnownZeroArgumentExternalCommand(_ rawName: String) -> Bool {
-        switch normalizedExternalCommandName(rawName) {
+        let normalized = normalizedExternalCommandName(rawName)
+        switch normalized {
         case "xwindowframe", "xabout", "closemoovs", "closemovies", "closeqt",
              "htremove", "vd", "fadeout",
              "enterinfield", "enterkey", "returninfield", "returnkey", "tabkey":
             return true
         default:
-            return false
+            return TurtleVocabulary.zeroArgumentVerbs.contains(normalized)
         }
     }
 
     private static func isKnownExternalCommand(_ rawName: String) -> Bool {
-        switch normalizedExternalCommandName(rawName) {
+        let normalized = normalizedExternalCommandName(rawName)
+        switch normalized {
         case "htaddpict", "htchangepict", "playqt", "playmovie", "movie",
              "htvisual", "xwindowframe", "xabout", "closemoovs", "closemovies",
              "closeqt", "htremove", "vd", "vs", "fadeout",
              "arrowkey", "keydown", "commandkeydown", "controlkey", "functionkey":
             return true
         default:
-            return isKnownZeroArgumentExternalCommand(rawName)
+            return TurtleVocabulary.isTurtleVerb(normalized) || isKnownZeroArgumentExternalCommand(rawName)
         }
     }
 

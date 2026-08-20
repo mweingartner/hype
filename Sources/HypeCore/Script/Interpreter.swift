@@ -378,6 +378,11 @@ private struct Environment {
     /// and yield calls are suppressed entirely; a single flush publish fires at
     /// `unlock screen`.
     var screenLocked: Bool = false
+    /// The run's turtle-graphics engine, lazily created on first use
+    /// (design.md D6, turtle-graphics). `nil` for the whole run when no
+    /// turtle statement executes — the hot-path-neutrality guard
+    /// (Condition 12).
+    var turtle: TurtleEngine? = nil
 
     init(globals: [String: Value], handlerParams: [Value] = []) {
         self.globals = globals.reduce(into: [String: Value]()) { result, entry in
@@ -695,6 +700,7 @@ public struct Interpreter: Sendable {
                 )
             }
         } catch ControlSignal.passMessage {
+            flushTurtleAtRunEnd(env: &env, document: &document, context: context)
             document.scriptGlobals = env.globals
             // Carry visual effect and navigation target through
             // even when the handler passes the message. A script
@@ -710,6 +716,7 @@ public struct Interpreter: Sendable {
                                    visualEffect: visualEffect, visualEffectDuration: veDuration)
         } catch ControlSignal.exitHandler(let returnVal) {
             spriteAreaMutationBatch.flush(to: &document)
+            flushTurtleAtRunEnd(env: &env, document: &document, context: context)
             document.scriptGlobals = env.globals
             visualEffect = env.locals["_visualEffect"]
             let veDuration = Double(env.locals["_visualEffectDuration"] ?? "")
@@ -719,11 +726,19 @@ public struct Interpreter: Sendable {
                                    visualEffect: visualEffect, visualEffectDuration: veDuration)
         } catch ControlSignal.showAllCards {
             spriteAreaMutationBatch.flush(to: &document)
+            flushTurtleAtRunEnd(env: &env, document: &document, context: context)
             document.scriptGlobals = env.globals
             return ExecutionResult(status: .completed, modifiedDocument: document, showAllCards: true)
         } catch let error as ScriptError {
             return ExecutionResult(status: .error, error: error)
         } catch is CancellationError {
+            // No `document.scriptGlobals = env.globals` line exists on
+            // this path (in-flight variable writes are discarded on
+            // cancellation) — `flushTurtleAtRunEnd` writes the turtle's
+            // session key directly into `document.scriptGlobals` so the
+            // already-flushed parts and the scalar state they imply
+            // stay consistent even here.
+            flushTurtleAtRunEnd(env: &env, document: &document, context: context)
             return ExecutionResult(
                 status: .cancelled,
                 modifiedDocument: document
@@ -737,6 +752,7 @@ public struct Interpreter: Sendable {
         // next dispatch (e.g. the next idle tick) reads the
         // mutated values.
         spriteAreaMutationBatch.flush(to: &document)
+        flushTurtleAtRunEnd(env: &env, document: &document, context: context)
         document.scriptGlobals = env.globals
         visualEffect = env.locals["_visualEffect"]
         let veDuration = Double(env.locals["_visualEffectDuration"] ?? "")
@@ -1208,6 +1224,144 @@ public struct Interpreter: Sendable {
         return result.returnValue
     }
 
+    // MARK: - Turtle graphics (design.md D6, turtle-graphics)
+    //
+    // All turtle work lives in these leaf helpers so `executeStatement`'s
+    // switch — a known deep-recursion stack-frame hazard (see the
+    // chart-data-point comment above `applyChartDataPointSet`) — gains
+    // only thin calls. `TurtleEngine` owns every geometry/state/limit
+    // rule (Condition 1); the interpreter's only job is wiring: decode
+    // the session-scoped scalar state, run one command, apply the
+    // resulting parts, and re-encode.
+
+    /// Returns the run's turtle engine, creating and caching it on
+    /// `env.turtle` on first use. A fresh engine restores scalar state
+    /// from `env.globals[TurtleEngine.sessionGlobalKey]` (seeded from
+    /// `document.scriptGlobals` at run start; malformed or absent →
+    /// engine defaults — Requirement "Session-scoped turtle state");
+    /// the stack's card size seeds the canvas (`home` / `clearScreen`
+    /// center).
+    private func turtleEngine(env: inout Environment, document: HypeDocument) -> TurtleEngine {
+        if let engine = env.turtle { return engine }
+        let canvas = TurtleEngine.Canvas(width: Double(document.stack.width), height: Double(document.stack.height))
+        let restoring = env.globals[TurtleEngine.sessionGlobalKey].flatMap { TurtleEngine.ScalarState(encoded: $0) }
+        let engine = TurtleEngine(canvas: canvas, restoring: restoring)
+        env.turtle = engine
+        return engine
+    }
+
+    /// Caches `engine` on `env.turtle` and re-encodes its scalar state
+    /// into `env.globals` — the existing per-statement
+    /// `document.scriptGlobals = env.globals` writes persist it for the
+    /// next dispatch (session-scoped, never in the `.hype` document —
+    /// Condition 9).
+    private func syncTurtle(_ engine: TurtleEngine, env: inout Environment) {
+        env.turtle = engine
+        env.globals[TurtleEngine.sessionGlobalKey] = engine.scalarState.encoded
+    }
+
+    /// Applies a `TurtleEngine.Outcome` to `document`: appends/deletes
+    /// parts via the one document-mutation path (`TurtlePartApplier`,
+    /// Condition 1), invalidates the part-lookup cache when the part
+    /// list changed, and surfaces a `resultNote` (E6/E7) as `the
+    /// result`.
+    private func applyTurtleOutcome(
+        _ outcome: TurtleEngine.Outcome,
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext
+    ) {
+        let cardId = env.currentCardId(fallback: context.currentCardId)
+        let appended = TurtlePartApplier.apply(outcome, to: &document, cardId: cardId)
+        if !appended.isEmpty || outcome.deletesTurtleParts {
+            env.invalidatePartLookupCache()
+        }
+        if let resultNote = outcome.resultNote {
+            env.result = resultNote
+        }
+    }
+
+    /// Runs one turtle engine mutation end to end: `operation` → apply
+    /// the resulting parts → persist scalar state. A thrown
+    /// `TurtleEngine.TurtleError` becomes a `ScriptError` with a
+    /// byte-identical message (Condition 3) — `perform`/`setProperty`
+    /// leave engine state untouched on a throw, so nothing is synced in
+    /// that case. Shared by `executeTurtleCommand` (§4 verbs) and the
+    /// `set … of the turtle` property-set branch so the two callers
+    /// never duplicate the perform/apply/sync/error-wrap sequence.
+    private func performTurtleOperation(
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext,
+        handler: Handler,
+        _ operation: (inout TurtleEngine) throws -> TurtleEngine.Outcome
+    ) throws {
+        var engine = turtleEngine(env: &env, document: document)
+        do {
+            let outcome = try operation(&engine)
+            applyTurtleOutcome(outcome, env: &env, document: &document, context: context)
+            syncTurtle(engine, env: &env)
+        } catch let error as TurtleEngine.TurtleError {
+            throw ScriptError(message: error.message, line: handler.line, handler: handler.name)
+        }
+    }
+
+    /// Runs one turtle command (§4 verb dispatch) end to end.
+    private func executeTurtleCommand(
+        _ command: TurtleEngine.Command,
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext,
+        handler: Handler
+    ) throws {
+        try performTurtleOperation(env: &env, document: &document, context: context, handler: handler) { engine in
+            try engine.perform(command)
+        }
+    }
+
+    /// Shared end-of-run / navigation flush: a no-op when the turtle
+    /// was never touched this run (Condition 12 — hot-path
+    /// neutrality, one nil check). Otherwise `endRun()` emits the open
+    /// stroke (when it qualifies) and discards an unclosed fill with
+    /// resultNote E7, the outcome is applied, and the scalar state is
+    /// written directly into `document.scriptGlobals` — not only
+    /// `env.globals` — so the flush survives every exit path,
+    /// including the `CancellationError` catch, which (unlike the
+    /// other `executeAsyncImpl` exits) never re-assigns
+    /// `document.scriptGlobals = env.globals` on its own.
+    private func flushTurtle(
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext
+    ) {
+        guard var engine = env.turtle else { return }
+        let outcome = engine.endRun()
+        applyTurtleOutcome(outcome, env: &env, document: &document, context: context)
+        syncTurtle(engine, env: &env)
+        document.scriptGlobals[TurtleEngine.sessionGlobalKey] = env.globals[TurtleEngine.sessionGlobalKey]
+    }
+
+    /// Called from every `executeAsyncImpl` exit path that returns a
+    /// document, before `document.scriptGlobals = env.globals`.
+    private func flushTurtleAtRunEnd(
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext
+    ) {
+        flushTurtle(env: &env, document: &document, context: context)
+    }
+
+    /// Called at the first line of `.go`, `.goInStack`, and `.pop` so
+    /// the open stroke lands on the *departing* card, not the
+    /// destination (Deviations d8).
+    private func flushTurtleForNavigation(
+        env: inout Environment,
+        document: inout HypeDocument,
+        context: ExecutionContext
+    ) {
+        flushTurtle(env: &env, document: &document, context: context)
+    }
+
     // MARK: - Statement execution
 
     private func executeStatement(
@@ -1378,6 +1532,18 @@ public struct Interpreter: Sendable {
                 break
             }
             if let targetExpr = target {
+                // `set the <prop> of the turtle to <value>` — strictly
+                // the canonical `of the turtle` form (R12); `the
+                // position/heading/penDown/penColor/penWidth/fillColor
+                // of the turtle` arrive as target expression
+                // `.propertyAccess("turtle", nil)` (no `turtle` case in
+                // the global-property switch, so no collision).
+                if case .propertyAccess(let obj, nil) = targetExpr, obj.lowercased() == "turtle" {
+                    try performTurtleOperation(env: &env, document: &document, context: context, handler: handler) { engine in
+                        try engine.setProperty(property, to: value)
+                    }
+                    break
+                }
                 // Chart data-point reference set path:
                 //   set the color of data point N of [series N of] chart "X" to "#FF0000"
                 //
@@ -1654,6 +1820,10 @@ public struct Interpreter: Sendable {
             }
 
         case .go(let dest):
+            // Flush the open stroke to the *departing* card before any
+            // navigation-target resolution below can change it
+            // (Deviations d8).
+            flushTurtleForNavigation(env: &env, document: &document, context: context)
             let destValue = try await evaluate(dest, env: &env, document: document, context: context)
             let projectFallbackValue: Value
             if destValue.isEmpty,
@@ -1707,6 +1877,8 @@ public struct Interpreter: Sendable {
             }
 
         case .goInStack(let cardExpr, let stackExpr):
+            // Flush the open stroke to the departing card (Deviations d8).
+            flushTurtleForNavigation(env: &env, document: &document, context: context)
             let cardValue = try await evaluateNavigationExpression(cardExpr, env: &env, document: document, context: context)
             let stackValue = try await evaluateNavigationExpression(stackExpr, env: &env, document: document, context: context)
             projectNavigationTarget = try resolveProjectNavigationTarget(
@@ -1764,6 +1936,17 @@ public struct Interpreter: Sendable {
             let countStr = try await evaluate(countExpr, env: &env, document: document, context: context)
             let count = clampedInt(toNumber(countStr))
             for _ in 0..<max(0, count) {
+                // Security C13 — same per-iteration guard as
+                // `.repeatForever`: an empty- or non-emitting-body loop
+                // never reaches `executeStatement`'s own
+                // `instructionCount` increment, so a huge literal count
+                // (`clampedInt` clamps to `Int.max`) would otherwise
+                // execute unbounded. Counting every iteration here
+                // bounds and terminates it regardless of body.
+                instructionCount += 1
+                if instructionCount > context.instructionLimit {
+                    throw ScriptError(message: "Instruction limit exceeded", line: handler.line, handler: handler.name)
+                }
                 context.profiler?.recordLoopIteration("repeatCount")
                 do {
                     for s in body {
@@ -1821,6 +2004,14 @@ public struct Interpreter: Sendable {
                 var i = fromVal
                 let condition: () -> Bool = direction == .up ? { i <= toVal } : { i >= toVal }
                 while condition() {
+                    // Security C13 — same guard as `.repeatCount` /
+                    // `.repeatForever` (see the `.repeatCount` comment):
+                    // bounds an empty-/non-emitting-body counted loop
+                    // regardless of `body`.
+                    instructionCount += 1
+                    if instructionCount > context.instructionLimit {
+                        throw ScriptError(message: "Instruction limit exceeded", line: handler.line, handler: handler.name)
+                    }
                     context.profiler?.recordLoopIteration("repeatWith")
                     env.setVariableKey(varKey, String(i))
                     do {
@@ -2376,6 +2567,14 @@ public struct Interpreter: Sendable {
                 projectNavigationTarget: &projectNavigationTarget,
                 handler: handler
             ) {
+                break
+            }
+            // A user handler named after a turtle verb (`on forward …`)
+            // keeps message-dispatch precedence — the check above ran
+            // first and already broke out if one existed (Requirement
+            // "Turtle vocabulary": handler shadowing).
+            if let turtleCommand = TurtleVocabulary.command(verb: normalizedName, args: args) {
+                try executeTurtleCommand(turtleCommand, env: &env, document: &document, context: context, handler: handler)
                 break
             }
             if handleClassicBuiltInCommand(
@@ -3591,8 +3790,15 @@ public struct Interpreter: Sendable {
 
         case .resetCmd(let expr):
             if let expr {
-                let target = try await evaluate(expr, env: &env, document: document, context: context)
-                if target.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ai session" {
+                // `reset` parses any trailing expression; `reset turtle`
+                // arrives as a bare identifier that evaluates to "" (no
+                // such variable), so the bare-word→name fallback idiom
+                // (`evaluateNavigationExpression`) recovers "turtle".
+                let target = try await evaluateNavigationExpression(expr, env: &env, document: document, context: context)
+                let normalizedTarget = target.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                if normalizedTarget == "turtle" {
+                    try executeTurtleCommand(.resetTurtle, env: &env, document: &document, context: context, handler: handler)
+                } else if normalizedTarget == "ai session" {
                     env.it = "ok"
                     env.result = "ok"
                 }
@@ -3615,6 +3821,8 @@ public struct Interpreter: Sendable {
             await context.runtimeProvider?.pushCardToHistory(cardId)
 
         case .pop:
+            // Flush the open stroke to the departing card (Deviations d8).
+            flushTurtleForNavigation(env: &env, document: &document, context: context)
             if let poppedId = await context.runtimeProvider?.popCardFromHistory() {
                 navigationTarget = poppedId
                 await context.runtimeProvider?.navigateToCard(poppedId)
@@ -5261,6 +5469,15 @@ public struct Interpreter: Sendable {
 
         // Property of target.
         let targetExpr = target!
+
+        // `the <prop> of the turtle` — strictly the canonical `of the
+        // turtle` form (R12); a `TurtleEngine.TurtleError` propagates
+        // as-is (`LocalizedError` carries its `message` into the
+        // generic `ScriptError` catch byte-identically — the
+        // `PartPropertyError` precedent).
+        if case .propertyAccess(let obj, nil) = targetExpr, obj.lowercased() == "turtle" {
+            return try turtleEngine(env: &env, document: document).propertyValue(property)
+        }
 
         // `the number of points (of|in) chart "X"` — delegated to
         // a leaf helper so the locals don't bloat evaluateProperty's

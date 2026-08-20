@@ -482,3 +482,334 @@ struct PropertyStatementFuzzTests {
         #expect(a?.value == b?.value && a?.errored == b?.errored, "regression seed \(seed):\n\(source)")
     }
 }
+
+// MARK: - Layer 4: turtle grammar fuzzer + metamorphic relations (P2, turtle-graphics)
+//
+// Extends the harness with a generator over the turtle vocabulary (design.md
+// D3/D5/D6) — every verb and abbreviation, garbage/negative/huge numeric
+// arguments, color-shaped and garbage color arguments, unbalanced
+// beginFill/endFill, turtle property gets/sets, and repeat-wrapped bodies —
+// plus the metamorphic relations named in the design's test plan. Every run
+// starts from a *fresh* `HypeDocument.newDocument()` (no `scriptGlobals`
+// seeded) so two executions of the same generated source are directly
+// comparable: same error/return outcome AND the same UUID-free part digest.
+
+/// Parses + executes a turtle-flavored handler against a fresh 800×600
+/// document. Returns `nil` when the source does not parse (a parse failure
+/// is not a fuzz finding); otherwise a UUID/sortKey-free summary: whether
+/// the run errored, the error message or return value, and a digest of
+/// every part left on the card (name, shape kind, colors, width, and
+/// pathData) so two runs can be compared for determinism without false
+/// negatives from random identifiers.
+private func execTurtleHandler(_ source: String) -> (errored: Bool, message: String, partsDigest: String)? {
+    var lexer = Lexer(source: source)
+    let tokens = lexer.tokenize()
+    var parser = Parser(tokens: tokens)
+    guard let script = try? parser.parse(), let handler = script.handlers.first else { return nil }
+    let doc = HypeDocument.newDocument()
+    let cardId = doc.cards[0].id
+    let context = ExecutionContext(targetId: cardId, currentCardId: cardId, document: doc)
+    let result = Interpreter().execute(handler: handler, params: [], context: context)
+
+    let errored: Bool
+    let message: String
+    switch result.status {
+    case .error:
+        errored = true
+        message = result.error?.message ?? ""
+    case .cancelled:
+        errored = true
+        message = "cancelled"
+    case .completed, .passed:
+        errored = false
+        message = result.returnValue ?? ""
+    }
+
+    let parts = (result.modifiedDocument?.parts ?? []).filter { $0.cardId == cardId }
+    let digest = parts.map { part in
+        "\(part.name)|\(part.shapeType.rawValue)|\(part.fillColor)|\(part.strokeColor)|\(part.strokeWidth)|"
+            + part.pathData.map { "\($0.x),\($0.y)" }.joined(separator: ";")
+    }.joined(separator: "\n")
+    return (errored, message, digest)
+}
+
+/// Generates bounded HypeTalk handlers exercising the turtle vocabulary:
+/// every verb (long form and abbreviation), tolerant/garbage/huge numeric
+/// arguments, valid-name/hex/garbage color arguments, property gets/sets
+/// (including the read-only trio), `clean`/`reset turtle`, and — since
+/// selection is independent per statement — naturally unbalanced
+/// `beginFill`/`endFill` pairs. About half the generated handlers wrap
+/// their body in a `repeat N times` loop.
+private struct TurtleScriptGen {
+    var rng: SplitMix64
+
+    private let zeroArgVerbs = ["home", "penUp", "pu", "penDown", "pd",
+                                 "beginFill", "endFill", "clean", "clearScreen", "cs"]
+    private let colorArgs = ["\"red\"", "\"blue\"", "\"orange\"", "\"#112233\"",
+                              "\"#11223344\"", "\"blurple\"", "\"\""]
+    private let settableProperties = ["heading", "penWidth", "penDown", "penColor", "fillColor", "position"]
+    private let readableProperties = ["position", "loc", "xcor", "ycor", "heading",
+                                       "penDown", "penColor", "penWidth", "fillColor", "filling"]
+
+    mutating func numberArg() -> String {
+        switch rng.int(0...5) {
+        case 0: return String(rng.int(-2000...2000))
+        case 1: return String(format: "%.3f", Double(rng.int(-50000...50000)) / 100.0)
+        case 2: return "-\(rng.int(0...5000))"
+        case 3: return "\"banana\""                 // non-numeric → coerces to 0
+        case 4: return "999999999999"                // huge, in-range for Double
+        default: return String(rng.int(0...360))
+        }
+    }
+
+    mutating func colorArg() -> String { rng.pick(colorArgs) }
+
+    mutating func statement() -> String {
+        switch rng.int(0...13) {
+        case 0: return "\(rng.pick(["forward", "fd", "back", "bk"])) \(numberArg())"
+        case 1: return "\(rng.pick(["right", "rt", "left", "lt"])) \(numberArg())"
+        case 2: return "\(rng.pick(["setHeading", "setH"])) \(numberArg())"
+        case 3: return "\(rng.pick(["setPos", "setXY"])) \(numberArg()), \(numberArg())"
+        case 4: return rng.pick(zeroArgVerbs)
+        case 5: return "setPenColor \(colorArg())"
+        case 6: return "setFillColor \(colorArg())"
+        case 7: return "\(rng.pick(["setPenWidth", "setPenSize"])) \(numberArg())"
+        case 8: return "circle \(numberArg())"
+        case 9: return "arc \(numberArg()), \(numberArg())"
+        case 10: return "dot" + (rng.bool() ? "" : " \(numberArg())")
+        case 11:
+            let prop = rng.pick(settableProperties)
+            let value = prop == "penColor" || prop == "fillColor" ? colorArg()
+                : prop == "position" ? "\"\(numberArg()),\(numberArg())\""
+                : prop == "penDown" ? (rng.bool() ? "true" : "false")
+                : numberArg()
+            return "set the \(prop) of the turtle to \(value)"
+        case 12:
+            // Read-only trio — expected to error; still must never crash.
+            return "set the \(rng.pick(["xcor", "ycor", "filling"])) of the turtle to \(numberArg())"
+        default:
+            return "put the \(rng.pick(readableProperties)) of the turtle into buf"
+        }
+    }
+
+    mutating func body(_ n: Int) -> [String] {
+        (0..<n).map { _ in statement() }
+    }
+
+    mutating func handler() -> String {
+        var lines = ["on test"]
+        let n = rng.int(1...10)
+        if rng.bool() {
+            let count = rng.int(0...30)
+            lines.append("repeat \(count) times")
+            lines += body(n)
+            lines.append("end repeat")
+        } else {
+            lines += body(n)
+        }
+        lines.append("return \"done\"")
+        lines.append("end test")
+        return lines.joined(separator: "\n")
+    }
+}
+
+@Suite("Interpreter fuzz — turtle statement family", .serialized)
+struct TurtleGrammarFuzzTests {
+    /// Seeds that previously surfaced a failure. Add a seed here when the
+    /// fuzzer finds a bug so it is pinned as a permanent regression case.
+    static let regressionSeeds: [UInt64] = []
+
+    @Test("Generated turtle programs never crash and are deterministic on fresh documents", arguments: 0..<300)
+    func fuzz(seed: Int) {
+        var gen = TurtleScriptGen(rng: SplitMix64(seed: UInt64(seed) &* 0x9E3779B185EBCA87 &+ 11))
+        let source = gen.handler()
+
+        guard let first = execTurtleHandler(source) else { return }
+        guard let second = execTurtleHandler(source) else {
+            Issue.record("seed \(seed): parsed then failed to parse on replay\n\(source)")
+            return
+        }
+        #expect(
+            first.errored == second.errored && first.message == second.message && first.partsDigest == second.partsDigest,
+            "Non-deterministic turtle execution for seed \(seed):\n\(source)\n→ run1=(\(first)) run2=(\(second))"
+        )
+    }
+
+    @Test("Pinned turtle-fuzz regression seeds stay green", arguments: TurtleGrammarFuzzTests.regressionSeeds)
+    func regressions(seed: UInt64) {
+        var gen = TurtleScriptGen(rng: SplitMix64(seed: seed))
+        let source = gen.handler()
+        let a = execTurtleHandler(source)
+        let b = execTurtleHandler(source)
+        #expect(
+            a?.errored == b?.errored && a?.message == b?.message && a?.partsDigest == b?.partsDigest,
+            "regression seed \(seed):\n\(source)"
+        )
+    }
+}
+
+@Suite("Turtle metamorphic relations", .serialized)
+struct TurtleMetamorphicTests {
+
+    @Test("right d then left d restores heading exactly", arguments: 0..<80)
+    func rightThenLeftRestoresHeading(seed: Int) {
+        var rng = SplitMix64(seed: UInt64(seed) &+ 101)
+        let d = rng.int(-1000...1000)
+        let result = execTurtleHandler("""
+        on test
+          right \(d)
+          left \(d)
+          return the heading of the turtle
+        end test
+        """)
+        #expect(result?.message == "0", "right \(d); left \(d) should restore heading 0, got \(String(describing: result?.message))")
+    }
+
+    @Test("fd n then bk n restores position within 1e-9", arguments: 0..<80)
+    func forwardThenBackRestoresPosition(seed: Int) {
+        var rng = SplitMix64(seed: UInt64(seed) &+ 103)
+        let n = rng.int(-3000...3000)
+        let result = execTurtleHandler("""
+        on test
+          fd \(n)
+          bk \(n)
+          return the position of the turtle
+        end test
+        """)
+        let fields = (result?.message ?? "").split(separator: ",")
+        guard fields.count == 2, let x = Double(fields[0]), let y = Double(fields[1]) else {
+            Issue.record("could not parse position for n=\(n): \(String(describing: result?.message))")
+            return
+        }
+        #expect(abs(x - 400) < 1e-9 && abs(y - 300) < 1e-9, "fd \(n); bk \(n) drifted to (\(x),\(y))")
+    }
+
+    @Test("right (d + 360k) ≡ right d — heading is mod 360", arguments: 0..<80)
+    func rightIsModulo360(seed: Int) {
+        var rng = SplitMix64(seed: UInt64(seed) &+ 107)
+        let d = rng.int(-720...720)
+        let k = rng.int(-5...5)
+        let a = execTurtleHandler("on test\n  right \(d)\n  return the heading of the turtle\nend test")
+        let b = execTurtleHandler("on test\n  right \(d + k * 360)\n  return the heading of the turtle\nend test")
+        #expect(a?.message == b?.message, "right \(d) vs right \(d + k * 360): \(String(describing: a?.message)) != \(String(describing: b?.message))")
+    }
+
+    @Test("4×(fd L, rt 90) closes the square — one part, first == last vertex", arguments: 0..<40)
+    func fourStepSquareCloses(seed: Int) {
+        var rng = SplitMix64(seed: UInt64(seed) &+ 109)
+        let length = rng.int(1...300)
+        guard let result = execTurtleHandler("""
+        on test
+          repeat 4 times
+            fd \(length)
+            rt 90
+          end repeat
+          return "done"
+        end test
+        """) else {
+            Issue.record("square program failed to parse for length \(length)")
+            return
+        }
+        #expect(!result.errored)
+        let emittedParts = result.partsDigest.split(separator: "\n")
+        #expect(emittedParts.count == 1, "expected exactly one part for length \(length), got \(emittedParts.count)")
+        guard let pathField = emittedParts.first?.split(separator: "|").last else { return }
+        let vertices = pathField.split(separator: ";")
+        #expect(vertices.count == 5, "expected 5 vertices (closed square) for length \(length), got \(vertices.count)")
+        #expect(vertices.first == vertices.last, "square did not close for length \(length): \(pathField)")
+    }
+
+    @Test("clean twice ≡ clean once — both leave zero parts", arguments: 0..<40)
+    func cleanIsIdempotent(seed: Int) {
+        var rng = SplitMix64(seed: UInt64(seed) &+ 113)
+        let length = rng.int(1...200)
+        let once = execTurtleHandler("on test\n  fd \(length)\n  clean\n  return \"done\"\nend test")
+        let twice = execTurtleHandler("on test\n  fd \(length)\n  clean\n  clean\n  return \"done\"\nend test")
+        #expect(once?.partsDigest == twice?.partsDigest, "clean once vs twice diverged for length \(length)")
+        #expect(twice?.partsDigest.isEmpty == true, "clean should leave zero turtle parts")
+    }
+}
+
+// MARK: - Security A2 (parser robustness) + C13 (bounded-loop DoS)
+
+@Suite("Security — parser robustness (A2) and bounded loops (C13)", .serialized)
+struct TurtleSecurityRobustnessTests {
+
+    /// A2: deeply-nested parenthesized expressions must not crash the
+    /// process (a native stack overflow would kill the whole test run —
+    /// that IS the failure mode this guards). 500 levels is an empirically
+    /// safe margin on an 8 MB thread stack for this recursive-descent
+    /// parser (probed locally: 700 levels parses cleanly, 800 traps) — see
+    /// the Builder's report for the deviation from the design's "thousands"
+    /// example figure.
+    @Test("Deeply-nested expression (500 parens) does not crash the parser")
+    func deeplyNestedExpressionNoCrash() async {
+        let nested = String(repeating: "(", count: 500) + "1" + String(repeating: ")", count: 500)
+        let source = "on test\n  return \(nested)\nend test"
+        _ = await runOnLargeStack { () -> Bool in
+            var lexer = Lexer(source: source)
+            let tokens = lexer.tokenize()
+            var parser = Parser(tokens: tokens)
+            _ = try? parser.parse()
+            return true
+        }
+    }
+
+    /// A2: a ~64 KB turtle program (breadth, not depth — thousands of
+    /// sequential statements) must not crash and must run to completion.
+    @Test("~64 KB turtle program does not crash and runs to completion")
+    func maxLengthProgramNoCrash() async {
+        let line = "forward 1\n"
+        let repeatCount = (64 * 1024) / line.utf8.count + 10
+        let body = String(repeating: line, count: repeatCount)
+        let source = "on test\n\(body)return \"done\"\nend test"
+        #expect(source.utf8.count > 64 * 1024)
+
+        let outcome = await runOnLargeStack { () -> (errored: Bool, message: String)? in
+            var lexer = Lexer(source: source)
+            let tokens = lexer.tokenize()
+            var parser = Parser(tokens: tokens)
+            guard let script = try? parser.parse(), let handler = script.handlers.first else { return nil }
+            let doc = HypeDocument.newDocument()
+            let context = ExecutionContext(targetId: doc.cards[0].id, currentCardId: doc.cards[0].id, document: doc)
+            let result = Interpreter().execute(handler: handler, params: [], context: context)
+            if case .error = result.status { return (true, result.error?.message ?? "") }
+            return (false, result.returnValue ?? "")
+        }
+        #expect(outcome != nil, "the 64 KB program failed to parse")
+        #expect(outcome?.message == "done", "expected the run to complete normally, got \(String(describing: outcome))")
+    }
+
+    /// C13: an empty-body counted loop with a huge literal count must
+    /// terminate via the instruction-limit guard, not spin unbounded.
+    /// Mirrors the pre-existing `ScriptNumericSafetyTests` huge-count case
+    /// (which exits via `exit repeat` on iteration 1 and so never exercised
+    /// an *empty* body) — this is the gap Security C13 closes.
+    @Test("repeat 1000000000 times / end repeat (empty body) terminates with the instruction-limit error")
+    func hugeCountEmptyBodyRepeatIsBounded() {
+        let result = execTurtleHandler("""
+        on test
+          repeat 1000000000 times
+          end repeat
+          return "unreachable"
+        end test
+        """)
+        #expect(result?.errored == true)
+        #expect(result?.message == "Instruction limit exceeded")
+    }
+
+    /// C13: the same guard on `.repeatWith` — a huge empty-body counted
+    /// range must also terminate, not just the `repeat N times` form.
+    @Test("repeat with i = 1 to 999999999 / end repeat (empty body) terminates with the instruction-limit error")
+    func hugeRangeEmptyBodyRepeatWithIsBounded() {
+        let result = execTurtleHandler("""
+        on test
+          repeat with i = 1 to 999999999
+          end repeat
+          return "unreachable"
+        end test
+        """)
+        #expect(result?.errored == true)
+        #expect(result?.message == "Instruction limit exceeded")
+    }
+}
