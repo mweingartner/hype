@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "paths": [
+    "Sources/HypeCore/Script/Interpreter.swift",
+    "Tests/HypeCoreTests/InterpreterFuzzTests.swift"
+  ],
+  "shared_paths": []
+}
