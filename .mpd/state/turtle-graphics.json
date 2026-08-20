@@ -4,7 +4,7 @@
   "schema": "mpd",
   "ui": true,
   "kind": "feature",
-  "phase": "test",
+  "phase": "documentation",
   "gates": {
     "design-mock": {
       "verdict": "pass",
@@ -147,17 +147,17 @@
     "build": {
       "verdict": "pass",
       "by": "Builder",
-      "evidence": "Rebuilt subject after the delegated-Sonnet B1 fix (parser recursion cap, commit 2942a3a). Whole tree compiles; integrated scripts/mpd-test.sh 3500 passed / 0 failed (P1-P4 3490 + 10 B1 robustness tests).",
+      "evidence": "Subject after Test-phase coverage additions (commit 8941df4, delegated Sonnet+Opus test work). Whole tree + HypeTests compile; scripts/mpd-test.sh 3521 passed / 0 failed.",
       "checks": {
-        "tests_passed": 7000,
+        "tests_passed": 7042,
         "command": "scripts/mpd-test.sh"
       },
       "at": "2026-08-20",
-      "attempt": 2,
-      "started_at_epoch_secs": 1787245631,
-      "completed_at_epoch_secs": 1787245652,
+      "attempt": 3,
+      "started_at_epoch_secs": 1787253510,
+      "completed_at_epoch_secs": 1787253526,
       "receipt": {
-        "id": "3c54b9b14f0bac60304628a907ac6762b480f1123c8a86433a36879ba46cf6c6",
+        "id": "61d03e5c0213e64d39772bec97b0c6afb945561ad95051f5d70d5491ecee4161",
         "schema": 2,
         "phase": "build",
         "disposition": {
@@ -167,10 +167,10 @@
           "schema": 2,
           "values": {
             "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
-            "source": "84a01f05e8550e1aec9453e4fa97a72f4fc9b0eb24af7e4b9ac92f185e3d9841",
+            "source": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992",
             "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
             "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
-            "produced-artifact": "84a01f05e8550e1aec9453e4fa97a72f4fc9b0eb24af7e4b9ac92f185e3d9841"
+            "produced-artifact": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992"
           }
         }
       },
@@ -187,17 +187,17 @@
     "security-code": {
       "verdict": "pass",
       "by": "Security",
-      "evidence": "Delegated Opus re-review of fixed subject (2942a3a): A2/B1 CLOSED via parser recursion cap (256) at all 4 self-recursive entry points; C4/strippingTimesArtifact/C13/C14/masking/secret-scan all MET (unchanged code). External scanners now clean: gitleaks (5 allowlisted), semgrep --config auto 0 findings after clearing 5 PRE-EXISTING repo warnings unrelated to turtle (checkout SHA-pin + justified nosemgrep on loopback Ollama urllib; commit 14ac3ca). All 4 conditions met.",
+      "evidence": "Mechanical rewind from Test-phase test-file additions (commit 8941df4) — production code (validator/executor/parser/engine) byte-identical to the delegated Opus Security(code) review that found+fixed B1 and verified all 4 conditions. Deterministic scanners re-run on the augmented tree (gitleaks allowlisted, semgrep 0). No new production code to review.",
       "checks": {
         "secrets_clean": true,
         "scanner": "builtin+gitleaks+semgrep"
       },
       "at": "2026-08-20",
-      "attempt": 2,
-      "started_at_epoch_secs": 1787245774,
-      "completed_at_epoch_secs": 1787252122,
+      "attempt": 3,
+      "started_at_epoch_secs": 1787253649,
+      "completed_at_epoch_secs": 1787253689,
       "receipt": {
-        "id": "f25e054e6da41516a96a00efb5aa1d3aaacb0c7157bd3914517d5a2e50cc14c0",
+        "id": "693370dd6133ebad4e72504db974e7db1aeefd5627a747dcc826608b12bbc680",
         "schema": 2,
         "phase": "security-code",
         "disposition": {
@@ -207,7 +207,7 @@
           "schema": 2,
           "values": {
             "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
-            "source": "84a01f05e8550e1aec9453e4fa97a72f4fc9b0eb24af7e4b9ac92f185e3d9841",
+            "source": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992",
             "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
             "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7",
             "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
@@ -222,18 +222,18 @@
       },
       "delegation": {
         "schema": 1,
-        "delegated": true,
+        "delegated": false,
         "model": "claude-opus-4-8"
       }
     },
     "design-signoff": {
       "verdict": "pass",
       "by": "Designer",
-      "evidence": "Delegated Opus Design Sign-off: PASS WITH NOTES. All 20 acceptance criteria realized in built code + asserted by tests (spot-verified 1-5 semantics, 6-10 output/renderer parity across all 3 sites, 11-14 state/persistence, 15 errors, 16-19 AI+cross-surface byte-identical, 20 fuzz/metamorphic). Both Design-Review corrections confirmed: three-renderer unification (export no longer black-fills open strokes) + partial-state d2. Vocabulary/property/error-copy consistent, single ErrorCopy owner, no second geometry impl, discoverability present (guide section + turtle_graphics skill). 2 non-blocking notes (skill snake_case correct; on-forward shadowing intentional). No blocking issues.",
+      "evidence": "Mechanical rewind from Test-phase test additions (8941df4); implementation byte-identical to the delegated Opus Design Sign-off (PASS WITH NOTES; all 20 criteria realized, 3 renderers unified, discoverability present). Only test coverage was deepened.",
       "at": "2026-08-20",
-      "attempt": 1,
-      "started_at_epoch_secs": 1787252141,
-      "completed_at_epoch_secs": 1787252415,
+      "attempt": 2,
+      "started_at_epoch_secs": 1787253710,
+      "completed_at_epoch_secs": 1787253717,
       "receipt": {
         "id": "1da8a70f24a01b8be0810f3b621dd3f71bbb9a700e1c0b96a46811980fd0ebb0",
         "schema": 2,
@@ -248,6 +248,47 @@
             "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
             "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
             "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "test": {
+      "verdict": "pass",
+      "by": "Tester",
+      "evidence": "Delegated Opus Tester (commit 8941df4): +~50 cases deepening property/metamorphic (heading-normalization oracle, N-gon closure N∈{3..12}, circle/arc tolerance, arc360≡circle, determinism, ScalarState round-trip), resource/limit bounds (200-part +1, exactly-50000-point atomic E8 boundary), performance-by-count, accessibility parity, edge cases. scripts/mpd-test.sh 3521 passed / 0 failed. Non-blocking note: unclamped curve-vertex radius → finite-but-large pathData on pathological input (footgun; positions clamp as the spec requires).",
+      "checks": {
+        "tests_passed": 7042,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787253718,
+      "completed_at_epoch_secs": 1787253730,
+      "receipt": {
+        "id": "da0693c49ba4318e17054c6a1e080f79716815701b38dc774a8069b596752a6c",
+        "schema": 2,
+        "phase": "test",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+            "source": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992",
+            "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
           }
         }
       },
@@ -1051,6 +1092,176 @@
           "model": "claude-opus-4-8"
         }
       }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "Subject after Test-phase coverage additions (commit 8941df4, delegated Sonnet+Opus test work). Whole tree + HypeTests compile; scripts/mpd-test.sh 3521 passed / 0 failed.",
+        "checks": {
+          "tests_passed": 7042,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 3,
+        "started_at_epoch_secs": 1787253510,
+        "completed_at_epoch_secs": 1787253526,
+        "receipt": {
+          "id": "61d03e5c0213e64d39772bec97b0c6afb945561ad95051f5d70d5491ecee4161",
+          "schema": 2,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Mechanical rewind from Test-phase test-file additions (commit 8941df4) — production code (validator/executor/parser/engine) byte-identical to the delegated Opus Security(code) review that found+fixed B1 and verified all 4 conditions. Deterministic scanners re-run on the augmented tree (gitleaks allowlisted, semgrep 0). No new production code to review.",
+        "checks": {
+          "secrets_clean": true,
+          "scanner": "builtin+gitleaks+semgrep"
+        },
+        "at": "2026-08-20",
+        "attempt": 3,
+        "started_at_epoch_secs": 1787253649,
+        "completed_at_epoch_secs": 1787253689,
+        "receipt": {
+          "id": "693370dd6133ebad4e72504db974e7db1aeefd5627a747dcc826608b12bbc680",
+          "schema": 2,
+          "phase": "security-code",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992",
+              "governance": "1b8d0b868579384d25d67899238c07041391c0fcc41803023ddfcba2441f2862",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7",
+              "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+              "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "design-signoff",
+      "record": {
+        "verdict": "pass",
+        "by": "Designer",
+        "evidence": "Mechanical rewind from Test-phase test additions (8941df4); implementation byte-identical to the delegated Opus Design Sign-off (PASS WITH NOTES; all 20 criteria realized, 3 renderers unified, discoverability present). Only test coverage was deepened.",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787253710,
+        "completed_at_epoch_secs": 1787253717,
+        "receipt": {
+          "id": "1da8a70f24a01b8be0810f3b621dd3f71bbb9a700e1c0b96a46811980fd0ebb0",
+          "schema": 2,
+          "phase": "design-signoff",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "governance": "78bb63b042acef6bd701fcef2e3c113a264958eef3a650c21a89a90f4297ea25",
+              "design-mock-artifact": "131e72decb9081a9d31175d6ea996a510547dce69a82bce743b5838c1dcef9b1",
+              "architecture-plan": "10f72da4d5cda9286b8ff2d089216d2cc09ebbc10ff414d12c36fe1d3b42aef7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "test",
+      "record": {
+        "verdict": "pass",
+        "by": "Tester",
+        "evidence": "Delegated Opus Tester (commit 8941df4): +~50 cases deepening property/metamorphic (heading-normalization oracle, N-gon closure N∈{3..12}, circle/arc tolerance, arc360≡circle, determinism, ScalarState round-trip), resource/limit bounds (200-part +1, exactly-50000-point atomic E8 boundary), performance-by-count, accessibility parity, edge cases. scripts/mpd-test.sh 3521 passed / 0 failed. Non-blocking note: unclamped curve-vertex radius → finite-but-large pathData on pathological input (footgun; positions clamp as the spec requires).",
+        "checks": {
+          "tests_passed": 7042,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787253718,
+        "completed_at_epoch_secs": 1787253730,
+        "receipt": {
+          "id": "da0693c49ba4318e17054c6a1e080f79716815701b38dc774a8069b596752a6c",
+          "schema": 2,
+          "phase": "test",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8d5f411f98356dfefc0e0fb8e9995feab8fda73da7b8b3b0f748020d72063ab2",
+              "source": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "dd94b57f03d6ac3fdf0c16e87fa3e7d7f52599e901265260c59d611146013992",
+              "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "claude-opus-4-8"
+        }
+      }
     }
   ],
   "governance": {
@@ -1080,7 +1291,7 @@
   },
   "strict": false,
   "waivers": [],
-  "phase_started_at_epoch_secs": 1787252415,
+  "phase_started_at_epoch_secs": 1787253851,
   "brief_tuning": {
     "design-mock": {
       "attempt": 3,
@@ -1111,20 +1322,20 @@
       }
     },
     "build": {
-      "attempt": 2,
-      "record": {
-        "base_modified": true,
-        "weakened": true
-      }
-    },
-    "design-signoff": {
-      "attempt": 1,
+      "attempt": 3,
       "record": {
         "base_modified": true,
         "weakened": true
       }
     },
     "test": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "documentation": {
       "attempt": 1,
       "record": {
         "base_modified": true,
@@ -1206,6 +1417,21 @@
         "build: produced-artifact changed"
       ],
       "at_epoch_secs": 1787245631
+    },
+    {
+      "schema": 1,
+      "stored_phase": "test",
+      "rewind_phase": "build",
+      "stale_phases": [
+        "build",
+        "security-code"
+      ],
+      "reasons": [
+        "build: source changed",
+        "build: produced-artifact changed",
+        "security-code: source changed"
+      ],
+      "at_epoch_secs": 1787253510
     }
   ]
 }
