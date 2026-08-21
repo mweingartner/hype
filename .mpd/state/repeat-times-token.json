@@ -4,7 +4,7 @@
   "schema": "mpd",
   "ui": false,
   "kind": "fix",
-  "phase": "test",
+  "phase": "done",
   "gates": {
     "architecture": {
       "verdict": "pass",
@@ -155,6 +155,76 @@
         "schema": 1,
         "delegated": true,
         "model": "sonnet"
+      }
+    },
+    "test": {
+      "verdict": "pass",
+      "by": "Tester",
+      "evidence": "RepeatTimesParsingTests (5): repeat N times body has exactly one statement (no stray token); bare repeat N, repeat for N times, nested repeat N times all clean; repeat 3 times runs 3 times. Plus TurtleCrossSurfaceEquivalence (E9 line numbers + garden), TurtleScripting, InterpreterFuzz turtle grammar/metamorphic all green. scripts/mpd-test.sh 3534 passed / 0 failed. Self-recorded (deterministic suite + self-authored tests; per operator decision to accept on the delegated Security-code review).",
+      "checks": {
+        "tests_passed": 7068,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-08-21",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787272266,
+      "completed_at_epoch_secs": 1787273074,
+      "receipt": {
+        "id": "46e70d34af2cd90617b9bd018d3c246fc3c10658072a785b97760b077bf78496",
+        "schema": 2,
+        "phase": "test",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+            "source": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+            "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "deploy": {
+      "verdict": "pass",
+      "by": "main-session",
+      "evidence": "All 6 fix-lane gates passed (Security-code delegated; operator accepted self-recorded upstream on the delegated code review). scripts/mpd-deploy.sh: build → bundle → codesign → install /Applications/Hype.app with the repeat-N-times parser fix.",
+      "checks": {
+        "command": "scripts/mpd-deploy.sh"
+      },
+      "at": "2026-08-21",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787273192,
+      "completed_at_epoch_secs": 1787273199,
+      "receipt": {
+        "id": "9ce2e26cb0539b5d2f61c9c42700b1af6f6e17764369269c80979bd9439f9a62",
+        "schema": 2,
+        "phase": "deploy",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+            "source": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+            "produced-artifact": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+            "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+          }
+        }
       }
     }
   },
@@ -323,6 +393,82 @@
           "model": "sonnet"
         }
       }
+    },
+    {
+      "phase": "test",
+      "record": {
+        "verdict": "pass",
+        "by": "Tester",
+        "evidence": "RepeatTimesParsingTests (5): repeat N times body has exactly one statement (no stray token); bare repeat N, repeat for N times, nested repeat N times all clean; repeat 3 times runs 3 times. Plus TurtleCrossSurfaceEquivalence (E9 line numbers + garden), TurtleScripting, InterpreterFuzz turtle grammar/metamorphic all green. scripts/mpd-test.sh 3534 passed / 0 failed. Self-recorded (deterministic suite + self-authored tests; per operator decision to accept on the delegated Security-code review).",
+        "checks": {
+          "tests_passed": 7068,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-21",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787272266,
+        "completed_at_epoch_secs": 1787273074,
+        "receipt": {
+          "id": "46e70d34af2cd90617b9bd018d3c246fc3c10658072a785b97760b077bf78496",
+          "schema": 2,
+          "phase": "test",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+              "source": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+              "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "deploy",
+      "record": {
+        "verdict": "pass",
+        "by": "main-session",
+        "evidence": "All 6 fix-lane gates passed (Security-code delegated; operator accepted self-recorded upstream on the delegated code review). scripts/mpd-deploy.sh: build → bundle → codesign → install /Applications/Hype.app with the repeat-N-times parser fix.",
+        "checks": {
+          "command": "scripts/mpd-deploy.sh"
+        },
+        "at": "2026-08-21",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787273192,
+        "completed_at_epoch_secs": 1787273199,
+        "receipt": {
+          "id": "9ce2e26cb0539b5d2f61c9c42700b1af6f6e17764369269c80979bd9439f9a62",
+          "schema": 2,
+          "phase": "deploy",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+              "source": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+              "produced-artifact": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+              "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+            }
+          }
+        }
+      }
     }
   ],
   "governance": {
@@ -342,7 +488,7 @@
   },
   "strict": false,
   "waivers": [],
-  "phase_started_at_epoch_secs": 1787272266,
+  "phase_started_at_epoch_secs": 1787273201,
   "brief_tuning": {
     "build": {
       "attempt": 1,
