@@ -1017,11 +1017,21 @@ public struct Parser: Sendable {
             return .repeatForever(body: body)
         }
 
-        // `repeat <count>` or `repeat for <count>`
+        // `repeat <count>` or `repeat for <count>` — with an optional
+        // trailing `times`: `repeat 5 times`, `repeat for 5 times`, or the
+        // classic bare `repeat 5`.
         if current.value.lowercased() == "for" {
             _ = advance()
         }
         let count = try parseExpression()
+        // Consume the optional trailing `times` keyword so it does not leak
+        // into the loop body as a stray `expressionStatement(.literal
+        // ("times"))` first statement (the other repeat forms already consume
+        // their own trailing keywords). `parseExpression` stops at `.times`
+        // (not a binary operator), so it is `current` here.
+        if current.type == .times {
+            _ = advance()
+        }
         skipNewlines()
         let body = try parseRepeatBody()
         return .repeatCount(count: count, body: body)

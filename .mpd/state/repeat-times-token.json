@@ -1,0 +1,524 @@
+{
+  "format": 2,
+  "change": "repeat-times-token",
+  "schema": "mpd",
+  "ui": false,
+  "kind": "fix",
+  "phase": "done",
+  "gates": {
+    "architecture": {
+      "verdict": "pass",
+      "by": "Architect",
+      "evidence": "design.md — consume the optional .times token in parseRepeatStatement bare-count branch (matches lexer 'times'→.times + other repeat forms' keyword consumption); remove TurtleProgramValidator.strippingTimesArtifact + call site. Line-cursor preserved (artifact owned no segment; header segment unchanged). 4 Conditions for Builder. Self-authored + code-verified (Parser.swift:1020-1027, Lexer.swift:41, validator:180-233).",
+      "at": "2026-08-21",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787271321,
+      "completed_at_epoch_secs": 1787271481,
+      "receipt": {
+        "id": "f81c33a13c425e968e6e7d9304b026f38d79fd3b0f3ae18c01ac52ee5b5b0fd1",
+        "schema": 2,
+        "phase": "architecture",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+            "governance": "394ca89eecc779f677cf8212b4f88f17ea6013941f5ad712ae22037b19a9f53e",
+            "architecture-plan": "87812e9ed1228ac50037d68bfaeedf9897f7c1653408c8bb5fc0631b0b1ed5a7"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "security-plan": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Parser defect fix (consume a dropped token) + removal of the validator workaround it forced. No input/attack surface change; the tool's allowlist still validates the count expression + body identically (only the stray no-op is gone). Cross-surface equivalence preserved by construction (both surfaces parse the same clean AST). Self-recorded — no security surface; correctness verified at Security(code)+Test.",
+      "at": "2026-08-21",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787271481,
+      "completed_at_epoch_secs": 1787271482,
+      "receipt": {
+        "id": "27802a0830855115639f41230143475cd46192ed3eaca5630db0c4a74601e948",
+        "schema": 2,
+        "phase": "security-plan",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+            "governance": "2c8f406c565af5c8bafdccd5b34a90f4a1527e077cb4ee3f7892fc86bc28250b",
+            "architecture-plan": "87812e9ed1228ac50037d68bfaeedf9897f7c1653408c8bb5fc0631b0b1ed5a7",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "build": {
+      "verdict": "pass",
+      "by": "Builder",
+      "evidence": "Parser fix (consume .times) + validator strippingTimesArtifact removal (commit 7bca17e). Whole tree compiles; scripts/mpd-test.sh 3534 passed / 0 failed — incl. TurtleCrossSurfaceEquivalence (E9 line numbers + garden equivalence), TurtleScripting, InterpreterFuzz turtle grammar/metamorphic, and the new RepeatTimesParsingTests (5). Line cursor did not desync.",
+      "checks": {
+        "tests_passed": 7068,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-08-21",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787271482,
+      "completed_at_epoch_secs": 1787271728,
+      "receipt": {
+        "id": "99e5d134d26f608cc1518a15f8a7817aa050e17a7c70ba31abe46a0b9d9c73b2",
+        "schema": 2,
+        "phase": "build",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+            "source": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "security-code": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Delegated Sonnet Security(code): PASS. Parser fix correct — .times appears exactly twice in Parser.swift, consume is optional + correctly placed, parseExpression can't swallow it, no other repeat form affected (traced all branches). Validator cursor aligned by construction (verified vs concrete program + E9 line-number tests); no dangling strippingTimesArtifact refs; cross-surface garden equivalence holds; repeat N times still runs N times. Scanners clean. Non-blocking: stale comment in Interpreter.swift:835 (out of this manifest).",
+      "checks": {
+        "secrets_clean": true,
+        "scanner": "builtin+gitleaks+semgrep"
+      },
+      "at": "2026-08-21",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787271847,
+      "completed_at_epoch_secs": 1787272245,
+      "receipt": {
+        "id": "05ab46257539013da3fb0555e37d2c9615f60112f735d215d203aa2fe801cd7d",
+        "schema": 2,
+        "phase": "security-code",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+            "source": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+            "governance": "2c8f406c565af5c8bafdccd5b34a90f4a1527e077cb4ee3f7892fc86bc28250b",
+            "architecture-plan": "87812e9ed1228ac50037d68bfaeedf9897f7c1653408c8bb5fc0631b0b1ed5a7",
+            "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+            "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "sonnet"
+      }
+    },
+    "test": {
+      "verdict": "pass",
+      "by": "Tester",
+      "evidence": "RepeatTimesParsingTests (5): repeat N times body has exactly one statement (no stray token); bare repeat N, repeat for N times, nested repeat N times all clean; repeat 3 times runs 3 times. Plus TurtleCrossSurfaceEquivalence (E9 line numbers + garden), TurtleScripting, InterpreterFuzz turtle grammar/metamorphic all green. scripts/mpd-test.sh 3534 passed / 0 failed. Self-recorded (deterministic suite + self-authored tests; per operator decision to accept on the delegated Security-code review).",
+      "checks": {
+        "tests_passed": 7068,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-08-21",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787272266,
+      "completed_at_epoch_secs": 1787273074,
+      "receipt": {
+        "id": "46e70d34af2cd90617b9bd018d3c246fc3c10658072a785b97760b077bf78496",
+        "schema": 2,
+        "phase": "test",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+            "source": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+            "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "deploy": {
+      "verdict": "pass",
+      "by": "main-session",
+      "evidence": "All 6 fix-lane gates passed (Security-code delegated; operator accepted self-recorded upstream on the delegated code review). scripts/mpd-deploy.sh: build → bundle → codesign → install /Applications/Hype.app with the repeat-N-times parser fix.",
+      "checks": {
+        "command": "scripts/mpd-deploy.sh"
+      },
+      "at": "2026-08-21",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787273192,
+      "completed_at_epoch_secs": 1787273199,
+      "receipt": {
+        "id": "9ce2e26cb0539b5d2f61c9c42700b1af6f6e17764369269c80979bd9439f9a62",
+        "schema": 2,
+        "phase": "deploy",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+            "source": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+            "produced-artifact": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+            "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+          }
+        }
+      }
+    }
+  },
+  "conditions": [],
+  "task_deferrals": [],
+  "history": [
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "design.md — consume the optional .times token in parseRepeatStatement bare-count branch (matches lexer 'times'→.times + other repeat forms' keyword consumption); remove TurtleProgramValidator.strippingTimesArtifact + call site. Line-cursor preserved (artifact owned no segment; header segment unchanged). 4 Conditions for Builder. Self-authored + code-verified (Parser.swift:1020-1027, Lexer.swift:41, validator:180-233).",
+        "at": "2026-08-21",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787271321,
+        "completed_at_epoch_secs": 1787271481,
+        "receipt": {
+          "id": "f81c33a13c425e968e6e7d9304b026f38d79fd3b0f3ae18c01ac52ee5b5b0fd1",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+              "governance": "394ca89eecc779f677cf8212b4f88f17ea6013941f5ad712ae22037b19a9f53e",
+              "architecture-plan": "87812e9ed1228ac50037d68bfaeedf9897f7c1653408c8bb5fc0631b0b1ed5a7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Parser defect fix (consume a dropped token) + removal of the validator workaround it forced. No input/attack surface change; the tool's allowlist still validates the count expression + body identically (only the stray no-op is gone). Cross-surface equivalence preserved by construction (both surfaces parse the same clean AST). Self-recorded — no security surface; correctness verified at Security(code)+Test.",
+        "at": "2026-08-21",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787271481,
+        "completed_at_epoch_secs": 1787271482,
+        "receipt": {
+          "id": "27802a0830855115639f41230143475cd46192ed3eaca5630db0c4a74601e948",
+          "schema": 2,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+              "governance": "2c8f406c565af5c8bafdccd5b34a90f4a1527e077cb4ee3f7892fc86bc28250b",
+              "architecture-plan": "87812e9ed1228ac50037d68bfaeedf9897f7c1653408c8bb5fc0631b0b1ed5a7",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "Parser fix (consume .times) + validator strippingTimesArtifact removal (commit 7bca17e). Whole tree compiles; scripts/mpd-test.sh 3534 passed / 0 failed — incl. TurtleCrossSurfaceEquivalence (E9 line numbers + garden equivalence), TurtleScripting, InterpreterFuzz turtle grammar/metamorphic, and the new RepeatTimesParsingTests (5). Line cursor did not desync.",
+        "checks": {
+          "tests_passed": 7068,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-21",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787271482,
+        "completed_at_epoch_secs": 1787271728,
+        "receipt": {
+          "id": "99e5d134d26f608cc1518a15f8a7817aa050e17a7c70ba31abe46a0b9d9c73b2",
+          "schema": 2,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+              "source": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Delegated Sonnet Security(code): PASS. Parser fix correct — .times appears exactly twice in Parser.swift, consume is optional + correctly placed, parseExpression can't swallow it, no other repeat form affected (traced all branches). Validator cursor aligned by construction (verified vs concrete program + E9 line-number tests); no dangling strippingTimesArtifact refs; cross-surface garden equivalence holds; repeat N times still runs N times. Scanners clean. Non-blocking: stale comment in Interpreter.swift:835 (out of this manifest).",
+        "checks": {
+          "secrets_clean": true,
+          "scanner": "builtin+gitleaks+semgrep"
+        },
+        "at": "2026-08-21",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787271847,
+        "completed_at_epoch_secs": 1787272245,
+        "receipt": {
+          "id": "05ab46257539013da3fb0555e37d2c9615f60112f735d215d203aa2fe801cd7d",
+          "schema": 2,
+          "phase": "security-code",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+              "source": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+              "governance": "2c8f406c565af5c8bafdccd5b34a90f4a1527e077cb4ee3f7892fc86bc28250b",
+              "architecture-plan": "87812e9ed1228ac50037d68bfaeedf9897f7c1653408c8bb5fc0631b0b1ed5a7",
+              "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+              "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "test",
+      "record": {
+        "verdict": "pass",
+        "by": "Tester",
+        "evidence": "RepeatTimesParsingTests (5): repeat N times body has exactly one statement (no stray token); bare repeat N, repeat for N times, nested repeat N times all clean; repeat 3 times runs 3 times. Plus TurtleCrossSurfaceEquivalence (E9 line numbers + garden), TurtleScripting, InterpreterFuzz turtle grammar/metamorphic all green. scripts/mpd-test.sh 3534 passed / 0 failed. Self-recorded (deterministic suite + self-authored tests; per operator decision to accept on the delegated Security-code review).",
+        "checks": {
+          "tests_passed": 7068,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-21",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787272266,
+        "completed_at_epoch_secs": 1787273074,
+        "receipt": {
+          "id": "46e70d34af2cd90617b9bd018d3c246fc3c10658072a785b97760b077bf78496",
+          "schema": 2,
+          "phase": "test",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+              "source": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+              "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "deploy",
+      "record": {
+        "verdict": "pass",
+        "by": "main-session",
+        "evidence": "All 6 fix-lane gates passed (Security-code delegated; operator accepted self-recorded upstream on the delegated code review). scripts/mpd-deploy.sh: build → bundle → codesign → install /Applications/Hype.app with the repeat-N-times parser fix.",
+        "checks": {
+          "command": "scripts/mpd-deploy.sh"
+        },
+        "at": "2026-08-21",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787273192,
+        "completed_at_epoch_secs": 1787273199,
+        "receipt": {
+          "id": "9ce2e26cb0539b5d2f61c9c42700b1af6f6e17764369269c80979bd9439f9a62",
+          "schema": 2,
+          "phase": "deploy",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+              "source": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+              "produced-artifact": "5fdb7b836fb582c8d41ee4e8cdc6f1faf0ccb5f6a300b23831a037d5e9b9341d",
+              "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "governance": {
+    "risk": "low",
+    "threat_profile": "local-trusted-user",
+    "reconciliations": []
+  },
+  "risk_assessment": {
+    "classifier_version": 3,
+    "requested": "low",
+    "derived": "high",
+    "effective": "high",
+    "reasons": [
+      "parser-or-untrusted-input: Sources/HypeCore/Script/Parser.swift"
+    ],
+    "signal_digest": "c38ddf5cb9080dad8ac899a7376e2c8c871b2e5f40a264a93a198ef4ab106fde"
+  },
+  "strict": false,
+  "waivers": [],
+  "phase_started_at_epoch_secs": 1787273201,
+  "archive_closure": {
+    "base_commit": "2cf26a7210d2e610baf4ae3b607994a9c9747d69",
+    "archive_path": "openspec/changes/archive/2026-08-21-repeat-times-token",
+    "transaction_id": "b30d4599a94119a7ec1e934c786d666d10f4f9ecc6ac1a1ca080fb71d8bc9b86",
+    "allowed_paths": [
+      ".mpd/state/repeat-times-token.json",
+      "Sources/HypeCore/Script/Parser.swift",
+      "Sources/HypeCore/Script/TurtleProgramValidator.swift",
+      "Tests/HypeCoreTests/RepeatTimesParsingTests.swift",
+      "openspec/changes/archive/2026-08-21-repeat-times-token",
+      "openspec/changes/repeat-times-token"
+    ],
+    "system_paths": [
+      ".mpd/state/repeat-times-token.json",
+      "Sources/HypeCore/Script/Parser.swift",
+      "Sources/HypeCore/Script/TurtleProgramValidator.swift",
+      "Tests/HypeCoreTests/RepeatTimesParsingTests.swift",
+      "openspec/changes/archive/2026-08-21-repeat-times-token",
+      "openspec/changes/repeat-times-token"
+    ],
+    "post_archive_digest": "4500218540284759499e9f3ed4adbbeff8f3ca703e33273cd45ae7e3411e5248",
+    "archived_at": 1787273213
+  },
+  "brief_tuning": {
+    "build": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    }
+  }
+}
