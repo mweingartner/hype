@@ -410,13 +410,13 @@ public struct TurtleEngine: Sendable {
             return Outcome(emissions: [emission])
 
         case .circle(let radius):
-            let r = TurtleEngine.sanitizedNumber(radius)
+            let r = TurtleEngine.clampRadius(radius)
             guard r > 0 else { throw TurtleError(ErrorCopy.needsPositiveRadius(shape: "circle", got: r)) }
             let points = TurtleEngine.circlePoints(center: (state.x, state.y), heading: state.heading, radius: r)
             return try emitCurve(points)
 
         case .arc(let degrees, let radius):
-            let r = TurtleEngine.sanitizedNumber(radius)
+            let r = TurtleEngine.clampRadius(radius)
             guard r > 0 else { throw TurtleError(ErrorCopy.needsPositiveRadius(shape: "arc", got: r)) }
             let clampedDegrees = min(360, max(-360, TurtleEngine.sanitizedNumber(degrees)))
             guard clampedDegrees != 0 else { return .empty }
@@ -426,7 +426,7 @@ public struct TurtleEngine: Sendable {
         case .dot(let diameter):
             let d: Double
             if let diameter {
-                let sanitized = TurtleEngine.sanitizedNumber(diameter)
+                let sanitized = TurtleEngine.clampDiameter(diameter)
                 guard sanitized > 0 else { throw TurtleError(ErrorCopy.needsPositiveDiameter(got: sanitized)) }
                 d = sanitized
             } else {
@@ -664,6 +664,23 @@ public struct TurtleEngine: Sendable {
     private static func clampCoordinate(_ v: Double) -> Double {
         guard v.isFinite else { return 0 }
         return min(positionLimit, max(-positionLimit, v))
+    }
+
+    /// Shared size rule: no drawn primitive's reach from its center may
+    /// exceed the coordinate world (±positionLimit) — a larger reach is
+    /// off-world nonsense that would emit astronomically large geometry.
+    /// For circle/arc the reach is the radius; clamp it to positionLimit.
+    /// Upper-bound only: the lower bound is left to the caller's `> 0`
+    /// check (E2), so a non-positive radius still errors.
+    private static func clampRadius(_ r: Double) -> Double {
+        min(sanitizedNumber(r), positionLimit)
+    }
+
+    /// For a dot the reach is the half-diameter; clamp the diameter to
+    /// 2·positionLimit (see clampRadius for the shared rule). Upper-bound
+    /// only — a non-positive diameter still errors via the caller's E2.
+    private static func clampDiameter(_ d: Double) -> Double {
+        min(sanitizedNumber(d), 2 * positionLimit)
     }
 
     /// `normalize(h) = ((h mod 360) + 360) mod 360`.

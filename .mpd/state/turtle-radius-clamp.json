@@ -1,0 +1,732 @@
+{
+  "format": 2,
+  "change": "turtle-radius-clamp",
+  "schema": "mpd",
+  "ui": false,
+  "kind": "fix",
+  "phase": "done",
+  "gates": {
+    "architecture": {
+      "verdict": "pass",
+      "by": "Architect",
+      "evidence": "design.md",
+      "at": "2026-08-20",
+      "attempt": 2,
+      "started_at_epoch_secs": 1787259484,
+      "completed_at_epoch_secs": 1787259552,
+      "receipt": {
+        "id": "5ee1bbefd657ddcc399980584271332429b9afea71a943344951a04626f962b3",
+        "schema": 2,
+        "phase": "architecture",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+            "governance": "0f47a0d62e1ef068eb245b32c39f19ca149b51c5d945e277e94e389fad21d331",
+            "architecture-plan": "5d6d98c21093b3e526268ce2a2e45f7c138aa150094f89dec008c199c887bcc9"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "judgment_artifact_sha256": "6080df305af7572d5c56d39d2c8a55d6a1f903b817c9e480602474b6f01c144d",
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "fable"
+      }
+    },
+    "security-plan": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "security-plan.md",
+      "at": "2026-08-20",
+      "attempt": 2,
+      "started_at_epoch_secs": 1787259552,
+      "completed_at_epoch_secs": 1787259552,
+      "receipt": {
+        "id": "13f53a7aa789c355858a13b9f9e7db834edbf4397c25b1682c2bbe1829a60db7",
+        "schema": 2,
+        "phase": "security-plan",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+            "governance": "c57dba585cf0cfbefa2bb72c0c6db324f76d5a81027dc4d153c9ce28fd94a3f8",
+            "architecture-plan": "5d6d98c21093b3e526268ce2a2e45f7c138aa150094f89dec008c199c887bcc9",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "judgment_artifact_sha256": "50301050521c47896f9ead6ba9f325de11db8d326bef8093dd179f73ed832684",
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "sonnet"
+      }
+    },
+    "build": {
+      "verdict": "pass",
+      "by": "Builder",
+      "checks": {
+        "tests_passed": 7088,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-08-20",
+      "attempt": 2,
+      "started_at_epoch_secs": 1787260830,
+      "completed_at_epoch_secs": 1787260877,
+      "receipt": {
+        "id": "d29c83bf56e0da586a24e6b98822af68fe951ec19f4d90b68b8efc19a454843a",
+        "schema": 2,
+        "phase": "build",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+            "source": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "sonnet"
+      }
+    },
+    "security-code": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "security-code.md",
+      "checks": {
+        "secrets_clean": true,
+        "scanner": "builtin+gitleaks+semgrep"
+      },
+      "at": "2026-08-20",
+      "attempt": 2,
+      "started_at_epoch_secs": 1787260995,
+      "completed_at_epoch_secs": 1787261003,
+      "receipt": {
+        "id": "1f0936653411624277bd45d400278042a2b4fd7e42e4d8a6c15ef28e6044300a",
+        "schema": 2,
+        "phase": "security-code",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+            "source": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69",
+            "governance": "c57dba585cf0cfbefa2bb72c0c6db324f76d5a81027dc4d153c9ce28fd94a3f8",
+            "architecture-plan": "5d6d98c21093b3e526268ce2a2e45f7c138aa150094f89dec008c199c887bcc9",
+            "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+            "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "judgment_artifact_sha256": "504a5c043723edd71a622ea974f71a0f37962e5e6c24052a67cf6d3c6baeabf5",
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "sonnet"
+      }
+    },
+    "test": {
+      "verdict": "pass",
+      "by": "Tester",
+      "evidence": "test.md",
+      "checks": {
+        "tests_passed": 7088,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787261008,
+      "completed_at_epoch_secs": 1787261008,
+      "receipt": {
+        "id": "3c1e0f24545f356aa241c3938e87af13b35004655020be0ef43fe5442ab9d098",
+        "schema": 2,
+        "phase": "test",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+            "source": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69",
+            "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "judgment_artifact_sha256": "3b50412ebf59887e114e0963aacf73c0e63b15d31793fe2c4d239641d376ea0c",
+      "delegation": {
+        "schema": 1,
+        "delegated": true,
+        "model": "sonnet"
+      }
+    },
+    "deploy": {
+      "verdict": "pass",
+      "by": "main-session",
+      "checks": {
+        "command": "scripts/mpd-deploy.sh"
+      },
+      "at": "2026-08-20",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787261128,
+      "completed_at_epoch_secs": 1787261190,
+      "receipt": {
+        "id": "3af1513c176d1205757ba5dbe7a0efdc4380653ac1499ab6af91b123966fdb6d",
+        "schema": 2,
+        "phase": "deploy",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+            "source": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69",
+            "produced-artifact": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69",
+            "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+          }
+        }
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "opus"
+      }
+    }
+  },
+  "conditions": [],
+  "task_deferrals": [],
+  "history": [
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "design.md",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787257823,
+        "completed_at_epoch_secs": 1787258494,
+        "receipt": {
+          "id": "b5806afaa79d58becad7034d1bd537c890eb55640e06cf080e7aa5790f73f088",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+              "governance": "0f47a0d62e1ef068eb245b32c39f19ca149b51c5d945e277e94e389fad21d331",
+              "architecture-plan": "bfa0f4e33936ab2521e4e1384df258798370c720fb7412ab0944cfd12c000d84"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "judgment_artifact_sha256": "6080df305af7572d5c56d39d2c8a55d6a1f903b817c9e480602474b6f01c144d",
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "fable"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "security-plan.md",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787258494,
+        "completed_at_epoch_secs": 1787258830,
+        "receipt": {
+          "id": "51b086143d85bce01a626515df2719faa75e29918b1bdfbcf8bd944749005641",
+          "schema": 2,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+              "governance": "c57dba585cf0cfbefa2bb72c0c6db324f76d5a81027dc4d153c9ce28fd94a3f8",
+              "architecture-plan": "bfa0f4e33936ab2521e4e1384df258798370c720fb7412ab0944cfd12c000d84",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "judgment_artifact_sha256": "50301050521c47896f9ead6ba9f325de11db8d326bef8093dd179f73ed832684",
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "design.md",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787259484,
+        "completed_at_epoch_secs": 1787259552,
+        "receipt": {
+          "id": "5ee1bbefd657ddcc399980584271332429b9afea71a943344951a04626f962b3",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+              "governance": "0f47a0d62e1ef068eb245b32c39f19ca149b51c5d945e277e94e389fad21d331",
+              "architecture-plan": "5d6d98c21093b3e526268ce2a2e45f7c138aa150094f89dec008c199c887bcc9"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "judgment_artifact_sha256": "6080df305af7572d5c56d39d2c8a55d6a1f903b817c9e480602474b6f01c144d",
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "fable"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "security-plan.md",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787259552,
+        "completed_at_epoch_secs": 1787259552,
+        "receipt": {
+          "id": "13f53a7aa789c355858a13b9f9e7db834edbf4397c25b1682c2bbe1829a60db7",
+          "schema": 2,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+              "governance": "c57dba585cf0cfbefa2bb72c0c6db324f76d5a81027dc4d153c9ce28fd94a3f8",
+              "architecture-plan": "5d6d98c21093b3e526268ce2a2e45f7c138aa150094f89dec008c199c887bcc9",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "judgment_artifact_sha256": "50301050521c47896f9ead6ba9f325de11db8d326bef8093dd179f73ed832684",
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "checks": {
+          "tests_passed": 7064,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787259552,
+        "completed_at_epoch_secs": 1787259558,
+        "receipt": {
+          "id": "5f8603e1765b818d75c238d60196c76ffd66464fb4fa76c893c7d0c573720d7b",
+          "schema": 2,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+              "source": "6d69d026ec0adff431289f31b8f3037cd3ef3d1d66c2a1afb8b2a66bf1f0edde",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "6d69d026ec0adff431289f31b8f3037cd3ef3d1d66c2a1afb8b2a66bf1f0edde"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "security-code.md",
+        "checks": {
+          "secrets_clean": true,
+          "scanner": "builtin+gitleaks+semgrep"
+        },
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787259677,
+        "completed_at_epoch_secs": 1787260189,
+        "receipt": {
+          "id": "a3619a0f63bfd6f07423fe3ec27c9fe30b77e58bd927f8e1fbd43e6f68956075",
+          "schema": 2,
+          "phase": "security-code",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+              "source": "6d69d026ec0adff431289f31b8f3037cd3ef3d1d66c2a1afb8b2a66bf1f0edde",
+              "governance": "c57dba585cf0cfbefa2bb72c0c6db324f76d5a81027dc4d153c9ce28fd94a3f8",
+              "architecture-plan": "5d6d98c21093b3e526268ce2a2e45f7c138aa150094f89dec008c199c887bcc9",
+              "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+              "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "judgment_artifact_sha256": "504a5c043723edd71a622ea974f71a0f37962e5e6c24052a67cf6d3c6baeabf5",
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "checks": {
+          "tests_passed": 7088,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787260830,
+        "completed_at_epoch_secs": 1787260877,
+        "receipt": {
+          "id": "d29c83bf56e0da586a24e6b98822af68fe951ec19f4d90b68b8efc19a454843a",
+          "schema": 2,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+              "source": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "security-code.md",
+        "checks": {
+          "secrets_clean": true,
+          "scanner": "builtin+gitleaks+semgrep"
+        },
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787260995,
+        "completed_at_epoch_secs": 1787261003,
+        "receipt": {
+          "id": "1f0936653411624277bd45d400278042a2b4fd7e42e4d8a6c15ef28e6044300a",
+          "schema": 2,
+          "phase": "security-code",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+              "source": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69",
+              "governance": "c57dba585cf0cfbefa2bb72c0c6db324f76d5a81027dc4d153c9ce28fd94a3f8",
+              "architecture-plan": "5d6d98c21093b3e526268ce2a2e45f7c138aa150094f89dec008c199c887bcc9",
+              "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+              "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "judgment_artifact_sha256": "504a5c043723edd71a622ea974f71a0f37962e5e6c24052a67cf6d3c6baeabf5",
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "test",
+      "record": {
+        "verdict": "pass",
+        "by": "Tester",
+        "evidence": "test.md",
+        "checks": {
+          "tests_passed": 7088,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787261008,
+        "completed_at_epoch_secs": 1787261008,
+        "receipt": {
+          "id": "3c1e0f24545f356aa241c3938e87af13b35004655020be0ef43fe5442ab9d098",
+          "schema": 2,
+          "phase": "test",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+              "source": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69",
+              "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "judgment_artifact_sha256": "3b50412ebf59887e114e0963aacf73c0e63b15d31793fe2c4d239641d376ea0c",
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "deploy",
+      "record": {
+        "verdict": "pass",
+        "by": "main-session",
+        "checks": {
+          "command": "scripts/mpd-deploy.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787261128,
+        "completed_at_epoch_secs": 1787261190,
+        "receipt": {
+          "id": "3af1513c176d1205757ba5dbe7a0efdc4380653ac1499ab6af91b123966fdb6d",
+          "schema": 2,
+          "phase": "deploy",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "4ff7eaf81f6f5a9777e198f81d5bb0a1dd82c38a0a7d3e203e1e40f7f315087a",
+              "source": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69",
+              "produced-artifact": "43b99bb7867f11ae60b6ff87f3c5bd34832965c1621889dc2dffaffd5b647b69",
+              "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+            }
+          }
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "opus"
+        }
+      }
+    }
+  ],
+  "governance": {
+    "risk": "low",
+    "threat_profile": "local-trusted-user",
+    "reconciliations": []
+  },
+  "risk_assessment": {
+    "classifier_version": 3,
+    "requested": "low",
+    "derived": "medium",
+    "effective": "medium",
+    "reasons": [
+      "ordinary-code-scope: no sensitive signal in declared paths"
+    ],
+    "signal_digest": "d2ca73ef88608676ab27a82df8ed31fd1f58117c0db5ed890beb3d04df210e56"
+  },
+  "strict": true,
+  "waivers": [],
+  "phase_started_at_epoch_secs": 1787261193,
+  "archive_closure": {
+    "base_commit": "1f327049b4092d8d493bce553159a4fbd4b761d9",
+    "archive_path": "openspec/changes/archive/2026-08-20-turtle-radius-clamp",
+    "transaction_id": "a7492e12027806a199448a45493a0e16b781e0503504458534a007f579338f10",
+    "allowed_paths": [
+      ".mpd/state/turtle-radius-clamp.json",
+      "Sources/HypeCore/Script/TurtleEngine.swift",
+      "Tests/HypeCoreTests/TurtleEngineTests.swift",
+      "openspec/changes/archive/2026-08-20-turtle-radius-clamp",
+      "openspec/changes/turtle-radius-clamp"
+    ],
+    "system_paths": [
+      ".mpd/state/turtle-radius-clamp.json",
+      "Sources/HypeCore/Script/TurtleEngine.swift",
+      "Tests/HypeCoreTests/TurtleEngineTests.swift",
+      "openspec/changes/archive/2026-08-20-turtle-radius-clamp",
+      "openspec/changes/turtle-radius-clamp"
+    ],
+    "post_archive_digest": "de76a6505311b211a51a62b40e264f061546b42b203a4e246b45871e4ca3c747",
+    "archived_at": 1787261288
+  },
+  "brief_tuning": {
+    "architecture": {
+      "attempt": 2,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    }
+  },
+  "freshness_invalidations": [
+    {
+      "schema": 1,
+      "stored_phase": "build",
+      "rewind_phase": "architecture",
+      "stale_phases": [
+        "architecture",
+        "security-plan"
+      ],
+      "reasons": [
+        "architecture: architecture-plan changed",
+        "security-plan: architecture-plan changed"
+      ],
+      "at_epoch_secs": 1787259484
+    },
+    {
+      "schema": 1,
+      "stored_phase": "test",
+      "rewind_phase": "build",
+      "stale_phases": [
+        "build",
+        "security-code"
+      ],
+      "reasons": [
+        "build: source changed",
+        "build: produced-artifact changed",
+        "security-code: source changed"
+      ],
+      "at_epoch_secs": 1787260830
+    }
+  ]
+}
