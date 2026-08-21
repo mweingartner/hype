@@ -2,14 +2,14 @@
 type: guide
 title: The Model-Paired Development Playbook
 description: Reusable recipe for building quality software with design, architecture, security, build, test, and deployment gates.
-updated: 2026-07-09
+updated: 2026-07-23
 ---
 
 # The Model-Paired Development Playbook
 
 *How to build quality software by pairing with AI models — a reproducible recipe.*
 
-**Protocol version:** 2026-07-09. This Markdown file is the canonical editable
+**Protocol version:** 2026-07-23. This Markdown file is the canonical editable
 source; `/Users/mweingar/Documents/ModelPairedDev.pdf` is a generated export.
 
 This guide distills the method used to build **Hype** (a Swift 6 HyperCard
@@ -178,25 +178,23 @@ what one pass cannot.**
 
 | Persona | Model tier | Tools | Single job | Why it's separate |
 |---|---|---|---|---|
-| **Designer** | **Opus** (strongest) | Read-only + design/runtime inspection | Audit the existing product design, create the design contract, review the architecture for fidelity, and sign off the built surface. **Writes no production code.** | A feature can be technically complete yet undiscoverable, incoherent, or inelegant. A dedicated design critic protects user intent at three separate gates. |
-| **Architect** | **Opus** (strongest) | Read-only + web + Task | Explore exhaustively, design, produce a zero-ambiguity written plan. **Writes no code.** | Planning is the highest-leverage step; it deserves the strongest model and a context uncontaminated by implementation detail. |
-| **Security** | Sonnet | Read-only + web | Find real vulnerabilities in the *plan*, then in the *code*. Cite file:line + severity + exact fix. | A reviewer who also wrote the code rubber-stamps it. A dedicated skeptic is incentivized to find holes. |
-| **Builder** | Sonnet | Read/Edit/Write/Bash | Implement the plan faithfully, match existing patterns, keep the build green. | Implementation should *follow* the contract, not re-litigate the design mid-stream. |
-| **Tester** | Sonnet | Read/Edit/Write/Bash | Read the real implementation; run functional, non-functional, regression, and applicable fuzz/property/metamorphic testing; run the **full** suite; fix until green. | A tester who only saw the plan tests the fantasy; one who reads the code tests reality. |
+| **Designer** | **Deep tier** | Read-only + design/runtime inspection | Audit the existing product design, create the design contract, review the architecture for fidelity, and sign off the built surface. **Writes no production code.** | A feature can be technically complete yet undiscoverable, incoherent, or inelegant. A dedicated design critic protects user intent at three separate gates. |
+| **Architect** | **Deep tier** | Read-only + web + Task | Inspect the bounded affected surface, design, and produce an implementation-ready written plan. **Writes no code.** | Planning is the highest-leverage step; it deserves strong judgment and a context uncontaminated by implementation detail. |
+| **Security** | **Standard; deep when risk escalates** | Read-only + web | Find real vulnerabilities in the *plan*, then in the *code*. Cite file:line + severity + exact fix. | A reviewer who also wrote the code rubber-stamps it. A dedicated skeptic is incentivized to find holes. |
+| **Builder** | **Standard** | Read/Edit/Write/Bash | Implement the plan faithfully, match existing patterns, keep the build green. | Implementation should *follow* the contract, not re-litigate the design mid-stream. |
+| **Tester** | **Standard; deep when risk escalates** | Read/Edit/Write/Bash | Read the real implementation; run functional, non-functional, regression, and applicable fuzz/property/metamorphic testing; run the **full** suite; fix until green. | A tester who only saw the plan tests the fantasy; one who reads the code tests reality. |
 
-> **Model-tier nuance (important):** the persona definition files may default to
-> one tier, but the operating rules **override the model per invocation** and you
-> should pass it explicitly every time. The judgment/creative planning and
-> validation phases — **Design, Architecture, and Doc Validation** — are the
-> deep-cognition tier; the execution/synthesis/review phases are standard.
-> **Claude:** Designer and Architect → `fable` (fall back to the latest Opus when
-> Fable is unavailable), including as Doc Validation reviewers; Security, Builder,
-> Tester, Documenter → the latest `sonnet`. **Codex:** the deep tier → GPT-5.6
-> Sol; the standard tier → Terra (Luna, the lightest tier, is unassigned by
-> default). Spend the deepest model where judgment matters most — design,
-> architecture, and validating the docs — and the standard model for the
-> well-specified execution, synthesis, and review roles.
-> Don't rely on the agent-definition default — state the tier on every call.
+> **Model-tier nuance (important):** do not hard-code a provider model from this
+> guide. The project configuration, requested risk, effective-risk classifier,
+> and available harness determine the right model. `mpd next --harness
+> <codex|claude-code> --context` prints the resolved model for the current phase;
+> that output is authoritative. In general, spend the deep tier on novel design,
+> architecture, and risk-escalated Security/Test judgment; use the standard tier
+> for bounded implementation, review, and verification. A configured light tier
+> is appropriate only for mechanical synthesis such as formatting a documentation
+> artifact—it must not approve Security, Test, or novel design decisions. This
+> routing protects outcome quality while avoiding deep-model spend on work whose
+> decisions have already been bounded.
 
 ### 4.2 Why distinct personas beat one smart context
 
@@ -409,26 +407,45 @@ you have.
 
 ## 6. The pipeline (the workflow)
 
-Tie the pillars together into one ordered sequence. Rigor scales with semantic
-risk, but lifecycle order does not:
+Tie the pillars together by letting the model harness drive MPD one phase at a
+time. The user states the outcome and constraints; the harness reads `mpd next`,
+performs only the returned role, records evidence, and continues. Rigor scales
+with semantic risk, but lifecycle order does not:
 
 ```
 Design Mock → Architecture → Design Review/Revision → Security (plan) →
-Build → Security (code) → Design Sign-off → Test → Documentation → Deploy → Doc Validation
+Build → Security (code) → Design Sign-off → Test → Documentation → Doc Validation → Deploy
 ```
 
 Pre-grep (`git status` plus existing implementation/design/test inspection) is
-required setup before the persona phases. Commit is source-control work performed
-after Test and before an authorized Deploy when the repository workflow requires
-it; it is not a persona gate.
+required setup before the persona phases. Archive, commit, push, and publication
+verification happen after all gates report Done and only under existing repository
+and user authority; they are lifecycle closure, not persona gates.
 
-### 6.1 Applicability and rigor
+### 6.1 Decide whether MPD applies
 
-Every change passes Architecture, both Security gates, Build/change execution,
-Test, and Deploy/readiness. Small or documentation-only changes use proportionate
-artifacts, but no size-based category silently bypasses security impact analysis
-or verification. A one-line entitlement, dependency, parser, signing, network,
-CI, or deployment change can be high risk.
+Do **not** start MPD for a change that is *merely documentation*: prose clarity,
+spelling, formatting, or a link correction where the words do not alter behavior
+or policy. Make the edit directly, inspect the focused diff, validate Markdown,
+links, named commands/paths, and required frontmatter, and preserve normal git
+hygiene. This avoids spending a multi-role traversal on an editorial outcome.
+
+A documentation file is **not** “merely documentation” when it changes or
+defines any of the following:
+
+- runtime behavior, an API/CLI contract, configuration, dependencies, generated
+  artifacts, or user-visible interaction;
+- security, privacy, data handling, architecture, or a durable engineering
+  decision;
+- build, test, deployment, release, incident, or governance policy; or
+- a factual claim that needs source, executable, performance, or real-target
+  proof.
+
+Those are semantic changes and use MPD. File type and line count do not determine
+risk: a one-line entitlement, dependency, parser, signing, network, CI, release,
+or policy change may be high risk. For substantive changes, Architecture, both
+Security gates, Build/change execution, Test, Documentation, Doc Validation, and
+Deploy/readiness remain mandatory with depth proportionate to effective risk.
 
 Only **Design Mock, Design Review/Revision, and Design Sign-off** may be marked
 N/A, only when the change has no human-visible behavior or interaction impact,
@@ -441,7 +458,73 @@ evidence, independently separated roles, an explicit threat model, and rerunning
 Security after every fix. Routine changes keep the same phases with proportionate
 depth.
 
-### 6.2 Gate semantics and backward edges
+### 6.2 Drive the lifecycle from ChatGPT or Claude Code
+
+From the repository root, the model harness follows this loop; the user focuses
+on the desired outcome rather than manually prompting every persona:
+
+```sh
+# 1. Inspect current state, then start one bounded change.
+mpd status
+mpd conduct <kebab-case-change> --risk <low|medium|high>
+
+# 2. Ask MPD for the next role, authoritative model, and required context.
+mpd next --harness <codex|claude-code> --context
+
+# 3. The harness performs only that role and records its real artifact/evidence.
+mpd gate <phase> --pass --by <actor> --evidence <artifact>
+
+# 4. Repeat steps 2–3 until MPD reports Done, fixing FAILs at the earliest
+#    affected phase. Then preview and archive the completed change.
+mpd archive
+mpd archive --yes
+
+# 5. Commit, push, and deploy only when already authorized. After an observed
+#    push, verify that the remote contains the exact reviewed closure.
+mpd publish --verify
+```
+
+`mpd conduct` takes no harness flag; the harness is a rendering choice on each
+`mpd next` call. Match `--risk` to the real blast radius. The classifier may
+raise effective risk but never lower it. Do not invent phase output or mark a
+gate green from narrative confidence: use the artifact and empirical evidence
+the current `mpd next` requests. Archiving, committing, pushing, publishing, and
+deploying remain subject to repository rules and user authority.
+
+### 6.3 Bound analysis before Build
+
+The goal is an implementation-ready contract, not maximal reading or maximal
+prose.
+
+1. State the outcome, acceptance criteria, risk, and explicit non-goals.
+2. Read the project-shaping instructions plus the directly affected source,
+   tests, interfaces, and closest existing pattern.
+3. Expand outward only for a concrete dependency, trust boundary, conflicting
+   contract, or unresolved risk—not because more files exist.
+4. Stop discovery when the plan identifies affected files/APIs, invariants,
+   dependency order, edge cases, and a risk-to-test map sufficient for Builder to
+   proceed without guessing.
+5. Freeze the plan and judgment artifacts before Build when practical. Batch
+   small, same-scope fixes into one traversal instead of restarting MPD for every
+   line.
+
+### 6.4 Bound iterations and recover deliberately
+
+Use one deliberate pass per phase by default. A FAIL is useful evidence: fix the
+specific finding, return to the earliest affected phase, and rerun only gates
+whose evidence became stale. Do not rerun green phases merely for polish, a
+second opinion, or different wording. Record comment-only findings once as notes
+instead of manufacturing a FAIL.
+
+If the same infrastructure, environment, or policy blocker occurs twice in a
+row, or 30 minutes pass without phase advancement, stop the current attempt.
+Preserve commands and output, identify the blocking assumption, and replan or
+escalate to the human. This limit does **not** waive a gate, convert a FAIL to a
+PASS, or abandon the requested outcome. When `mpd next` explicitly offers a
+receipt for an unchanged Candidate, reuse it; any source/configuration change or
+other candidate-byte change requires fresh execution.
+
+### 6.5 Gate semantics and backward edges
 
 Every review ends in **PASS**, **CONDITIONAL PASS**, or **FAIL**. A conditional
 pass lists each condition, its owner, and the evidence needed to close it;
@@ -463,7 +546,7 @@ Build phase, and every invalidated downstream gate reruns after material changes
   instructions naming the command and target; otherwise produce deploy-ready
   evidence. Verify the real target after deployment.
 
-### 6.3 Keep the human in the loop at decision points
+### 6.6 Keep the human in the loop at decision points
 
 The pipeline is autonomous *execution*, not autonomous *judgment*. When a genuine
 trade-off exceeds a pre-agreed threshold, **stop and ask** rather than rationalize
@@ -545,9 +628,10 @@ sub-agents (the examples use Claude Code's `Task`/sub-agent mechanism).
 
 ### 7.3 Configuration that matters
 
-- **Model tiers, explicit per call.** Designer and Architect = strongest;
-  security/builder/tester = a fast capable model. State the tier on every invocation — don't trust
-  defaults.
+- **Model tiers, resolved per phase.** Configure sensible deep, standard, and
+  optional light tiers, then treat `mpd next --harness ...` as authoritative.
+  Effective risk can escalate Security and Test to the deep tier; do not override
+  that escalation merely to save money.
 - **Read-only tools for the thinkers.** Enforced tool scoping is what makes "the
   architect writes no code" a guarantee instead of a hope.
 - **A real test runner and a real deploy command**, documented in the project
@@ -557,11 +641,32 @@ sub-agents (the examples use Claude Code's `Task`/sub-agent mechanism).
 
 ### 7.4 Cost & ergonomics
 
-A deep run spends real tokens and exhaustive reads. That's the point — you're
-buying defect discovery you'd otherwise pay for in production. Keep it
-proportionate by scaling artifact depth to semantic risk and doing **one install
-at the end** rather than rebuilding after every phase; do not delete mandatory
-gates to save time.
+Optimize for **verified outcome per unit of time and cost**, not the cheapest
+individual call or the largest possible analysis. Use these controls together:
+
+- Skip MPD entirely for merely editorial documentation (§6.1).
+- Set requested risk honestly and let effective risk raise depth. Use the deep
+  tier where open-ended judgment or novel/high-risk surface warrants it; use the
+  standard tier once the work is bounded; use a light tier only for configured
+  mechanical synthesis.
+- Keep artifacts concise at low risk, batch small same-scope work, freeze the
+  plan before Build, reuse only receipts MPD explicitly offers for an unchanged
+  Candidate, and perform one install/deploy at the end.
+- Follow the one-pass and stop/replan limits in §6.4. More critique is not free:
+  repeat it only when new evidence invalidates an earlier conclusion.
+- Measure rather than guess. If trusted per-phase token, provider cost, elapsed,
+  or active-time telemetry is unavailable, report it as unavailable; do not
+  manufacture a savings percentage from wall-clock anecdotes.
+
+There is no universally optimal provider/model mapping. Treat the configured
+routing as the current policy, not as proof of a cost-quality Pareto optimum.
+Change that policy only from representative, versioned task evidence showing the
+same or better gate outcomes at lower measured cost or time—not from a single
+successful anecdote.
+
+Cost controls may reduce reading, prose, repeated execution, and model depth.
+They never remove a mandatory gate from substantive work or weaken the evidence
+required to pass it.
 
 ---
 
@@ -705,10 +810,18 @@ model faking it scrambles — which is itself the signal.
   didn't make, *exclude* them from your commits and say so. Never `git add -A`.
 - **Letting the architect write code or the builder redesign.** Role bleed
   destroys the separation that makes the method work. Enforce it with tool scoping.
-- **Scaling by file count instead of semantic risk.** Keep artifacts concise for
-  a typo or comment, but still record proportionate architecture/impact,
-  security, verification, and deployment-readiness checks. A one-line security,
-  entitlement, dependency, parser, or release change is not trivial.
+- **Running MPD for merely editorial documentation.** A typo, prose cleanup,
+  formatting fix, or non-semantic link correction needs focused document
+  validation and git hygiene, not a persona traversal. Do not extend this
+  exemption to policy, security, architecture, release, or behavioral contracts.
+- **Scaling by file count instead of semantic risk.** A one-line security,
+  entitlement, dependency, parser, release, or governance change is not trivial.
+- **Analysis without a stopping condition.** Reading unrelated files and asking
+  for repeated green-phase critiques adds cost and context noise. Stop when the
+  Builder contract is complete; re-open a phase only for new evidence.
+- **Retrying a broken environment indefinitely.** After two consecutive typed
+  blockers or 30 minutes without phase advancement, preserve evidence and
+  replan/escalate. Never relabel the blocker as a pass.
 - **Deleting/overwriting without looking.** Before destroying anything you didn't
   create, read it — if it contradicts how it was described, surface that instead
   of proceeding.
@@ -731,19 +844,22 @@ name: architect
 description: Senior architect. Use after Design Mock for UI/UX work and first
   when Design is explicitly N/A. Explores the codebase,
   designs the approach, produces a file-by-file plan. Writes no code.
-model: fable   # deep-cognition tier; fall back to opus when Fable is unavailable
+model: deep-tier-placeholder   # `mpd next` resolves the configured model
 tools: Read, Glob, Grep, WebSearch, WebFetch, Task
 ---
 
 You are a Senior Software Architect in this ordered lifecycle:
 Design Mock → Architecture → Design Review/Revision → Security (plan) → Build →
-Security (code) → Design Sign-off → Test → Documentation → Deploy → Doc Validation.
+Security (code) → Design Sign-off → Test → Documentation → Doc Validation → Deploy.
 
 Core principles:
-1. Explore exhaustively before planning — read every file that could be affected;
-   never assume, verify by reading.
+1. Explore the bounded affected surface before planning. Read project-shaping
+   instructions, directly affected source/tests, and the closest existing pattern;
+   expand only for a concrete dependency or unresolved risk.
 2. Consistency over cleverness — match existing patterns and conventions.
 3. Zero ambiguity — the Builder should never have to guess.
+4. Stop discovery when affected files/APIs, invariants, dependency order, edge
+   cases, and the risk-to-test map are complete.
 
 Your plan MUST include: Summary; Files to Create (path, purpose, signatures,
 which existing pattern it follows); Files to Modify (path, exact location, change,
@@ -763,11 +879,16 @@ fuzz/property/metamorphic evidence.)*
 ### 11.2 Operating-rules block for `CLAUDE.md`
 
 ```markdown
-## Multi-Agent Pipeline (DEFAULT WORKFLOW)
+## Model-Paired Development (DEFAULT FOR SUBSTANTIVE CHANGES)
 
-Canonical sequence for every change:
+Do not use MPD for merely editorial documentation: prose, spelling, formatting,
+or non-semantic link corrections. Validate those documents directly. A policy,
+security, architecture, release, behavioral, configuration, or evidence-bearing
+document change is substantive and still uses MPD.
+
+Canonical sequence for every substantive change:
 Design Mock → Architecture → Design Review/Revision → Security (plan) → Build →
-Security (code) → Design Sign-off → Test → Documentation → Deploy → Doc Validation.
+Security (code) → Design Sign-off → Test → Documentation → Doc Validation → Deploy.
 
 Only the three Design stages may be N/A, only when there is no human-visible
 behavior or interaction impact, and only with a written rationale. All other
@@ -775,12 +896,13 @@ stages run with depth proportionate to semantic risk. Novel threat surface gets
 an explicit threat model, independently separated roles, deep testing, and
 Security reruns after fixes.
 
-Model assignments (pass explicitly every call). Design, Architecture, and Doc
-Validation are the deep tier; all other phases are standard. Claude: Designer and
-Architect → fable (fall back to the latest Opus when Fable is unavailable),
-including as Doc Validation reviewers; Security, Builder, Tester, Documenter → the
-latest sonnet. Codex: deep tier → GPT-5.6 Sol; standard tier → Terra (Luna
-unassigned).
+Run `mpd next --harness <codex|claude-code> --context` before every phase and use
+the model it resolves. Deep tier handles novel judgment and effective-risk
+escalation; standard tier handles bounded execution/review; an optional light
+tier handles only configured mechanical synthesis. One deliberate pass per phase
+is the default. After two consecutive infrastructure/environment/policy blockers
+or 30 minutes without phase advancement, preserve evidence and replan/escalate;
+never waive a gate.
 
 Every review returns PASS / CONDITIONAL PASS / FAIL. A conditional pass names
 conditions, owner, and closing evidence. FAIL blocks; material changes rerun
@@ -806,9 +928,12 @@ change per commit, and present design/plan summaries to the user when engaged.
 
 ```
 PLAN
+[ ] MPD eligibility decided: substantive change, not merely editorial documentation
+[ ] Requested risk matches semantic blast radius; `mpd next` model used
 [ ] Design applicability recorded; N/A has a no-UI/UX rationale
 [ ] UI/UX change has a Design Spec grounded in existing design + acceptance criteria
 [ ] Plan exists as text, with file paths + signatures + dependency order
+[ ] Discovery stopped at a complete Builder contract; unrelated surface was not expanded
 [ ] "Conditions for Builder" lists security/correctness invariants
 [ ] Design Review/Revision approved the plan before code was written
 [ ] Plan summary was shown to me before code was written
@@ -850,13 +975,16 @@ DEPLOY / READINESS
 JUDGMENT
 [ ] Trade-offs exceeding a threshold were brought to me with numbers
 [ ] Surprises were surfaced, not silently actioned
+[ ] Green phases were not rerun without invalidating evidence
+[ ] Repeated blockers triggered bounded stop/replan, never a gate waiver
 ```
 
 ---
 
 ### Closing note
 
-The method is not bureaucracy for its own sake. Each rule exists because its
+The method is not bureaucracy for its own sake—and merely editorial documentation
+does not need it. Each rule exists because its
 absence produces a specific, recurring failure: anchoring, plausible-but-wrong
 code, false-green verification, scope creep, lost intent. Adopt the pieces that
 match your project's risk — lightly for thin technical work, fully for novel and
