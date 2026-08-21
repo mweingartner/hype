@@ -1,0 +1,185 @@
+{
+  "format": 2,
+  "change": "repeat-times-token",
+  "schema": "mpd",
+  "ui": false,
+  "kind": "fix",
+  "phase": "build",
+  "gates": {
+    "architecture": {
+      "verdict": "pass",
+      "by": "Architect",
+      "evidence": "design.md — consume the optional .times token in parseRepeatStatement bare-count branch (matches lexer 'times'→.times + other repeat forms' keyword consumption); remove TurtleProgramValidator.strippingTimesArtifact + call site. Line-cursor preserved (artifact owned no segment; header segment unchanged). 4 Conditions for Builder. Self-authored + code-verified (Parser.swift:1020-1027, Lexer.swift:41, validator:180-233).",
+      "at": "2026-08-21",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787271321,
+      "completed_at_epoch_secs": 1787271481,
+      "receipt": {
+        "id": "f81c33a13c425e968e6e7d9304b026f38d79fd3b0f3ae18c01ac52ee5b5b0fd1",
+        "schema": 2,
+        "phase": "architecture",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+            "governance": "394ca89eecc779f677cf8212b4f88f17ea6013941f5ad712ae22037b19a9f53e",
+            "architecture-plan": "87812e9ed1228ac50037d68bfaeedf9897f7c1653408c8bb5fc0631b0b1ed5a7"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "security-plan": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Parser defect fix (consume a dropped token) + removal of the validator workaround it forced. No input/attack surface change; the tool's allowlist still validates the count expression + body identically (only the stray no-op is gone). Cross-surface equivalence preserved by construction (both surfaces parse the same clean AST). Self-recorded — no security surface; correctness verified at Security(code)+Test.",
+      "at": "2026-08-21",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787271481,
+      "completed_at_epoch_secs": 1787271482,
+      "receipt": {
+        "id": "27802a0830855115639f41230143475cd46192ed3eaca5630db0c4a74601e948",
+        "schema": 2,
+        "phase": "security-plan",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+            "governance": "2c8f406c565af5c8bafdccd5b34a90f4a1527e077cb4ee3f7892fc86bc28250b",
+            "architecture-plan": "87812e9ed1228ac50037d68bfaeedf9897f7c1653408c8bb5fc0631b0b1ed5a7",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    }
+  },
+  "conditions": [],
+  "task_deferrals": [],
+  "history": [
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "design.md — consume the optional .times token in parseRepeatStatement bare-count branch (matches lexer 'times'→.times + other repeat forms' keyword consumption); remove TurtleProgramValidator.strippingTimesArtifact + call site. Line-cursor preserved (artifact owned no segment; header segment unchanged). 4 Conditions for Builder. Self-authored + code-verified (Parser.swift:1020-1027, Lexer.swift:41, validator:180-233).",
+        "at": "2026-08-21",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787271321,
+        "completed_at_epoch_secs": 1787271481,
+        "receipt": {
+          "id": "f81c33a13c425e968e6e7d9304b026f38d79fd3b0f3ae18c01ac52ee5b5b0fd1",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+              "governance": "394ca89eecc779f677cf8212b4f88f17ea6013941f5ad712ae22037b19a9f53e",
+              "architecture-plan": "87812e9ed1228ac50037d68bfaeedf9897f7c1653408c8bb5fc0631b0b1ed5a7"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Parser defect fix (consume a dropped token) + removal of the validator workaround it forced. No input/attack surface change; the tool's allowlist still validates the count expression + body identically (only the stray no-op is gone). Cross-surface equivalence preserved by construction (both surfaces parse the same clean AST). Self-recorded — no security surface; correctness verified at Security(code)+Test.",
+        "at": "2026-08-21",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787271481,
+        "completed_at_epoch_secs": 1787271482,
+        "receipt": {
+          "id": "27802a0830855115639f41230143475cd46192ed3eaca5630db0c4a74601e948",
+          "schema": 2,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "8c4e0878ec9957a026c2f5fbdb9e92ad008636939032b93c6717f4f8a42480c4",
+              "governance": "2c8f406c565af5c8bafdccd5b34a90f4a1527e077cb4ee3f7892fc86bc28250b",
+              "architecture-plan": "87812e9ed1228ac50037d68bfaeedf9897f7c1653408c8bb5fc0631b0b1ed5a7",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    }
+  ],
+  "governance": {
+    "risk": "low",
+    "threat_profile": "local-trusted-user",
+    "reconciliations": []
+  },
+  "risk_assessment": {
+    "classifier_version": 3,
+    "requested": "low",
+    "derived": "high",
+    "effective": "high",
+    "reasons": [
+      "parser-or-untrusted-input: Sources/HypeCore/Script/Parser.swift"
+    ],
+    "signal_digest": "c38ddf5cb9080dad8ac899a7376e2c8c871b2e5f40a264a93a198ef4ab106fde"
+  },
+  "strict": false,
+  "waivers": [],
+  "phase_started_at_epoch_secs": 1787271482,
+  "brief_tuning": {
+    "build": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    }
+  }
+}

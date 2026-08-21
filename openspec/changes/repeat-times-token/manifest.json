@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "paths": [
+    "Sources/HypeCore/Script/Parser.swift",
+    "Sources/HypeCore/Script/TurtleProgramValidator.swift",
+    "Tests/HypeCoreTests/RepeatTimesParsingTests.swift"
+  ],
+  "shared_paths": []
+}
