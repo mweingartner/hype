@@ -176,32 +176,6 @@ public enum TurtleProgramValidator {
         return nil
     }
 
-    /// `repeat N times` leaves the trailing `times` word unconsumed by
-    /// `Parser.parseRepeatStatement`'s bare-count branch — nothing eats
-    /// it (`times` only binds inside other repeat forms, and the
-    /// bare-count form only explicitly consumes a leading `for`).
-    /// `parseRepeatBody` then parses that leftover token as the loop's
-    /// own first statement: `.expressionStatement(.literal("times"))`,
-    /// sharing the SAME source line as the `repeat N times` header, not
-    /// a separate one. Every `repeat N times` loop — including the
-    /// canonical Turtle Garden program — carries this artifact; without
-    /// stripping it, both the allowlist walk (it is not turtle
-    /// vocabulary) and the line cursor (it does not own a segment)
-    /// would misfire on ordinary, valid programs. This is purely a
-    /// validation-time tolerance: the statement tree returned by
-    /// `validate(program:)` on success is untouched, so the executor
-    /// runs the exact same AST — artifact included — that the HypeTalk
-    /// surface would parse from identical source text, preserving
-    /// cross-surface equivalence.
-    private static func strippingTimesArtifact(_ body: [Statement]) -> [Statement] {
-        guard let first = body.first,
-              case .expressionStatement(let expression) = first,
-              case .literal(let word) = expression,
-              word.lowercased() == "times" else {
-            return body
-        }
-        return Array(body.dropFirst())
-    }
 
     private static func refusal(forStatement statement: Statement, line: Int, cursor: inout LineCursor, program: String) -> String? {
         switch statement {
@@ -230,7 +204,7 @@ public enum TurtleProgramValidator {
             guard isAllowedExpression(count) else {
                 return notATurtleCommand(line: line, program: program)
             }
-            if let bodyRefusal = refusal(forStatements: strippingTimesArtifact(body), cursor: &cursor, program: program) {
+            if let bodyRefusal = refusal(forStatements: body, cursor: &cursor, program: program) {
                 return bodyRefusal
             }
             _ = cursor.next()  // "end repeat"
