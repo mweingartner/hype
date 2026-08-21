@@ -489,6 +489,29 @@
   "strict": false,
   "waivers": [],
   "phase_started_at_epoch_secs": 1787273201,
+  "archive_closure": {
+    "base_commit": "2cf26a7210d2e610baf4ae3b607994a9c9747d69",
+    "archive_path": "openspec/changes/archive/2026-08-21-repeat-times-token",
+    "transaction_id": "b30d4599a94119a7ec1e934c786d666d10f4f9ecc6ac1a1ca080fb71d8bc9b86",
+    "allowed_paths": [
+      ".mpd/state/repeat-times-token.json",
+      "Sources/HypeCore/Script/Parser.swift",
+      "Sources/HypeCore/Script/TurtleProgramValidator.swift",
+      "Tests/HypeCoreTests/RepeatTimesParsingTests.swift",
+      "openspec/changes/archive/2026-08-21-repeat-times-token",
+      "openspec/changes/repeat-times-token"
+    ],
+    "system_paths": [
+      ".mpd/state/repeat-times-token.json",
+      "Sources/HypeCore/Script/Parser.swift",
+      "Sources/HypeCore/Script/TurtleProgramValidator.swift",
+      "Tests/HypeCoreTests/RepeatTimesParsingTests.swift",
+      "openspec/changes/archive/2026-08-21-repeat-times-token",
+      "openspec/changes/repeat-times-token"
+    ],
+    "post_archive_digest": "4500218540284759499e9f3ed4adbbeff8f3ca703e33273cd45ae7e3411e5248",
+    "archived_at": 1787273213
+  },
   "brief_tuning": {
     "build": {
       "attempt": 1,
