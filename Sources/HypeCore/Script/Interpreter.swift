@@ -378,6 +378,13 @@ private struct Environment {
     /// and yield calls are suppressed entirely; a single flush publish fires at
     /// `unlock screen`.
     var screenLocked: Bool = false
+    /// Per-statement signal: did the turtle command just executed actually
+    /// change rendered content (a shape part emitted, or turtle parts
+    /// cleared)? Set by `applyTurtleOutcome`, reset at the top of
+    /// `executeStatementAndPublish`, and read there to gate a turtle verb's
+    /// publish — so state-only turtle commands (penUp/turns/pen-up moves)
+    /// don't force a full-card redraw. See design.md (turtle-publish-gating).
+    var turtleDidRender: Bool = false
     /// The run's turtle-graphics engine, lazily created on first use
     /// (design.md D6, turtle-graphics). `nil` for the whole run when no
     /// turtle statement executes — the hot-path-neutrality guard
@@ -825,6 +832,17 @@ public struct Interpreter: Sendable {
         case .globalDecl:
             return false
 
+        case .expressionStatement(let expr):
+            // A bare literal expression statement — notably the stray "times"
+            // token the `repeat N times` parser leaves as the loop's first
+            // body statement — is a pure no-op with no visible effect, so it
+            // must not force a per-iteration full-card redraw (this is why
+            // every `repeat N times` loop used to publish once per iteration).
+            // Expression statements that are calls / property reads may have
+            // side effects, so keep those classified visible.
+            if case .literal = expr { return false }
+            return true
+
         // Control structures: their bodies are gated individually.
         case .ifThenElse:
             return false
@@ -881,6 +899,12 @@ public struct Interpreter: Sendable {
         projectNavigationTarget: inout ProjectNavigationTarget?,
         handler: Handler
     ) async throws {
+        // Reset the per-statement turtle render signal. If this statement is
+        // a turtle verb that draws/clears a shape, `applyTurtleOutcome` sets
+        // it true during executeStatement; if it is a turtle verb shadowed by
+        // a user `on <verb>` handler (turtle engine not invoked), it stays
+        // false so we don't mis-read a stale value (turtle-publish-gating).
+        env.turtleDidRender = false
         try await executeStatement(
             stmt,
             env: &env,
@@ -904,7 +928,24 @@ public struct Interpreter: Sendable {
             return
         }
 
-        if statementProducesVisibleEffect(stmt) {
+        // Decide whether to publish. Turtle verbs are generic
+        // `.externalCommand`s (default → visible-effect), but most of them
+        // (penUp/penDown/turns/setHeading, pen-up moves, a color/width set
+        // with no open stroke) change no rendered content. Gate them on the
+        // render signal the engine already computed, so only commands that
+        // actually drew or cleared a shape force a full-card redraw — while
+        // emitted shapes and stroke flushes still publish exactly as before
+        // (per-shape animation and flush visibility preserved). Non-turtle
+        // statements keep their existing classification unchanged.
+        let shouldPublish: Bool
+        if case .externalCommand(let name, _) = stmt,
+           TurtleVocabulary.isTurtleVerb(name.lowercased()) {
+            shouldPublish = env.turtleDidRender
+        } else {
+            shouldPublish = statementProducesVisibleEffect(stmt)
+        }
+
+        if shouldPublish {
             // Visible mutation: publish so the UI reflects the change
             // progressively (field-update animation idiom).
             await context.runtimeProvider?.publishDocument(document)
@@ -1273,9 +1314,15 @@ public struct Interpreter: Sendable {
     ) {
         let cardId = env.currentCardId(fallback: context.currentCardId)
         let appended = TurtlePartApplier.apply(outcome, to: &document, cardId: cardId)
-        if !appended.isEmpty || outcome.deletesTurtleParts {
+        // Did this turtle command change rendered content (a shape emitted,
+        // or turtle parts cleared)? This is the same predicate that guards
+        // the part-lookup-cache invalidation, and it drives the per-statement
+        // publish gate for turtle verbs (turtle-publish-gating).
+        let changed = !appended.isEmpty || outcome.deletesTurtleParts
+        if changed {
             env.invalidatePartLookupCache()
         }
+        env.turtleDidRender = changed
         if let resultNote = outcome.resultNote {
             env.result = resultNote
         }

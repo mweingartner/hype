@@ -1,0 +1,730 @@
+{
+  "format": 2,
+  "change": "turtle-publish-gating",
+  "schema": "mpd",
+  "ui": false,
+  "kind": "chore",
+  "phase": "done",
+  "gates": {
+    "architecture": {
+      "verdict": "pass",
+      "by": "Architect",
+      "evidence": "design.md D1 (turtle-verb publish gated on applyTurtleOutcome's render signal) + D2 (bare-literal expressionStatement gated — fixes the stray 'repeat N times' → 'times' no-op that made every such loop publish per iteration; found via the publish-count benchmark). Both are publish-gating for no-visible-effect statements; behavior-preserving (3527 tests green). Root parser cause chipped. Self-authored + code-verified.",
+      "at": "2026-08-20",
+      "attempt": 2,
+      "started_at_epoch_secs": 1787269928,
+      "completed_at_epoch_secs": 1787269943,
+      "receipt": {
+        "id": "60ac8518add66a31430e2aa07669682c4c3d492c414ec7cb44b8035afb3db42f",
+        "schema": 2,
+        "phase": "architecture",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+            "governance": "1ee9d57602eb3c73ac2f5edcaba9dd6f9570490896f3f50f4bb7bb0087370e98",
+            "architecture-plan": "557fc7e4f6fafccc38e67fc43c25b841e612f4916402b3ee02da1af210359aaf"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "security-plan": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Perf change: removes redundant publishes only; no input/data-flow/attack surface, no auth/masking/network path. D2 (.expressionStatement(.literal)→false) is unconditionally correct (a constant has no side effect) and guarded to literals only (calls stay visible). No security implications; correctness verified at Security(code)+Test. Self-recorded — no security surface.",
+      "at": "2026-08-20",
+      "attempt": 2,
+      "started_at_epoch_secs": 1787269944,
+      "completed_at_epoch_secs": 1787269944,
+      "receipt": {
+        "id": "49b01a39f3931ef005e0a3fe4532d1d83c385045a9d319c83201ebd5edc9c4b1",
+        "schema": 2,
+        "phase": "security-plan",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+            "governance": "b6b77c3bc4d87fad84720573b6304e41ea53cc08c18b30952e82cc887f5d9fcf",
+            "architecture-plan": "557fc7e4f6fafccc38e67fc43c25b841e612f4916402b3ee02da1af210359aaf",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "build": {
+      "verdict": "pass",
+      "by": "Builder",
+      "evidence": "Subject after Test-phase coverage additions (commit e95cf93). Whole tree compiles; scripts/mpd-test.sh 3529 passed / 0 failed.",
+      "checks": {
+        "tests_passed": 7058,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-08-21",
+      "attempt": 2,
+      "started_at_epoch_secs": 1787270860,
+      "completed_at_epoch_secs": 1787270869,
+      "receipt": {
+        "id": "fe4d3356d53623b98492182d5cb0d5c1e6ca28607681200b0db9b47fd8895370",
+        "schema": 2,
+        "phase": "build",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+            "source": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "security-code": {
+      "verdict": "pass",
+      "by": "Security",
+      "evidence": "Mechanical rewind (test additions only); production code byte-identical to the delegated Sonnet Security(code) PASS (no suppressed publish across all 19 command cases, D2 .literal-only safe). Scanners clean: builtin 5 allowlisted, semgrep 0, gitleaks clean (.claude/worktrees excluded).",
+      "checks": {
+        "secrets_clean": true,
+        "scanner": "builtin+gitleaks+semgrep"
+      },
+      "at": "2026-08-21",
+      "attempt": 2,
+      "started_at_epoch_secs": 1787270988,
+      "completed_at_epoch_secs": 1787270989,
+      "receipt": {
+        "id": "bbd3774adedcd142fb1a5ab2eccd174936c7a2c58ddcec9ff8feff1318058443",
+        "schema": 2,
+        "phase": "security-code",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+            "source": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9",
+            "governance": "b6b77c3bc4d87fad84720573b6304e41ea53cc08c18b30952e82cc887f5d9fcf",
+            "architecture-plan": "557fc7e4f6fafccc38e67fc43c25b841e612f4916402b3ee02da1af210359aaf",
+            "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+            "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+            "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "test": {
+      "verdict": "pass",
+      "by": "Tester",
+      "evidence": "TurtlePublishGatingTests (6 cases): flower ≤20 (pre-fix ~99) + 12 parts; state-only turtle loop 0; pen-down stroke renders; per-shape animation publishes per shape; beginFill/endFill renders+publishes at endFill; mid-run color flush 2 parts + publishes. Self-authored, Security(code)-advisory-driven. scripts/mpd-test.sh 3529 passed / 0 failed.",
+      "checks": {
+        "tests_passed": 7058,
+        "command": "scripts/mpd-test.sh"
+      },
+      "at": "2026-08-21",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787271009,
+      "completed_at_epoch_secs": 1787271020,
+      "receipt": {
+        "id": "bcf71bd8aa8414d7848c943fed3833c4d7d98cd0e22e3e671f320f5c84b5b2b6",
+        "schema": 2,
+        "phase": "test",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+            "source": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9",
+            "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+            "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+            "produced-artifact": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9",
+            "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+          }
+        }
+      },
+      "persona_tuning": {
+        "base_modified": true,
+        "weakened": true
+      },
+      "delegation": {
+        "schema": 1,
+        "delegated": false,
+        "model": "claude-opus-4-8"
+      }
+    },
+    "deploy": {
+      "verdict": "pass",
+      "by": "main-session",
+      "evidence": "All 6 chore-lane gates passed, no open conditions. scripts/mpd-deploy.sh: build → bundle → codesign → install /Applications/Hype.app with the turtle publish-gating perf fix (flower ~99→~13 redraws; all repeat N times loops no longer redraw per iteration).",
+      "checks": {
+        "command": "scripts/mpd-deploy.sh"
+      },
+      "at": "2026-08-21",
+      "attempt": 1,
+      "started_at_epoch_secs": 1787271137,
+      "completed_at_epoch_secs": 1787271145,
+      "receipt": {
+        "id": "237008eb27d6e2716f5876b6c61f0a4f1e3c2651882733ba6551fdbce8f59e85",
+        "schema": 2,
+        "phase": "deploy",
+        "disposition": {
+          "kind": "executed"
+        },
+        "dependencies": {
+          "schema": 2,
+          "values": {
+            "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+            "source": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9",
+            "produced-artifact": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9",
+            "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+          }
+        }
+      }
+    }
+  },
+  "conditions": [],
+  "task_deferrals": [],
+  "history": [
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "design.md — route turtle-verb publishing through the render signal applyTurtleOutcome already computes (!appended.isEmpty || deletesTurtleParts); Environment.turtleDidRender flag, reset per statement, gated only for turtle .externalCommand verbs. Behavior-preserving analysis (shapes/flush still publish → animations preserved; shadowed handlers publish their own changes; buffered strokes unchanged). 5 Conditions for Builder. Self-authored — small, well-scoped perf change with one clear correctness risk (suppressing a needed publish) addressed by using the established render predicate + benchmark.",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787268506,
+        "completed_at_epoch_secs": 1787268578,
+        "receipt": {
+          "id": "7bbb392028d90b5ba7905ba6812de0118662e0fbc0c11a4087466ad78b8be842",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+              "governance": "1ee9d57602eb3c73ac2f5edcaba9dd6f9570490896f3f50f4bb7bb0087370e98",
+              "architecture-plan": "0d2828b03f7d1e6de2108bb3a549d96acc1cf0ce90a38fd33d245679e227f594"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Perf change: gates turtle-verb publishing on the render signal; strictly REMOVES redundant publishes, adds no input/data-flow/attack surface, touches no auth/credential/masking/network path. No security implications. The one functional risk (suppressing a needed publish) is a correctness concern verified at Security(code) + Test, not a security one. Conditions for Builder sound. Self-recorded — no security surface.",
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787268579,
+        "completed_at_epoch_secs": 1787268590,
+        "receipt": {
+          "id": "f750c6d2f6db06c1e22546f3235e44294d01bf82aeb6068078fc147f65401ceb",
+          "schema": 2,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+              "governance": "b6b77c3bc4d87fad84720573b6304e41ea53cc08c18b30952e82cc887f5d9fcf",
+              "architecture-plan": "0d2828b03f7d1e6de2108bb3a549d96acc1cf0ce90a38fd33d245679e227f594",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "architecture",
+      "record": {
+        "verdict": "pass",
+        "by": "Architect",
+        "evidence": "design.md D1 (turtle-verb publish gated on applyTurtleOutcome's render signal) + D2 (bare-literal expressionStatement gated — fixes the stray 'repeat N times' → 'times' no-op that made every such loop publish per iteration; found via the publish-count benchmark). Both are publish-gating for no-visible-effect statements; behavior-preserving (3527 tests green). Root parser cause chipped. Self-authored + code-verified.",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787269928,
+        "completed_at_epoch_secs": 1787269943,
+        "receipt": {
+          "id": "60ac8518add66a31430e2aa07669682c4c3d492c414ec7cb44b8035afb3db42f",
+          "schema": 2,
+          "phase": "architecture",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+              "governance": "1ee9d57602eb3c73ac2f5edcaba9dd6f9570490896f3f50f4bb7bb0087370e98",
+              "architecture-plan": "557fc7e4f6fafccc38e67fc43c25b841e612f4916402b3ee02da1af210359aaf"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-plan",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Perf change: removes redundant publishes only; no input/data-flow/attack surface, no auth/masking/network path. D2 (.expressionStatement(.literal)→false) is unconditionally correct (a constant has no side effect) and guarded to literals only (calls stay visible). No security implications; correctness verified at Security(code)+Test. Self-recorded — no security surface.",
+        "at": "2026-08-20",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787269944,
+        "completed_at_epoch_secs": 1787269944,
+        "receipt": {
+          "id": "49b01a39f3931ef005e0a3fe4532d1d83c385045a9d319c83201ebd5edc9c4b1",
+          "schema": 2,
+          "phase": "security-plan",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+              "governance": "b6b77c3bc4d87fad84720573b6304e41ea53cc08c18b30952e82cc887f5d9fcf",
+              "architecture-plan": "557fc7e4f6fafccc38e67fc43c25b841e612f4916402b3ee02da1af210359aaf",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "D1 turtle-verb publish gating + D2 bare-literal expressionStatement gating (commit c03462e). Whole tree compiles; scripts/mpd-test.sh 3527 passed / 0 failed. Flower benchmark: publishes ≤20 (pre-fix ~99), state-only turtle loop 0, per-shape animation + pen-down stroke preserved.",
+        "checks": {
+          "tests_passed": 7054,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-20",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787269944,
+        "completed_at_epoch_secs": 1787269977,
+        "receipt": {
+          "id": "8f5bca5ba757a484b2b0bc7facc7669a97ac1a899b511e0dfed56508ace6ece4",
+          "schema": 2,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+              "source": "bb235c5b48e0ab2af4be7b6c516d6ea353ad42274bb6a5a39c3916d9193584ad",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "bb235c5b48e0ab2af4be7b6c516d6ea353ad42274bb6a5a39c3916d9193584ad"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Delegated Sonnet Security(code): PASS — no suppressed-but-needed publish across all 19 TurtleEngine.Command cases; reset correct; D2 .literal-only safe; behavior-preserving. Scanners: builtin 5 allowlisted, semgrep 0, gitleaks clean after excluding .claude/worktrees (a nested background-task worktree's build-cache token + another task's fake test keys — not this repo's source; commit adds the gitleaks exclusion).",
+        "checks": {
+          "secrets_clean": true,
+          "scanner": "builtin+gitleaks+semgrep"
+        },
+        "at": "2026-08-21",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787270097,
+        "completed_at_epoch_secs": 1787270632,
+        "receipt": {
+          "id": "9a327a30e06786e5af3812c66ba29108c990d68de1a41965fc0831d52b41ea05",
+          "schema": 2,
+          "phase": "security-code",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+              "source": "bb235c5b48e0ab2af4be7b6c516d6ea353ad42274bb6a5a39c3916d9193584ad",
+              "governance": "b6b77c3bc4d87fad84720573b6304e41ea53cc08c18b30952e82cc887f5d9fcf",
+              "architecture-plan": "557fc7e4f6fafccc38e67fc43c25b841e612f4916402b3ee02da1af210359aaf",
+              "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+              "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": true,
+          "model": "sonnet"
+        }
+      }
+    },
+    {
+      "phase": "build",
+      "record": {
+        "verdict": "pass",
+        "by": "Builder",
+        "evidence": "Subject after Test-phase coverage additions (commit e95cf93). Whole tree compiles; scripts/mpd-test.sh 3529 passed / 0 failed.",
+        "checks": {
+          "tests_passed": 7058,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-21",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787270860,
+        "completed_at_epoch_secs": 1787270869,
+        "receipt": {
+          "id": "fe4d3356d53623b98492182d5cb0d5c1e6ca28607681200b0db9b47fd8895370",
+          "schema": 2,
+          "phase": "build",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+              "source": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "security-code",
+      "record": {
+        "verdict": "pass",
+        "by": "Security",
+        "evidence": "Mechanical rewind (test additions only); production code byte-identical to the delegated Sonnet Security(code) PASS (no suppressed publish across all 19 command cases, D2 .literal-only safe). Scanners clean: builtin 5 allowlisted, semgrep 0, gitleaks clean (.claude/worktrees excluded).",
+        "checks": {
+          "secrets_clean": true,
+          "scanner": "builtin+gitleaks+semgrep"
+        },
+        "at": "2026-08-21",
+        "attempt": 2,
+        "started_at_epoch_secs": 1787270988,
+        "completed_at_epoch_secs": 1787270989,
+        "receipt": {
+          "id": "bbd3774adedcd142fb1a5ab2eccd174936c7a2c58ddcec9ff8feff1318058443",
+          "schema": 2,
+          "phase": "security-code",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+              "source": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9",
+              "governance": "b6b77c3bc4d87fad84720573b6304e41ea53cc08c18b30952e82cc887f5d9fcf",
+              "architecture-plan": "557fc7e4f6fafccc38e67fc43c25b841e612f4916402b3ee02da1af210359aaf",
+              "scanner-identity": "668f4bbf5c7cc646f92c8ced8ea28ebd07ba00afe3b95d21a08449df199a7224",
+              "allowlist-digest": "fbbb72aa943c2f252a524f859db60814b1afcb3ed5b9f3a90608c972299a23a8",
+              "persona-tuning": "bb32419efd0cff5c6db335891dbbb009583d6b34b66020193f82014a861cec59"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "test",
+      "record": {
+        "verdict": "pass",
+        "by": "Tester",
+        "evidence": "TurtlePublishGatingTests (6 cases): flower ≤20 (pre-fix ~99) + 12 parts; state-only turtle loop 0; pen-down stroke renders; per-shape animation publishes per shape; beginFill/endFill renders+publishes at endFill; mid-run color flush 2 parts + publishes. Self-authored, Security(code)-advisory-driven. scripts/mpd-test.sh 3529 passed / 0 failed.",
+        "checks": {
+          "tests_passed": 7058,
+          "command": "scripts/mpd-test.sh"
+        },
+        "at": "2026-08-21",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787271009,
+        "completed_at_epoch_secs": 1787271020,
+        "receipt": {
+          "id": "bcf71bd8aa8414d7848c943fed3833c4d7d98cd0e22e3e671f320f5c84b5b2b6",
+          "schema": 2,
+          "phase": "test",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+              "source": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9",
+              "test-command": "f78af4aa0f8736e45e6e0a21e48ffd4418227044daf8e9b54220b01bd00e458b",
+              "toolchain": "f2677a9354a3a008ad0c4d6c5ba29792742721fe21c0a841bcf0f45966140212",
+              "produced-artifact": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9",
+              "persona-tuning": "8281533ffd6d24f6c53f05223296d029e6454235c2b8656f6c5c9f7e379f59ec"
+            }
+          }
+        },
+        "persona_tuning": {
+          "base_modified": true,
+          "weakened": true
+        },
+        "delegation": {
+          "schema": 1,
+          "delegated": false,
+          "model": "claude-opus-4-8"
+        }
+      }
+    },
+    {
+      "phase": "deploy",
+      "record": {
+        "verdict": "pass",
+        "by": "main-session",
+        "evidence": "All 6 chore-lane gates passed, no open conditions. scripts/mpd-deploy.sh: build → bundle → codesign → install /Applications/Hype.app with the turtle publish-gating perf fix (flower ~99→~13 redraws; all repeat N times loops no longer redraw per iteration).",
+        "checks": {
+          "command": "scripts/mpd-deploy.sh"
+        },
+        "at": "2026-08-21",
+        "attempt": 1,
+        "started_at_epoch_secs": 1787271137,
+        "completed_at_epoch_secs": 1787271145,
+        "receipt": {
+          "id": "237008eb27d6e2716f5876b6c61f0a4f1e3c2651882733ba6551fdbce8f59e85",
+          "schema": 2,
+          "phase": "deploy",
+          "disposition": {
+            "kind": "executed"
+          },
+          "dependencies": {
+            "schema": 2,
+            "values": {
+              "scope": "923c567624941375caeae726af203012b172dd00a3c970a75c64b9a551f3ff8c",
+              "source": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9",
+              "produced-artifact": "220add7e77cb300b652edbafe6c8e305b3212c81c7cb60f5921af356373784d9",
+              "deploy-command": "aeaa5396fd9f21f325c45ca0a83b5974b55207a36741578b49a9b83e8dd7b779"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "governance": {
+    "risk": "low",
+    "threat_profile": "local-trusted-user",
+    "reconciliations": []
+  },
+  "risk_assessment": {
+    "classifier_version": 3,
+    "requested": "low",
+    "derived": "medium",
+    "effective": "medium",
+    "reasons": [
+      "ordinary-code-scope: no sensitive signal in declared paths"
+    ],
+    "signal_digest": "15fffff3996f670d5d6341216dc63116f9f9e5e3aa3cd7d24a6bf22071690f59"
+  },
+  "strict": false,
+  "waivers": [],
+  "phase_started_at_epoch_secs": 1787271147,
+  "archive_closure": {
+    "base_commit": "365d969c39538367c0c8dd2c5c126081eae55342",
+    "archive_path": "openspec/changes/archive/2026-08-21-turtle-publish-gating",
+    "transaction_id": "0335d7e29a44c8b4a0fecd95f0ecf23b3479170127bbab9d5efa69e891b07aa3",
+    "allowed_paths": [
+      ".mpd/state/turtle-publish-gating.json",
+      "Sources/HypeCore/Script/Interpreter.swift",
+      "Tests/HypeCoreTests/InterpreterPublishGatingTests.swift",
+      "openspec/changes/archive/2026-08-21-turtle-publish-gating",
+      "openspec/changes/turtle-publish-gating"
+    ],
+    "system_paths": [
+      ".mpd/state/turtle-publish-gating.json",
+      "Sources/HypeCore/Script/Interpreter.swift",
+      "Tests/HypeCoreTests/InterpreterPublishGatingTests.swift",
+      "openspec/changes/archive/2026-08-21-turtle-publish-gating",
+      "openspec/changes/turtle-publish-gating"
+    ],
+    "post_archive_digest": "327f2165aa049b876297087dc1264195f4d924d5784a4d35ad9ce266154575a8",
+    "archived_at": 1787271165
+  },
+  "brief_tuning": {
+    "architecture": {
+      "attempt": 2,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "build": {
+      "attempt": 2,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    },
+    "test": {
+      "attempt": 1,
+      "record": {
+        "base_modified": true,
+        "weakened": true
+      }
+    }
+  },
+  "freshness_invalidations": [
+    {
+      "schema": 1,
+      "stored_phase": "build",
+      "rewind_phase": "architecture",
+      "stale_phases": [
+        "architecture",
+        "security-plan"
+      ],
+      "reasons": [
+        "architecture: architecture-plan changed",
+        "security-plan: architecture-plan changed"
+      ],
+      "at_epoch_secs": 1787269928
+    },
+    {
+      "schema": 1,
+      "stored_phase": "test",
+      "rewind_phase": "build",
+      "stale_phases": [
+        "build",
+        "security-code"
+      ],
+      "reasons": [
+        "build: source changed",
+        "build: produced-artifact changed",
+        "security-code: source changed"
+      ],
+      "at_epoch_secs": 1787270860
+    }
+  ]
+}

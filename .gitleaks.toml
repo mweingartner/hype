@@ -10,3 +10,10 @@ paths = [
   '''^\.hype/visual-qa(?:/|$)''',
   '''^scripts/ai-training/out(?:/|$)''',
 ]
+
+[[allowlists]]
+description = "Local git worktrees (background-task checkouts under .claude/worktrees) — gitignored, ephemeral, not repo source; each is a full checkout whose .build cache and other tasks' test fixtures are scanned in their own pipelines, not this one."
+paths = [
+  '''^\.claude/worktrees(?:/|$)''',
+  '''(?:^|/)\.claude/worktrees/''',
+]
