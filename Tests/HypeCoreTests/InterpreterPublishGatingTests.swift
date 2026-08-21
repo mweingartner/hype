@@ -702,4 +702,54 @@ struct TurtlePublishGatingTests {
         #expect(turtlePartCount(result) == 5,
                 "expected 5 dot parts; got \(turtlePartCount(result))")
     }
+
+    @Test("a filled shape still renders and publishes at endFill")
+    func fillStillRendersAndPublishes() async {
+        let (doc, cardId, btnId, _) = makeGatingDoc()
+        let runtime = CountingRuntime()
+        // beginFill/endFill: the fill polygon emits one part at endFill.
+        let script = """
+        on mouseUp
+          home
+          setFillColor orange
+          beginFill
+          repeat 3 times
+            forward 100
+            right 120
+          end repeat
+          endFill
+        end mouseUp
+        """
+        let result = await runScript(script, doc: doc, cardId: cardId, targetId: btnId, runtime: runtime)
+        #expect(turtlePartCount(result) == 1,
+                "expected 1 fill part; got \(turtlePartCount(result))")
+        // endFill emits the fill → must still publish (drawing appears).
+        #expect(runtime.count >= 1,
+                "fill run published \(runtime.count); expected ≥1 (endFill)")
+        // …but not per body command: far below the ~7-command count.
+        #expect(runtime.count <= 3,
+                "fill run published \(runtime.count); expected ≤3 (only render-changing)")
+    }
+
+    @Test("a mid-run pen color change flushes the open stroke and publishes")
+    func penColorChangeFlushesAndPublishes() async {
+        let (doc, cardId, btnId, _) = makeGatingDoc()
+        let runtime = CountingRuntime()
+        // A pen-down stroke, then a color change (which flushes the open
+        // stroke → one part), then more stroke: two parts, and the flush at
+        // the color change must publish.
+        let script = """
+        on mouseUp
+          home
+          forward 50
+          setPenColor red
+          forward 50
+        end mouseUp
+        """
+        let result = await runScript(script, doc: doc, cardId: cardId, targetId: btnId, runtime: runtime)
+        #expect(turtlePartCount(result) == 2,
+                "expected 2 stroke parts (color split); got \(turtlePartCount(result))")
+        #expect(runtime.count >= 1,
+                "color-flush run published \(runtime.count); expected ≥1 (the flush)")
+    }
 }
