@@ -652,6 +652,27 @@
   "strict": false,
   "waivers": [],
   "phase_started_at_epoch_secs": 1787271147,
+  "archive_closure": {
+    "base_commit": "365d969c39538367c0c8dd2c5c126081eae55342",
+    "archive_path": "openspec/changes/archive/2026-08-21-turtle-publish-gating",
+    "transaction_id": "0335d7e29a44c8b4a0fecd95f0ecf23b3479170127bbab9d5efa69e891b07aa3",
+    "allowed_paths": [
+      ".mpd/state/turtle-publish-gating.json",
+      "Sources/HypeCore/Script/Interpreter.swift",
+      "Tests/HypeCoreTests/InterpreterPublishGatingTests.swift",
+      "openspec/changes/archive/2026-08-21-turtle-publish-gating",
+      "openspec/changes/turtle-publish-gating"
+    ],
+    "system_paths": [
+      ".mpd/state/turtle-publish-gating.json",
+      "Sources/HypeCore/Script/Interpreter.swift",
+      "Tests/HypeCoreTests/InterpreterPublishGatingTests.swift",
+      "openspec/changes/archive/2026-08-21-turtle-publish-gating",
+      "openspec/changes/turtle-publish-gating"
+    ],
+    "post_archive_digest": "327f2165aa049b876297087dc1264195f4d924d5784a4d35ad9ce266154575a8",
+    "archived_at": 1787271165
+  },
   "brief_tuning": {
     "architecture": {
       "attempt": 2,
