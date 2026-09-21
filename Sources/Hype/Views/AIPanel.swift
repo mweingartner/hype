@@ -82,7 +82,11 @@ struct AIPanel: View {
     }
 
     private var modelLabel: String {
-        if aiProviderRaw == HypeAIProvider.llamaSwap.rawValue {
+        if aiProviderRaw == HypeAIProvider.builtIn.rawValue {
+            let selected = BuiltInModelSettings.selectedVariantID()
+            let variant = try? BuiltInModelClient.resolveVariant(id: selected, store: BuiltInModelStore(), device: .current)
+            return "Built-in: \(variant?.displayName ?? selected)"
+        } else if aiProviderRaw == HypeAIProvider.llamaSwap.rawValue {
             return "llama-swap: \(llamaSwapModel)"
         } else if aiProviderRaw == HypeAIProvider.llamaCpp.rawValue {
             return "llama.cpp: \(llamaCppModel)"

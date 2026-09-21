@@ -18,9 +18,10 @@ approachable authoring model; it is not a classic HyperCard runtime emulator.
   embedded assets, search data, and diagnostics.
 - **Safe HyperCard import:** recover stack structure, scripts, paint layers, and
   resources without executing native XCMD or XFCN binaries.
-- **AI-assisted editing:** use a local Ollama model by default, or explicitly
-  configure another local or hosted provider. Proposed document mutations use
-  preview/apply transaction boundaries.
+- **AI-assisted editing:** use a local Ollama model by default, the Built-in
+  on-device model (no server at all), or explicitly configure another local or
+  hosted provider. Proposed document mutations use preview/apply transaction
+  boundaries.
 - **Target-aware export:** generate runtime projects for supported Apple and web
   targets, with capability checks that reflect each target's available parts
   and runtime services.
@@ -31,6 +32,8 @@ approachable authoring model; it is not a classic HyperCard runtime emulator.
 
 - macOS 15 or later for the Hype authoring app
 - Swift 6 and the Apple developer tools required by `Package.swift`
+- Xcode's Metal Toolchain component, which compiles the GPU kernels of the MLX
+  runtime behind the Built-in model: `xcodebuild -downloadComponent MetalToolchain`
 - Git
 
 The package also declares iOS 17, tvOS 16, and watchOS 10 so consumers can
@@ -89,6 +92,12 @@ hosted AI account. AI providers are selected in the app's settings:
 
 - **Ollama** is the local-first authoring default and talks to a locally
   configured Ollama service.
+- **Built-in (on-device)** runs an open-weights model inside Hype with Apple's
+  MLX — no server, no account, fully offline once installed. Settings → AI shows
+  two pinned variants: *Standard* for 32 GB Macs and *Max* for 96 GB+ Macs.
+  Weights (16–45 GB) are downloaded from Hugging Face only when you press
+  Download, verified file by file against SHA-256 hashes pinned in the source,
+  and can be removed again. An existing Hugging Face cache copy is used in place.
 - **llama-swap and other OpenAI-compatible endpoints** are optional and use
   their configured endpoint; optional credentials are stored in Keychain.
 - **OpenAI** text, image, transcription, and speech features are hosted and

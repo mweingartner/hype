@@ -2587,7 +2587,10 @@ public struct HypeToolDefinitions {
     ) -> OllamaTool {
         var properties: [String: OllamaProperty] = [:]
         var required: [String] = []
-        for (key, val) in params {
+        // Sorted: dictionary order changes every launch, and an unstable
+        // `required` list changes the rendered tool schema — which silently
+        // defeats prompt-prefix caching (Built-in, Ollama, llama.cpp) across runs.
+        for (key, val) in params.sorted(by: { $0.key < $1.key }) {
             properties[key] = OllamaProperty(type: val.0, description: val.1)
             if val.2 { required.append(key) }
         }

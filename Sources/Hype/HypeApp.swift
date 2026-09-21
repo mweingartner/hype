@@ -1,5 +1,6 @@
 import SwiftUI
 import HypeCore
+import HypeMLX
 import UniformTypeIdentifiers
 import AppKit
 
@@ -19,6 +20,10 @@ final class HypeAppDelegate: NSObject, NSApplicationDelegate {
     private var debugDefaultsObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Make the in-process MLX engine available to `HypeAIProvider.builtIn`.
+        // Registration is cheap: no model loads until the provider is used.
+        HypeMLXRuntime.registerEngine()
+
         // Halve the system tooltip delay. AppKit reads the
         // `NSInitialToolTipDelay` UserDefaults key when deciding
         // how long to wait before showing a tooltip; the platform

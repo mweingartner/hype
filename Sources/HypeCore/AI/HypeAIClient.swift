@@ -1,6 +1,8 @@
 import Foundation
 
 public enum HypeAIProvider: String, CaseIterable, Sendable, Identifiable {
+    /// Open weights running inside the Hype process (no server, no API key).
+    case builtIn = "built-in"
     case ollama
     case llamaSwap = "llama-swap"
     case llamaCpp = "llama.cpp"
@@ -12,6 +14,7 @@ public enum HypeAIProvider: String, CaseIterable, Sendable, Identifiable {
 
     public var displayName: String {
         switch self {
+        case .builtIn: return "Built-in (on-device)"
         case .ollama: return "Ollama"
         case .llamaSwap: return "llama-swap"
         case .llamaCpp: return "llama.cpp"
@@ -239,6 +242,9 @@ public enum HypeAIConfiguration {
 
     public static func makeClient(defaults: UserDefaults = .standard) throws -> any HypeAIClient {
         switch selectedProvider(defaults: defaults) {
+        case .builtIn:
+            // Synchronous and cheap: the engine loads the weights on first use.
+            return try BuiltInModelClient.make(defaults: defaults)
         case .ollama:
             return OpenAIChatCompletionsClient(
                 configuration: .ollama(

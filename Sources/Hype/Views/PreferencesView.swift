@@ -229,6 +229,10 @@ struct PreferencesView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if aiProviderRaw == HypeAIProvider.builtIn.rawValue {
+                BuiltInModelSettingsSection()
+            }
+
             if aiProviderRaw == HypeAIProvider.ollama.rawValue {
             Section("Ollama Connection") {
                 TextField("Host", text: $ollamaHost)
@@ -320,6 +324,7 @@ struct PreferencesView: View {
                 hostedOpenAICompatibleProviderSection
             }
 
+            if aiProviderRaw != HypeAIProvider.builtIn.rawValue {
             Section("Model") {
                 if aiProviderRaw == HypeAIProvider.openAI.rawValue {
                     Picker("OpenAI Model", selection: $openAIModel) {
@@ -374,6 +379,7 @@ struct PreferencesView: View {
                     }
                     Button("Refresh Models") { fetchModels() }
                 }
+            }
             }
 
             Section("OpenAI") {
