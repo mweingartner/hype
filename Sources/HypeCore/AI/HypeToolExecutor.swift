@@ -1113,6 +1113,11 @@ public struct HypeToolExecutor: Sendable {
                 afterIndex: document.sortedCards.firstIndex(where: { $0.id == currentCardId }),
                 backgroundName: bgName
             )
+            // The authoring prompt tells models to name the card they create.
+            let name = (arguments["name"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty, let index = document.cards.firstIndex(where: { $0.id == card.id }) {
+                document.cards[index].name = name
+            }
             return "CREATED_CARD:\(card.id)"
 
         case "create_background":

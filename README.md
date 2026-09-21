@@ -57,9 +57,11 @@ script/build_and_run.sh --deploy
 open -n /Applications/Hype.app
 ```
 
-The script stops a running Hype process, builds the package, assembles
-`dist/Hype.app`, signs it with a local development identity, and replaces the
-installed app. It may create and import a local development signing identity
+The script stops a running Hype process, builds the package (optimized for
+`--deploy`, debug otherwise — the Built-in model decodes about three times
+slower in a debug build; override with `HYPE_BUILD_CONFIGURATION=debug|release`),
+assembles `dist/Hype.app`, signs it with a local development identity, and
+replaces the installed app. It may create and import a local development signing identity
 into the login keychain on first use.
 
 ### Test
@@ -98,6 +100,9 @@ hosted AI account. AI providers are selected in the app's settings:
   Weights (16–45 GB) are downloaded from Hugging Face only when you press
   Download, verified file by file against SHA-256 hashes pinned in the source,
   and can be removed again. An existing Hugging Face cache copy is used in place.
+  Why these two models — and how to put a candidate through the same real-tools
+  tournament (`hype-mlx-probe --tournament`) — is in
+  `docs/BuiltInModelSelection.md`.
 - **llama-swap and other OpenAI-compatible endpoints** are optional and use
   their configured endpoint; optional credentials are stored in Keychain.
 - **OpenAI** text, image, transcription, and speech features are hosted and

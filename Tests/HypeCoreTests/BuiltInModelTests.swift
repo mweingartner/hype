@@ -150,6 +150,48 @@ private actor FakeEngine: BuiltInModelEngine {
 
 @Suite("BuiltInModelCatalog")
 struct BuiltInModelCatalogTests {
+    @Test("a variant's tool-call syntax is inferred unless it says otherwise, and survives coding")
+    func toolCallSyntax() throws {
+        let plain = makeVariant()
+        #expect(plain.toolCallSyntax == .inferred)
+        // Both shipped families are ones the MLX runtime recognizes by name.
+        #expect(BuiltInModelCatalog.variants.allSatisfy { $0.toolCallSyntax == .inferred })
+
+        let xml = BuiltInModelVariant(
+            id: plain.id, displayName: plain.displayName, summary: plain.summary, tier: plain.tier,
+            huggingFaceRepo: plain.huggingFaceRepo, revision: plain.revision, files: plain.files,
+            license: plain.license, licenseURL: plain.licenseURL, kvBytesPerToken: plain.kvBytesPerToken,
+            fixedOverheadBytes: plain.fixedOverheadBytes, nativeContextTokens: plain.nativeContextTokens,
+            minimumPhysicalMemoryGB: plain.minimumPhysicalMemoryGB,
+            recommendedPhysicalMemoryGB: plain.recommendedPhysicalMemoryGB,
+            supportsVision: plain.supportsVision, thinkingControl: plain.thinkingControl,
+            toolCallSyntax: .xmlFunction)
+        let decoded = try JSONDecoder().decode(BuiltInModelVariant.self, from: JSONEncoder().encode(xml))
+        #expect(decoded.toolCallSyntax == .xmlFunction)
+        #expect(decoded == xml)
+    }
+
+    /// `toolCallSyntax`'s initializer parameter has a default (`.inferred`), but
+    /// Swift's synthesized `Decodable` does NOT consult init defaults for a
+    /// missing key on a non-Optional property — it throws `keyNotFound`. Nothing
+    /// in this codebase persists a whole `BuiltInModelVariant` as JSON and decodes
+    /// it back (the catalog is generated Swift source; only per-file hashes are
+    /// persisted, in `VerifiedWeightsLedger`), so this is not reachable today —
+    /// but it is a real trap for whoever adds that persistence later, so it is
+    /// pinned here rather than left to be rediscovered.
+    @Test("decoding a variant payload from before toolCallSyntax existed throws keyNotFound, not a silent default")
+    func decodingPreExistingPayloadWithoutToolCallSyntaxThrows() throws {
+        let plain = makeVariant()
+        var payload = try JSONSerialization.jsonObject(with: JSONEncoder().encode(plain)) as! [String: Any]
+        #expect(payload["toolCallSyntax"] != nil)
+        payload.removeValue(forKey: "toolCallSyntax")
+        let data = try JSONSerialization.data(withJSONObject: payload)
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(BuiltInModelVariant.self, from: data)
+        }
+    }
+
     @Test("ships one variant per memory tier with unique identifiers")
     func oneVariantPerTier() {
         let variants = BuiltInModelCatalog.variants

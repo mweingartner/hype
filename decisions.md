@@ -97,6 +97,18 @@ document semantics.
   `BuiltInMemoryFitPolicy` (measured working set, a fixed system reserve, never a
   hard-coded percentage). Do not relax these without re-running a multi-hour soak
   on the smallest supported Mac.
+- Whatever the Built-in engine renders before the first user turn must be
+  static (rules, guide, tool schemas) — per-turn state goes with the request it
+  describes. A chat template that renders tool schemas after the system text
+  gets the `CURRENT STATE:` block relocated to the latest user message, behind
+  a data notice and a salted `REQUEST <tag>:` heading — document text must never
+  be able to forge the line where the author's request begins. Do not add
+  per-turn content to the system prompt above that marker.
+- Judge a candidate Built-in model on the path Hype ships: `hype-mlx-probe
+  --tournament` (real engine, real tools, a real seeded stack). The Python
+  harness answers tool calls with canned strings, which flatters models that
+  never look and punishes models that do; use it for cross-provider comparison
+  only, and bound `mlx_lm.server`'s prompt cache by bytes for dense models.
 - Built-in model variants are untuned: their identifiers must not start with
   `hypetalk-`, which is reserved for tuned models whose weights contain the
   HypeTalk guide. Do not change a variant without regenerating its manifest

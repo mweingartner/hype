@@ -7,7 +7,7 @@ enum BuiltInModelManifests {
     static let standard = BuiltInModelVariant(
         id: "qwen3.8-27b-4bit",
         displayName: "Qwen3.8 27B (4-bit)",
-        summary: "Dense 27B hybrid model: the most accurate HypeTalk and tool-calling model that fits a 32 GB Mac.",
+        summary: "Dense 27B hybrid model. The most accurate HypeTalk author in Hype's real-tools tournament (89.8%), at about 13 s per request on an M5 Max. Fits a 32 GB Mac.",
         tier: .standard,
         huggingFaceRepo: "mlx-community/Qwen3.8-27B-4bit",
         revision: "3e6447f082e89cc7f0bc6e5441afd38dfce760ff",
@@ -40,7 +40,7 @@ enum BuiltInModelManifests {
     static let max = BuiltInModelVariant(
         id: "qwen3-coder-next-80b-4bit",
         displayName: "Qwen3 Coder Next 80B-A3B (4-bit)",
-        summary: "80B mixture-of-experts agentic coding model, 3B active per token: large-model accuracy at interactive speed on 96 GB+ Macs.",
+        summary: "80B mixture-of-experts coding model, 3B active per token. The fastest: about 5 s per request and 60+ tokens/s on an M5 Max, 83.5% in the real-tools tournament. Needs a 96 GB+ Mac.",
         tier: .max,
         huggingFaceRepo: "mlx-community/Qwen3-Coder-Next-4bit",
         revision: "7b9321eabb85ce79625cac3f61ea691e4ea984b5",

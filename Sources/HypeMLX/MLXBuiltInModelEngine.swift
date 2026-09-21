@@ -128,13 +128,21 @@ public actor MLXBuiltInModelEngine: BuiltInModelEngine {
         guard let tokenizer = context.tokenizer as? LocalTokenizer else {
             throw BuiltInModelError.generationFailed("unexpected tokenizer type")
         }
-        let messages = ChatRendering.templateMessages(from: request.messages)
         let tools = request.tools.isEmpty ? nil : ChatRendering.templateTools(from: request.tools)
         var additionalContext: [String: any Sendable] = [:]
         if case .templateFlag(let key) = request.variant.thinkingControl {
             additionalContext[key] = request.enableThinking
         }
         let templateContext = additionalContext.isEmpty ? nil : additionalContext
+
+        // Keep everything up to the first user turn static, whatever order the
+        // model's template renders system text and tool schemas in.
+        var promptMessages = request.messages
+        if let tools, toolsFollowSystemText(tools: tools, templateContext: templateContext, tokenizer: tokenizer, session: session) {
+            promptMessages = ChatRendering.relocatingPerTurnBlock(
+                in: promptMessages, markers: request.cacheBoundaryMarkers)
+        }
+        let messages = ChatRendering.templateMessages(from: promptMessages)
 
         let tokens = try tokenizer.render(
             messages: messages, tools: tools, additionalContext: templateContext, addGenerationPrompt: true)
@@ -148,8 +156,8 @@ public actor MLXBuiltInModelEngine: BuiltInModelEngine {
             tokens: tokens, messages: messages, tools: tools, templateContext: templateContext,
             thinking: request.enableThinking, tokenizer: tokenizer, session: session)
         let staticBoundary = try Self.staticBoundary(
-            tokens: tokens, request: request, tools: tools, templateContext: templateContext,
-            tokenizer: tokenizer, session: session)
+            tokens: tokens, systemMessage: promptMessages.first, markers: request.cacheBoundaryMarkers,
+            tools: tools, templateContext: templateContext, tokenizer: tokenizer, session: session)
 
         let parameters = GenerateParameters(
             maxTokens: maxNewTokens,
@@ -192,9 +200,15 @@ public actor MLXBuiltInModelEngine: BuiltInModelEngine {
         let input = LMInput(tokens: MLXArray(preparation.remaining.map(Int32.init)))
         let iterator = try TokenIterator(
             input: input, model: context.model, cache: session.cache, parameters: parameters)
+        // The runtime infers the tool-call markup from the architecture name and
+        // falls back to JSON; a variant that knows better says so.
+        var configuration = context.configuration
+        if request.variant.toolCallSyntax == .xmlFunction {
+            configuration.toolCallFormat = .xmlFunction
+        }
         let (stream, task) = generateTask(
             promptTokenCount: tokens.count,
-            modelConfiguration: context.configuration,
+            modelConfiguration: configuration,
             tokenizer: context.tokenizer,
             iterator: iterator,
             tools: tools
@@ -281,7 +295,8 @@ public actor MLXBuiltInModelEngine: BuiltInModelEngine {
     /// Token index just before the first per-turn section of the system prompt.
     private static func staticBoundary(
         tokens: [Int],
-        request: BuiltInGenerationRequest,
+        systemMessage: OllamaMessage?,
+        markers: [String],
         tools: [[String: any Sendable]]?,
         templateContext: [String: any Sendable]?,
         tokenizer: LocalTokenizer,
@@ -290,10 +305,18 @@ public actor MLXBuiltInModelEngine: BuiltInModelEngine {
         if let checkpoint = session.staticCheckpoint, tokens.starts(with: checkpoint.tokens) {
             return checkpoint.tokens.count
         }
-        guard let system = request.messages.first, system.role == "system",
-              let content = system.content else { return nil }
-        guard let cut = staticPrefixEnd(of: content, markers: request.cacheBoundaryMarkers) else { return nil }
-        let staticOnly = OllamaMessage(role: "system", content: String(content[..<cut]))
+        guard let system = systemMessage, system.role == "system", let content = system.content else { return nil }
+        // A relocated per-turn block leaves a system message that is static
+        // throughout; otherwise the static part ends at the first marker.
+        let staticText: String
+        if let cut = staticPrefixEnd(of: content, markers: markers) {
+            staticText = String(content[..<cut])
+        } else if markers.isEmpty {
+            return nil
+        } else {
+            staticText = content
+        }
+        let staticOnly = OllamaMessage(role: "system", content: staticText)
         // Some templates (Qwen3.5) refuse to render without a user turn; the
         // placeholder lies past the point where the two renders diverge.
         let placeholder = OllamaMessage(role: "user", content: "-")
@@ -306,6 +329,39 @@ public actor MLXBuiltInModelEngine: BuiltInModelEngine {
         let shared = commonPrefixLength(tokens, rendered)
         // Not worth a checkpoint unless it saves a meaningful prefill.
         return shared >= 512 ? shared : nil
+    }
+
+    /// Does this model's template put the tool schemas after the system text?
+    /// Asked once per loaded model, by rendering a two-line conversation.
+    private static func toolsFollowSystemText(
+        tools: [[String: any Sendable]],
+        templateContext: [String: any Sendable]?,
+        tokenizer: LocalTokenizer,
+        session: PromptCacheSession
+    ) -> Bool {
+        if let known = session.toolsFollowSystemText { return known }
+        let sentinel = "HYPE-LAYOUT-PROBE-SYSTEM-TEXT"
+        let probeTool: [String: any Sendable] = [
+            "type": "function",
+            "function": [
+                "name": "hype_layout_probe_tool",
+                "description": "probe",
+                "parameters": ["type": "object", "properties": [String: any Sendable](), "required": [String]()] as [String: any Sendable],
+            ] as [String: any Sendable],
+        ]
+        var answer = false
+        if let rendered = try? tokenizer.render(
+            messages: ChatRendering.templateMessages(from: [
+                OllamaMessage(role: "system", content: sentinel), OllamaMessage(role: "user", content: "-"),
+            ]),
+            tools: [probeTool], additionalContext: templateContext, addGenerationPrompt: false) {
+            let text = tokenizer.decode(tokenIds: rendered, skipSpecialTokens: false)
+            if let system = text.range(of: sentinel), let tool = text.range(of: "hype_layout_probe_tool") {
+                answer = tool.lowerBound > system.lowerBound
+            }
+        }
+        session.toolsFollowSystemText = answer
+        return answer
     }
 
     /// Third-party errors (Jinja, tokenizers) rarely localize; keep their detail.

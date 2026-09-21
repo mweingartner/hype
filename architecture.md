@@ -2938,8 +2938,32 @@ Engine rules that are load-bearing:
   without a valid tag is discarded, because a swapped KV cache would steer the
   model with no visible trace. Cross-launch reuse depends on the rendered tool
   schemas being byte-stable, which is why `HypeTools.makeTool` sorts its keys.
+  The cache is bounded by count *and* bytes (a dense model's prefix is ~12 GB)
+  and is never written when it would leave the disk short.
+- **Prompt layout.** Everything before the first user turn must be static, or
+  the cache is worthless. Chat templates disagree about where tool schemas go:
+  Qwen3.5 renders them before the system text, Qwen3-Coder and Granite 4.2
+  after it — which would put ~25K tokens of unchanged schemas *behind* the
+  `CURRENT STATE:` block and re-prefill them on every message. The engine asks
+  the template once per loaded model (a two-line probe render) and, when tools
+  follow the system text, `ChatRendering.relocatingPerTurnBlock` moves the
+  per-turn block to the front of the latest user message. The block carries
+  document text (part names, AI Context notes), so it is announced as data and
+  fenced off from what the author typed by a heading no document can forge
+  (`REQUEST 3fa9c1d07b2e:` — a 48-bit tag derived from the block, the request and a
+  per-launch salt). Measured on the Max model: a new chat went
+  from ~31 s to ~5 s per request, with no loss of tournament accuracy.
+- **What the cache holds is tracked, not assumed.** The session records the
+  prompt tokens the working cache starts with, chunk by chunk, so a checkpoint
+  is only reused while the attention layers still hold exactly its tokens —
+  including after a prefill the author cancelled half-way. A dense model (all
+  layers append-only) rewinds to the longest common prefix with the previous
+  prompt instead of to a checkpoint.
 - Tool calls are parsed by `mlx-swift-lm`'s per-family parsers and flattened to
-  the string arguments `HypeToolExecutor` expects. Script bodies stay
+  the string arguments `HypeToolExecutor` expects. The runtime infers the markup
+  from the architecture name and falls back to JSON; a variant whose artifact
+  speaks another dialect says so (`BuiltInToolCallSyntax`, e.g. Granite 4.2's
+  `<function=…>` XML). Script bodies stay
   unconstrained; `HypeTalkScriptValidator` and the retry gate remain the system
   of record.
 - The text path is used for every variant today; messages carrying images are
@@ -2950,7 +2974,10 @@ Toolchain component (`xcodebuild -downloadComponent MetalToolchain`). Test
 bundles never execute MLX (mlx-swift#460): `HypeCoreTests` covers the HypeCore
 half with a fake engine, `HypeMLXTests` covers pure translation logic, and
 `hype-mlx-probe` is the live end-to-end harness (real engine, real guide, real
-tool catalog, real `HypeToolExecutor`, no GUI).
+tool catalog, real `HypeToolExecutor`, no GUI). Its `--tournament` mode runs
+the 127 authoring prompts of `scripts/ai-training/eval` against a real seeded
+stack — the way to judge a candidate model on the path Hype actually ships;
+`--model-directory` points it at any local MLX model.
 
 ### 7.2 Tool surface: `HypeTools`
 

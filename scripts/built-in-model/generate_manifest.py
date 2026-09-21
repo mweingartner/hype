@@ -27,12 +27,15 @@ RUNTIME_SUFFIXES = (".safetensors", ".json", ".jinja", ".txt", ".model")
 
 GIB = 1 << 30
 
+# Optional per variant: "toolCallSyntax": ".xmlFunction" when the MLX runtime
+# cannot infer the model's tool-call markup from its architecture name (e.g.
+# Granite 4.2, model_type "granite", speaks Qwen3-Coder's <function=…> XML).
 VARIANTS = [
     {
         "property": "standard",
         "id": "qwen3.8-27b-4bit",
         "displayName": "Qwen3.8 27B (4-bit)",
-        "summary": "Dense 27B hybrid model: the most accurate HypeTalk and tool-calling model that fits a 32 GB Mac.",
+        "summary": "Dense 27B hybrid model. The most accurate HypeTalk author in Hype's real-tools tournament (89.8%), at about 13 s per request on an M5 Max. Fits a 32 GB Mac.",
         "tier": ".standard",
         "repo": "mlx-community/Qwen3.8-27B-4bit",
         "license": "Apache-2.0",
@@ -50,7 +53,7 @@ VARIANTS = [
         "property": "max",
         "id": "qwen3-coder-next-80b-4bit",
         "displayName": "Qwen3 Coder Next 80B-A3B (4-bit)",
-        "summary": "80B mixture-of-experts agentic coding model, 3B active per token: large-model accuracy at interactive speed on 96 GB+ Macs.",
+        "summary": "80B mixture-of-experts coding model, 3B active per token. The fastest: about 5 s per request and 60+ tokens/s on an M5 Max, 83.5% in the real-tools tournament. Needs a 96 GB+ Mac.",
         "tier": ".max",
         "repo": "mlx-community/Qwen3-Coder-Next-4bit",
         "license": "Apache-2.0",
@@ -133,7 +136,8 @@ def render(variant: dict) -> str:
         f"        minimumPhysicalMemoryGB: {variant['minimumPhysicalMemoryGB']},",
         f"        recommendedPhysicalMemoryGB: {variant['recommendedPhysicalMemoryGB']},",
         f"        supportsVision: {'true' if variant['supportsVision'] else 'false'},",
-        f"        thinkingControl: {variant['thinkingControl']}",
+        f"        thinkingControl: {variant['thinkingControl']}"
+        + (f",\n        toolCallSyntax: {variant['toolCallSyntax']}" if variant.get("toolCallSyntax") else ""),
         "    )",
     ]
     return "\n".join(lines)

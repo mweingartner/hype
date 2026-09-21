@@ -2,6 +2,7 @@
 import CryptoKit
 import Foundation
 import HypeCore
+import MLX
 import MLXLMCommon
 
 /// Persists the static prompt prefix's KV cache so its minute-long prefill is
@@ -17,6 +18,11 @@ import MLXLMCommon
 struct PromptPrefixDiskCache {
     /// Prefixes kept per variant; each authoring surface has its own tool set.
     static let maximumFilesPerVariant = 3
+    /// …and their combined size. A dense model's ~50K-token prefix is ~12 GB
+    /// (a hybrid model's 0.6–3.5 GB), so count alone is not a bound.
+    static let maximumBytesPerVariant: Int64 = 28 << 30
+    /// Never fill the disk for a cache: free space to leave after a save.
+    static let minimumFreeBytesAfterSave: Int64 = 20 << 30
     /// Below this a prefix prefills faster than it loads.
     static let minimumTokens = 4096
 
@@ -79,6 +85,8 @@ struct PromptPrefixDiskCache {
     func save(_ cache: [any KVCache], tokens: [Int]) {
         guard tokens.count >= Self.minimumTokens else { return }
         let url = fileURL(for: tokens)
+        let estimatedBytes = Int64(cache.reduce(0) { $0 + $1.state.reduce(0) { $0 + $1.nbytes } })
+        guard Self.hasRoom(for: estimatedBytes, in: directory) else { return }
         do {
             try FileManager.default.createDirectory(
                 at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -143,15 +151,58 @@ struct PromptPrefixDiskCache {
         return Data(hmac.finalize())
     }
 
+    struct StoredPrefix: Equatable {
+        let url: URL
+        let modified: Date
+        let bytes: Int64
+    }
+
+    /// Least-recently-used files to delete so that at most `maximumFiles` remain
+    /// and they total at most `maximumBytes`. The newest file always stays: it is
+    /// the one that was just paid for.
+    static func prefixesToEvict(
+        _ stored: [StoredPrefix],
+        maximumFiles: Int = maximumFilesPerVariant,
+        maximumBytes: Int64 = maximumBytesPerVariant
+    ) -> [URL] {
+        var kept = 0
+        var keptBytes: Int64 = 0
+        var evicted: [URL] = []
+        for prefix in stored.sorted(by: { $0.modified > $1.modified }) {
+            let fits = kept < maximumFiles && keptBytes + prefix.bytes <= maximumBytes
+            if kept == 0 || fits {
+                kept += 1
+                keptBytes += prefix.bytes
+            } else {
+                evicted.append(prefix.url)
+            }
+        }
+        return evicted
+    }
+
+    static func hasRoom(for bytes: Int64, in directory: URL) -> Bool {
+        // Ask about the nearest existing ancestor: the directory is created lazily.
+        var probe = directory
+        while !FileManager.default.fileExists(atPath: probe.path), probe.pathComponents.count > 1 {
+            probe.deleteLastPathComponent()
+        }
+        guard let free = try? probe.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            .volumeAvailableCapacityForImportantUsage else { return true }
+        return free - bytes >= minimumFreeBytesAfterSave
+    }
+
     private func evictOldFiles() {
-        let keys: [URLResourceKey] = [.contentModificationDateKey]
-        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys) else {
-            return
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: Array(keys)) else { return }
+        let stored = files.filter { $0.pathExtension == "safetensors" }.map { url -> StoredPrefix in
+            let values = try? url.resourceValues(forKeys: keys)
+            return StoredPrefix(
+                url: url,
+                modified: values?.contentModificationDate ?? .distantPast,
+                bytes: Int64(values?.fileSize ?? 0))
         }
-        let dated = files.filter { $0.pathExtension == "safetensors" }.map { url in
-            (url, (try? url.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast)
-        }
-        for (url, _) in dated.sorted(by: { $0.1 > $1.1 }).dropFirst(Self.maximumFilesPerVariant) {
+        for url in Self.prefixesToEvict(stored) {
             Self.discard(url)
         }
     }

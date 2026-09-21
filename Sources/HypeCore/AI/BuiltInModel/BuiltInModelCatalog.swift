@@ -47,6 +47,18 @@ public enum BuiltInThinkingControl: Codable, Sendable, Equatable {
     case templateFlag(String)
 }
 
+/// The markup a Built-in model wraps its tool calls in.
+///
+/// The engine can infer it for the model families its runtime knows by name;
+/// a variant states it when the runtime's inference is wrong for the artifact.
+public enum BuiltInToolCallSyntax: String, Codable, Sendable, Equatable {
+    /// Let the engine infer it from the model's architecture.
+    case inferred
+    /// `<tool_call><function=name><parameter=key>value</parameter></function></tool_call>`
+    /// (Qwen3-Coder, Qwen3.5+, Granite 4.2).
+    case xmlFunction
+}
+
 /// A downloadable, pinned Built-in model.
 public struct BuiltInModelVariant: Codable, Sendable, Equatable, Identifiable {
     /// Stable identifier, also reported as the client's `modelName`.
@@ -80,6 +92,7 @@ public struct BuiltInModelVariant: Codable, Sendable, Equatable, Identifiable {
 
     public let supportsVision: Bool
     public let thinkingControl: BuiltInThinkingControl
+    public let toolCallSyntax: BuiltInToolCallSyntax
 
     public init(
         id: String,
@@ -97,7 +110,8 @@ public struct BuiltInModelVariant: Codable, Sendable, Equatable, Identifiable {
         minimumPhysicalMemoryGB: Int,
         recommendedPhysicalMemoryGB: Int,
         supportsVision: Bool,
-        thinkingControl: BuiltInThinkingControl
+        thinkingControl: BuiltInThinkingControl,
+        toolCallSyntax: BuiltInToolCallSyntax = .inferred
     ) {
         self.id = id
         self.displayName = displayName
@@ -115,6 +129,7 @@ public struct BuiltInModelVariant: Codable, Sendable, Equatable, Identifiable {
         self.recommendedPhysicalMemoryGB = recommendedPhysicalMemoryGB
         self.supportsVision = supportsVision
         self.thinkingControl = thinkingControl
+        self.toolCallSyntax = toolCallSyntax
     }
 
     /// Total bytes on disk (and to download).

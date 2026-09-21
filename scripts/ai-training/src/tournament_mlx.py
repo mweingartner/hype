@@ -61,12 +61,9 @@ from eval import (  # noqa: E402
 from tournament import format_leaderboard, per_category  # noqa: E402
 import tournament_multiturn as tm  # noqa: E402  -- reuse constants/helpers, not the Ollama transport
 
-SCRATCHPAD = Path(
-    "/private/tmp/claude-501/-Users-mweingar-dev-hype-v2/"
-    "e8e69a72-3523-46e6-8eb2-b22d037e8679/scratchpad"
-)
-SUMMARY_PATH = SCRATCHPAD / "eval" / "SUMMARY.md"
-LOG_DIR = SCRATCHPAD / "logs"
+# Everything this harness writes lands in the git-ignored out/ directory.
+SUMMARY_PATH = OUT_DIR / "mlx_tournament_SUMMARY.md"
+LOG_DIR = OUT_DIR / "mlx_tournament_logs"
 
 # ---------------------------------------------------------------------------
 # Model catalog — local HF cache snapshots only. HF_HUB_OFFLINE=1 is set by
@@ -97,6 +94,22 @@ MODEL_CATALOG: dict[str, dict] = {
         "arch": "gpt_oss (MoE, Harmony tool-call format)",
         "tier": "128GB Mac candidate",
         "chat_template_kwargs": {"reasoning_effort": "low"},
+    },
+    # IBM's own MLX builds. The template speaks the same <function=…> XML
+    # tool-call dialect as Qwen3-Coder and thinks unless told not to.
+    "granite-4.2-30b-q4": {
+        "repo": "ibm-granite/granite-4.2-30b-q4-mlx",
+        "arch": "granite (dense 30B, full attention, 4-bit)",
+        "tier": "128GB Mac candidate",
+        "chat_template_kwargs": {"enable_thinking": False},
+        "prompt_cache_bytes": 30 << 30,
+    },
+    "granite-4.2-30b-q8": {
+        "repo": "ibm-granite/granite-4.2-30b-q8-mlx",
+        "arch": "granite (dense 30B, full attention, 8-bit)",
+        "tier": "128GB Mac candidate",
+        "chat_template_kwargs": {"enable_thinking": False},
+        "prompt_cache_bytes": 30 << 30,
     },
     "qwen3-coder-next-8bit": {
         "repo": "mlx-community/Qwen3-Coder-Next-8bit",
@@ -214,7 +227,9 @@ class MlxServer:
         top_p: float = 0.9,
         max_tokens: int = 512,
         log_path: Path | None = None,
+        prompt_cache_bytes: int | None = None,
     ):
+        self.prompt_cache_bytes = prompt_cache_bytes
         self.model_path = model_path
         self.port = port
         self.host = host
@@ -242,6 +257,11 @@ class MlxServer:
             "--max-tokens", str(self.max_tokens),
             "--log-level", "INFO",
         ]
+        if self.prompt_cache_bytes:
+            # mlx_lm.server keeps a full KV cache per cached conversation (default:
+            # 10 of them). A dense model's ~46K-token authoring prompt costs ~12 GB
+            # each, which swaps a 128 GB Mac; bound it by bytes instead.
+            cmd += ["--prompt-cache-bytes", str(self.prompt_cache_bytes)]
         env = dict(os.environ)
         env["HF_HUB_OFFLINE"] = "1"
         print(f"[server] launching: {' '.join(cmd)}", flush=True)
@@ -989,6 +1009,7 @@ def main() -> None:
         model_path=model_path, port=port, host=args.host,
         temperature=args.temperature, top_p=args.top_p, max_tokens=args.max_tokens,
         log_path=LOG_DIR / f"{args.model_key}_server.log",
+        prompt_cache_bytes=profile.get("prompt_cache_bytes"),
     )
 
     telemetry: list[dict] = []

@@ -201,8 +201,26 @@ fi
 
 /usr/bin/pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 
-run_with_retry "swift build" "$SWIFT" build
-BUILD_BINARY="$($SWIFT build --show-bin-path)/$APP_NAME"
+# Debug by default. `--deploy` installs an optimized build unless told otherwise:
+# the Built-in model's MLX runtime decodes ~3x slower at -Onone (measured on an
+# M5 Max: ~20 vs ~60 tokens/s). Override with HYPE_BUILD_CONFIGURATION=debug|release.
+BUILD_CONFIGURATION="${HYPE_BUILD_CONFIGURATION:-}"
+if [ -z "$BUILD_CONFIGURATION" ]; then
+  case "$MODE" in
+    --deploy|deploy) BUILD_CONFIGURATION="release" ;;
+    *) BUILD_CONFIGURATION="debug" ;;
+  esac
+fi
+case "$BUILD_CONFIGURATION" in
+  debug|release) ;;
+  *)
+    log_error "HYPE_BUILD_CONFIGURATION must be 'debug' or 'release' (got '$BUILD_CONFIGURATION')."
+    exit 2
+    ;;
+esac
+
+run_with_retry "swift build" "$SWIFT" build -c "$BUILD_CONFIGURATION"
+BUILD_BINARY="$($SWIFT build -c "$BUILD_CONFIGURATION" --show-bin-path)/$APP_NAME"
 
 if [ ! -x "$BUILD_BINARY" ]; then
   log_error "Build artifact not found: $BUILD_BINARY"

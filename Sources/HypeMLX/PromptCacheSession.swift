@@ -59,13 +59,21 @@ final class PromptCacheSession: @unchecked Sendable {
     private(set) var cache: [any KVCache] = []
     private(set) var staticCheckpoint: Checkpoint?
     private(set) var turnCheckpoint: Checkpoint?
+    /// The prompt tokens the working cache is known to start with, kept current
+    /// chunk by chunk — so it stays true when a prefill is cancelled half-way.
+    /// (Generated tokens follow them in the cache; nothing ever rewinds into those.)
+    private(set) var liveTokens: [Int] = []
     /// Generation-prompt length per thinking mode, learned on first use.
     var generationPromptLength: [Bool: Int] = [:]
+    /// Whether this model's chat template renders tool schemas after the system
+    /// text (learned on first use); see `ChatRendering.relocatingPerTurnBlock`.
+    var toolsFollowSystemText: Bool?
 
     func reset() {
         cache = []
         staticCheckpoint = nil
         turnCheckpoint = nil
+        liveTokens = []
     }
 
     /// Brings the working cache to `turnBoundary`, reusing the longest checkpoint
@@ -85,10 +93,7 @@ final class PromptCacheSession: @unchecked Sendable {
 
         var position = 0
         let quantization = kvCacheBits.map { KVQuantization(bits: $0, startTokens: kvQuantizationStart) }
-        let candidates = [turnCheckpoint, staticCheckpoint]
-            .compactMap { $0 }
-            .sorted { $0.tokens.count > $1.tokens.count }
-        let reusable = candidates.first { $0.tokens.count <= turnBoundary && tokens.starts(with: $0.tokens) }
+        let reusable = reusablePrefix(of: tokens, upTo: turnBoundary)
         if let reusable, rewindLeavesQuantizedLayers(to: reusable, quantization: quantization) {
             // A longer conversation pushed the working cache to 8-bit. Going back
             // under the threshold must also go back to 16-bit attention, or every
@@ -102,7 +107,8 @@ final class PromptCacheSession: @unchecked Sendable {
                 if let stored = diskCache.load(tokens: Array(tokens[..<boundary]), expectedLayers: layerCount) {
                     cache = stored
                     position = boundary
-                    staticCheckpoint = snapshot(tokens: Array(tokens[..<boundary]))
+                    liveTokens = Array(tokens[..<boundary])
+                    staticCheckpoint = snapshot(tokens: liveTokens)
                 } else {
                     cache = model.newCache(parameters: parameters)
                 }
@@ -120,6 +126,11 @@ final class PromptCacheSession: @unchecked Sendable {
             reset()
             cache = model.newCache(parameters: parameters)
         }
+        // From here on the cache is rewritten past `position`: a longer turn
+        // checkpoint no longer describes it, even if this prefill is cancelled.
+        if let turn = turnCheckpoint, turn.tokens.count > position {
+            turnCheckpoint = nil
+        }
         var reused = position
         var progress = PrefillProgress(report: onPrefillProgress)
 
@@ -131,6 +142,7 @@ final class PromptCacheSession: @unchecked Sendable {
             if position == 0, let stored = diskCache?.load(tokens: prefix, expectedLayers: cache.count) {
                 // A previous launch already paid for this prefix.
                 cache = stored
+                liveTokens = prefix
                 reused = boundary
             } else {
                 progress.total = turnBoundary - position
@@ -154,6 +166,38 @@ final class PromptCacheSession: @unchecked Sendable {
     }
 
     // MARK: - Internals
+
+    /// The longest stretch of `tokens` the working cache can be rewound to.
+    ///
+    /// A hybrid model can only go back to a checkpoint (its recurrent layers do
+    /// not rewind). A cache made only of append-only attention layers — a dense
+    /// model — can go back to any token, so the whole common prefix with what it
+    /// holds is reusable: that matters for models whose chat template renders
+    /// the tool schemas *after* the system text, where the static checkpoint
+    /// covers less than half the prompt.
+    private func reusablePrefix(of tokens: [Int], upTo turnBoundary: Int) -> Checkpoint? {
+        if !cache.isEmpty, cache.allSatisfy(Self.rewindsInPlace) {
+            let common = Self.commonPrefixLength(liveTokens, tokens, limit: turnBoundary)
+            return common > 0 ? Checkpoint(tokens: Array(tokens[..<common]), recurrent: [:]) : nil
+        }
+        return [turnCheckpoint, staticCheckpoint]
+            .compactMap { $0 }
+            .sorted { $0.tokens.count > $1.tokens.count }
+            .first { checkpoint in
+                checkpoint.tokens.count <= turnBoundary
+                    && tokens.starts(with: checkpoint.tokens)
+                    // The attention layers must still hold exactly these tokens.
+                    && Self.commonPrefixLength(liveTokens, checkpoint.tokens, limit: checkpoint.tokens.count)
+                        == checkpoint.tokens.count
+            }
+    }
+
+    static func commonPrefixLength(_ lhs: [Int], _ rhs: [Int], limit: Int) -> Int {
+        let bound = max(0, min(lhs.count, rhs.count, limit))
+        var index = 0
+        while index < bound, lhs[index] == rhs[index] { index += 1 }
+        return index
+    }
 
     private static func rewindsInPlace(_ layer: any KVCache) -> Bool {
         // Append-only attention caches. Rotating (sliding-window) caches stop
@@ -198,6 +242,7 @@ final class PromptCacheSession: @unchecked Sendable {
             }
         }
         cache = restored
+        liveTokens = checkpoint.tokens
         return true
     }
 
@@ -226,6 +271,7 @@ final class PromptCacheSession: @unchecked Sendable {
                 maybeQuantizeKVCache(
                     cache: &cache, kvBits: quantization.bits, quantizedKVStart: quantization.startTokens)
             }
+            liveTokens.append(contentsOf: segment[start..<end])
             progress.advance(by: end - start)
             start = end
         }
