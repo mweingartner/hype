@@ -97,7 +97,7 @@ public extension HypeAIProvider {
         switch self {
         case .openAI, .zAI, .miniMax:
             return true
-        case .ollama, .llamaSwap, .llamaCpp:
+        case .builtIn, .ollama, .llamaSwap, .llamaCpp:
             return false
         }
     }

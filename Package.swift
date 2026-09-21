@@ -13,6 +13,7 @@ let package = Package(
         .executable(name: "Hype", targets: ["Hype"]),
         .executable(name: "HypePacmanTestbedBuilder", targets: ["HypePacmanTestbedBuilder"]),
         .executable(name: "hypetalk", targets: ["HypeCLI"]),
+        .executable(name: "hype-mlx-probe", targets: ["HypeMLXProbe"]),
         .library(name: "HypeCore", targets: ["HypeCore"]),
     ],
     dependencies: [
@@ -21,11 +22,16 @@ let package = Package(
         // compiles under current SDKs (auAudioUnit is macOS 13+). See
         // Vendor/AudioKit/HYPE_VENDOR_NOTE.md for provenance and the single patch.
         .package(path: "Vendor/AudioKit"),
+        // In-process inference for the Built-in model (macOS only). Building
+        // MLX's Metal kernels needs Xcode's Metal Toolchain component:
+        // `xcodebuild -downloadComponent MetalToolchain`.
+        .package(url: "https://github.com/ml-explore/mlx-swift-lm", exact: "3.31.4"),
+        .package(url: "https://github.com/huggingface/swift-transformers", exact: "1.3.4"),
     ],
     targets: [
         .executableTarget(
             name: "Hype",
-            dependencies: ["HypeCore"],
+            dependencies: ["HypeCore", "HypeMLX"],
             path: "Sources/Hype",
             exclude: ["SpriteKit/README.md"],
             resources: [
@@ -81,6 +87,29 @@ let package = Package(
                 .linkedLibrary("c++"),
             ]
         ),
+        // The MLX-backed engine behind `HypeAIProvider.builtIn`. Depends on
+        // HypeCore, never the reverse: HypeCore stays Metal-free and portable.
+        // Linked only into the Hype app and the probe tool — not the `hypetalk`
+        // CLI and not the core test targets.
+        .target(
+            name: "HypeMLX",
+            dependencies: [
+                "HypeCore",
+                .product(name: "MLXLLM", package: "mlx-swift-lm", condition: .when(platforms: [.macOS])),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm", condition: .when(platforms: [.macOS])),
+                .product(name: "Tokenizers", package: "swift-transformers", condition: .when(platforms: [.macOS])),
+            ],
+            path: "Sources/HypeMLX"
+        ),
+        .executableTarget(
+            name: "HypeMLXProbe",
+            dependencies: [
+                "HypeCore",
+                "HypeMLX",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/HypeMLXProbe"
+        ),
         .systemLibrary(
             name: "CStackImport",
             path: "Sources/CStackImport"
@@ -94,6 +123,17 @@ let package = Package(
             name: "HypeTests",
             dependencies: ["Hype", "HypeCore"],
             path: "Tests/HypeTests"
+        ),
+        // Pure translation logic only — live inference is covered by the
+        // `hype-mlx-probe` tool, never by a test bundle (mlx-swift#460).
+        .testTarget(
+            name: "HypeMLXTests",
+            dependencies: [
+                "HypeCore",
+                "HypeMLX",
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm", condition: .when(platforms: [.macOS])),
+            ],
+            path: "Tests/HypeMLXTests"
         ),
         .testTarget(
             name: "HypeCLITests",

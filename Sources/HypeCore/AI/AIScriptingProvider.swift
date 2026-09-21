@@ -114,6 +114,14 @@ public struct SelectedAIScriptingProvider: AIScriptingProvider, @unchecked Senda
 
     public func currentModel() -> String {
         switch HypeAIConfiguration.selectedProvider(defaults: defaults) {
+        case .builtIn:
+            let selected = BuiltInModelSettings.selectedVariantID(defaults: defaults)
+            let resolved = try? BuiltInModelClient.resolveVariant(
+                id: selected,
+                store: BuiltInModelStore(),
+                device: .current
+            )
+            return resolved?.id ?? selected
         case .ollama:
             return HypeAIConfiguration.normalized(defaults.string(forKey: "ollamaModel")) ?? "llama3.2"
         case .llamaSwap:

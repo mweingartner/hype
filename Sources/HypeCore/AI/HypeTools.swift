@@ -6,7 +6,8 @@ public struct HypeToolDefinitions {
     /// The complete set of tools the AI can invoke.
     public static let allTools: [OllamaTool] = [
         // Stack management
-        makeTool(name: "create_card", description: "Create a new card in the stack. Optionally specify a background name.", params: [
+        makeTool(name: "create_card", description: "Create a new card in the stack and make it the current card. Pass the card's name; optionally specify a background name.", params: [
+            "name": ("string", "Name for the new card (e.g. \"about\")", false),
             "background_name": ("string", "Name of background to use (optional)", false),
         ]),
         makeTool(name: "create_background", description: "Create a new named background that can be shared by multiple cards.", params: [
@@ -2587,7 +2588,10 @@ public struct HypeToolDefinitions {
     ) -> OllamaTool {
         var properties: [String: OllamaProperty] = [:]
         var required: [String] = []
-        for (key, val) in params {
+        // Sorted: dictionary order changes every launch, and an unstable
+        // `required` list changes the rendered tool schema — which silently
+        // defeats prompt-prefix caching (Built-in, Ollama, llama.cpp) across runs.
+        for (key, val) in params.sorted(by: { $0.key < $1.key }) {
             properties[key] = OllamaProperty(type: val.0, description: val.1)
             if val.2 { required.append(key) }
         }

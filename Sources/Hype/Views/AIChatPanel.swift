@@ -62,6 +62,9 @@ struct AIChatPanel: View {
     /// Non-nil while the coordinator is retrying a refused script draft.
     /// Drives the iteration status indicator in the chat area.
     @State private var iterationStatus: IterationStatus?
+    /// Specific progress from the Built-in model engine (model load, first-use
+    /// prompt prefill); nil for every other provider.
+    @State private var builtInActivityText: String?
 
     /// Status displayed during a script draft iteration loop.
     private struct IterationStatus: Equatable {
@@ -241,7 +244,7 @@ struct AIChatPanel: View {
                         } else if isProcessing {
                             HStack {
                                 ProgressView().scaleEffect(0.7)
-                                Text("Thinking...")
+                                Text(builtInActivityText ?? "Thinking...")
                                     .font(.system(size: 11))
                                     .foregroundColor(.secondary)
                                 Spacer()
@@ -441,6 +444,9 @@ struct AIChatPanel: View {
             }
             captureTempFiles.removeAll()
         }
+        .onReceive(NotificationCenter.default.publisher(for: BuiltInModelActivity.didChangeNotification)) { _ in
+            builtInActivityText = BuiltInModelActivity.shared.statusText
+        }
         .accessibilityLabel("AI Assistant")
         .accessibilityIdentifier(HypeAccessibilityID.aiAssistant)
     }
@@ -451,6 +457,10 @@ struct AIChatPanel: View {
 
     private var currentModelDisplay: String {
         switch selectedAIProvider {
+        case .builtIn:
+            let selected = BuiltInModelSettings.selectedVariantID()
+            let variant = try? BuiltInModelClient.resolveVariant(id: selected, store: BuiltInModelStore(), device: .current)
+            return "Built-in: \(variant?.displayName ?? selected)"
         case .ollama:
             return ollamaModel
         case .llamaSwap:

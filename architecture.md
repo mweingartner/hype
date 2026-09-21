@@ -2874,6 +2874,111 @@ forwarded to `HypeToolExecutor`. For deterministic scene planning and repair,
 the same client can also send a `format` schema and decode the JSON response
 directly into typed Swift structs.
 
+#### Built-in model (in-process, no server)
+
+`HypeAIProvider.builtIn` runs open weights inside the Hype process on Apple's
+MLX: no Ollama, no HTTP, no API key, nothing leaves the Mac. Because it is one
+more `HypeAIClient`, every AI surface — the chat panel, Script Editor AI, scene
+planning, the MCP bridge and HypeTalk's `ask ai` — works with it unchanged.
+Why these two models, with the tournament and performance measurements:
+`docs/BuiltInModelSelection.md`.
+
+The feature is split along the portability boundary:
+
+- **HypeCore (`Sources/HypeCore/AI/BuiltInModel/`), MLX-free and
+  Foundation-only.** `BuiltInModelCatalog` + the generated
+  `BuiltInModelManifests` pin each variant (Hugging Face repo, commit, and every
+  runtime file by size and SHA-256). Two tiers ship: **Standard** for 32 GB Macs
+  and **Max** for 96 GB+ Macs. `BuiltInModelStore` finds weights (a user-supplied
+  directory, Hype's own copy under `~/Library/Application Support/Hype/Models/`,
+  or an existing Hugging Face cache snapshot adopted in place and never deleted).
+  `BuiltInModelDownloader` performs the explicit, resumable, host-allow-listed,
+  hash-verified install. Weights Hype did not download itself get the same
+  scrutiny: every lookup re-checks sizes and the SHA-256 of all small files
+  (tokenizer, chat template, config — the files that steer behaviour), and
+  `verifyWeights` hashes each multi-gigabyte weight file once, remembering it in
+  `verified-weights.json` until the file's size or date changes. `BuiltInMemoryFitPolicy` decides which variant a Mac may
+  run and with what context cap. The attention KV cache stays 16-bit for as long
+  as that fits the budget and is quantized to 8-bit only past
+  `kvQuantizationStartTokens` — 8-bit attention measured ~1.6x slower in decode
+  and ~1.9x slower in prefill, so a typical ~50K-token authoring session on a
+  32 GB Mac never pays for it. The cache is quantized only between prefill
+  chunks (never by the token iterator, which would swap layers behind the
+  session's checkpoints), and a chat that rewinds below the threshold gets
+  16-bit attention back: the persisted static prefix is reloaded, or the layers
+  are dequantized in place when no file exists. `BuiltInModelClient` is the `HypeAIClient`
+  conformer and the Anticorruption Layer: it speaks Hype's chat vocabulary on one
+  side and the small `BuiltInModelEngine` protocol on the other.
+- **HypeMLX (`Sources/HypeMLX/`), macOS-only.** `MLXBuiltInModelEngine` implements
+  the engine protocol with `mlx-swift-lm`. HypeMLX depends on HypeCore, never the
+  reverse, and is linked only into the `Hype` app and the `hype-mlx-probe` tool —
+  not the `hypetalk` CLI. The app registers the engine at launch through
+  `BuiltInModelRuntime.register(engine:)`, because `HypeAIConfiguration.makeClient`
+  is a synchronous switch inside HypeCore that cannot name the MLX type. The
+  client is cheap to build; weights load lazily on first use.
+
+Engine rules that are load-bearing:
+
+- One model resident, one request at a time (strict FIFO). Concurrent GPU
+  submission, load/unload churn and wiring the full GPU working set are known
+  triggers of an unfixed macOS IOGPU kernel panic; the engine does none of them.
+- **Prompt cache.** Hype's untuned authoring prompt is ~50K tokens (tool schemas
+  + rules + the HypeTalk guide) and the chat loop re-sends the whole conversation
+  every round. `PromptCacheSession` keeps a *static checkpoint* just before the
+  per-message `CURRENT STATE:` block and a *turn checkpoint* at the end of the
+  last rendered message, so a tool-loop round prefills only its new tokens. The
+  shipped models are hybrids whose recurrent state cannot be rewound: a
+  checkpoint therefore copies only the recurrent layers and rewinds the
+  append-only attention layers in place. `PromptPrefixDiskCache` persists the
+  static checkpoint under `~/Library/Caches/Hype/BuiltInPromptCache/` so the
+  minute-long first prefill is paid once per (model, tool set, guide), not once
+  per launch. The static prefix ends at the *first* `CURRENT STATE:` marker, so
+  document text can never be pulled into it, and each cache file carries an
+  HMAC-SHA256 keyed with a per-install secret kept outside Caches — a file
+  without a valid tag is discarded, because a swapped KV cache would steer the
+  model with no visible trace. Cross-launch reuse depends on the rendered tool
+  schemas being byte-stable, which is why `HypeTools.makeTool` sorts its keys.
+  The cache is bounded by count *and* bytes (a dense model's prefix is ~12 GB)
+  and is never written when it would leave the disk short.
+- **Prompt layout.** Everything before the first user turn must be static, or
+  the cache is worthless. Chat templates disagree about where tool schemas go:
+  Qwen3.5 renders them before the system text, Qwen3-Coder and Granite 4.2
+  after it — which would put ~25K tokens of unchanged schemas *behind* the
+  `CURRENT STATE:` block and re-prefill them on every message. The engine asks
+  the template once per loaded model (a two-line probe render) and, when tools
+  follow the system text, `ChatRendering.relocatingPerTurnBlock` moves the
+  per-turn block to the front of the latest user message. The block carries
+  document text (part names, AI Context notes), so it is announced as data and
+  fenced off from what the author typed by a heading no document can forge
+  (`REQUEST 3fa9c1d07b2e:` — a 48-bit tag derived from the block, the request and a
+  per-launch salt). Measured on the Max model: a new chat went
+  from ~31 s to ~5 s per request, with no loss of tournament accuracy.
+- **What the cache holds is tracked, not assumed.** The session records the
+  prompt tokens the working cache starts with, chunk by chunk, so a checkpoint
+  is only reused while the attention layers still hold exactly its tokens —
+  including after a prefill the author cancelled half-way. A dense model (all
+  layers append-only) rewinds to the longest common prefix with the previous
+  prompt instead of to a checkpoint.
+- Tool calls are parsed by `mlx-swift-lm`'s per-family parsers and flattened to
+  the string arguments `HypeToolExecutor` expects. The runtime infers the markup
+  from the architecture name and falls back to JSON; a variant whose artifact
+  speaks another dialect says so (`BuiltInToolCallSyntax`, e.g. Granite 4.2's
+  `<function=…>` XML). Script bodies stay
+  unconstrained; `HypeTalkScriptValidator` and the retry gate remain the system
+  of record.
+- The text path is used for every variant today; messages carrying images are
+  told the image was not seen.
+
+Building HypeMLX compiles MLX's Metal kernels, which needs Xcode's Metal
+Toolchain component (`xcodebuild -downloadComponent MetalToolchain`). Test
+bundles never execute MLX (mlx-swift#460): `HypeCoreTests` covers the HypeCore
+half with a fake engine, `HypeMLXTests` covers pure translation logic, and
+`hype-mlx-probe` is the live end-to-end harness (real engine, real guide, real
+tool catalog, real `HypeToolExecutor`, no GUI). Its `--tournament` mode runs
+the 127 authoring prompts of `scripts/ai-training/eval` against a real seeded
+stack — the way to judge a candidate model on the path Hype actually ships;
+`--model-directory` points it at any local MLX model.
+
 ### 7.2 Tool surface: `HypeTools`
 
 `HypeTools` (Sources/HypeCore/AI/HypeTools.swift) declares the AI tool

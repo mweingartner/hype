@@ -71,6 +71,49 @@ document semantics.
 - Apply AI Context Library access through the centralized tool policy. Context read/import tools must be withheld from cloud providers until the stack opts in; write-only project-memory notes may remain available because they do not expose existing context. The local MCP/debug bridge is a privileged local boundary for diagnosis and automation.
 - Tool changes need schema coverage and execution-path tests.
 - AI transactions should preserve preview/apply/rollback semantics where applicable.
+- The Built-in model (`HypeAIProvider.builtIn`) is a local provider: it needs no
+  cloud AI-context opt-in, stores no credential, and must never send prompt or
+  stack content off the Mac. Keep it that way.
+- Built-in model weights are never fetched silently. A download starts only from
+  an explicit user action, shows its size first, comes from the pinned Hugging
+  Face revision over HTTPS from allow-listed hosts, and becomes active only after
+  every file matches the SHA-256 pinned in `BuiltInModelManifests`. Disk use is
+  visible and Hype's own copy is removable; weights adopted from the user's
+  Hugging Face cache or a user directory are never modified or deleted — and are
+  never trusted on size alone: small files are hashed on every lookup, weight
+  files once (`BuiltInModelStore.verifyWeights`).
+- Anything the Built-in engine persists must be reproducible, free of document
+  or conversation content, and tamper-evident. The prompt-prefix cache holds only
+  the KV state of Hype-authored prompt text (tool schemas, rules, guide — cut at
+  the first `CURRENT STATE:` marker) and is rejected without a valid keyed tag.
+- Tool schemas must render identically on every launch (sorted keys, no
+  dictionary-order iteration): prompt-prefix caching in every provider depends
+  on it (`HypeToolSchemaDeterminismTests`).
+- HypeCore stays MLX-free. In-process inference lives in the macOS-only
+  `HypeMLX` target behind the `BuiltInModelEngine` protocol; HypeMLX depends on
+  HypeCore, never the reverse, and must not be linked into the `hypetalk` CLI.
+- The Built-in engine serves one request at a time, keeps one model resident,
+  never wires the full GPU working set, and takes its context cap from
+  `BuiltInMemoryFitPolicy` (measured working set, a fixed system reserve, never a
+  hard-coded percentage). Do not relax these without re-running a multi-hour soak
+  on the smallest supported Mac.
+- Whatever the Built-in engine renders before the first user turn must be
+  static (rules, guide, tool schemas) — per-turn state goes with the request it
+  describes. A chat template that renders tool schemas after the system text
+  gets the `CURRENT STATE:` block relocated to the latest user message, behind
+  a data notice and a salted `REQUEST <tag>:` heading — document text must never
+  be able to forge the line where the author's request begins. Do not add
+  per-turn content to the system prompt above that marker.
+- Judge a candidate Built-in model on the path Hype ships: `hype-mlx-probe
+  --tournament` (real engine, real tools, a real seeded stack). The Python
+  harness answers tool calls with canned strings, which flatters models that
+  never look and punishes models that do; use it for cross-provider comparison
+  only, and bound `mlx_lm.server`'s prompt cache by bytes for dense models.
+- Built-in model variants are untuned: their identifiers must not start with
+  `hypetalk-`, which is reserved for tuned models whose weights contain the
+  HypeTalk guide. Do not change a variant without regenerating its manifest
+  (`scripts/built-in-model/generate_manifest.py`) and re-running the authoring
+  tournament against the exact artifact.
 
 ## Game Recipe Authoring Guardrails
 
