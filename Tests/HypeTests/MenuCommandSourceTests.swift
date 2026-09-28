@@ -77,6 +77,22 @@ struct MenuCommandSourceTests {
         #expect(source.contains("Switch to Edit Mode"))
     }
 
+    @Test("Classic menu commands project imported menu resources")
+    func classicMenuCommandsUseImportedResourcesAndDoMenuPath() throws {
+        let root = try packageRoot()
+        let commandsURL = root
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("Hype")
+            .appendingPathComponent("Views")
+            .appendingPathComponent("GoMenuCommands.swift")
+        let commandSource = try String(contentsOf: commandsURL, encoding: .utf8)
+
+        #expect(commandSource.contains("CommandMenu(\"Classic\")"))
+        #expect(commandSource.contains("ClassicMenuCommandMapper.menus"))
+        #expect(commandSource.contains("body: [.doMenuCmd(.literal(itemName))]"))
+        #expect(commandSource.contains("NotificationCenter.default.post(name: .navigateToCard"))
+    }
+
     private func packageRoot() throws -> URL {
         var url = URL(fileURLWithPath: #filePath)
         while url.path != "/" {

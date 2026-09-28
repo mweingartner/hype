@@ -8,7 +8,7 @@ import HypeCore
 /// to, rather than being split across Go and Objects.
 struct GoMenuCommands: Commands {
     @FocusedValue(\.hypeAuthoringCommandContext) private var authoringCommands
-    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument
+    @FocusedValue(\.hypeCurrentDocument) private var focusedDocument: Binding<HypeDocumentWrapper>?
 
     private var canUsePaintTools: Bool {
         authoringCommands?.userLevel.canUsePaintTools ?? false
@@ -81,6 +81,82 @@ struct GoMenuCommands: Commands {
                                                 userInfo: MenuCommandScoping.userInfo(stackId: focusedStackId))
             }
             .disabled(!canAuthorObjects || focusedDocument == nil)
+        }
+        CommandMenu("Classic") {
+            if let focusedDocument {
+                let menus = ClassicMenuCommandMapper.menus(in: focusedDocument.wrappedValue.document)
+                if menus.isEmpty {
+                    Text("No Classic Menus")
+                } else {
+                    ForEach(menus, id: \.resourceId) { menu in
+                        Menu(classicMenuTitle(menu.title)) {
+                            ForEach(Array(menu.items.enumerated()), id: \.offset) { _, item in
+                                if item.isSeparator {
+                                    Divider()
+                                } else {
+                                    Button(item.name) {
+                                        ClassicMenuCommandRunner.perform(item.name, documentBinding: focusedDocument)
+                                    }
+                                    .disabled(!menu.enabled || !item.enabled)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text("No Active Stack")
+            }
+        }
+    }
+
+    private func classicMenuTitle(_ title: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == "\u{14}" || trimmed.isEmpty {
+            return "Apple"
+        }
+        return trimmed
+    }
+}
+
+@MainActor
+private enum ClassicMenuCommandRunner {
+    static func perform(_ itemName: String, documentBinding: Binding<HypeDocumentWrapper>) {
+        let document = documentBinding.wrappedValue.document
+        let currentCardId = HypeDocumentMutationCoordinator.shared.activeCardId
+            ?? document.sortedCards.first?.id
+            ?? document.cards.first?.id
+            ?? UUID()
+        let handler = Handler(
+            name: "__classicMenuCommand",
+            handlerType: .message,
+            params: [],
+            body: [.doMenuCmd(.literal(itemName))],
+            line: 1
+        )
+        let context = ExecutionContext(
+            targetId: currentCardId,
+            currentCardId: currentCardId,
+            document: document
+        )
+        let result = Interpreter().execute(handler: handler, params: [], context: context)
+        guard result.status == .completed || result.status == .passed else {
+            if let error = result.error {
+                HypeLogger.shared.error(error.message, source: "Classic Menu")
+            }
+            return
+        }
+
+        if let modifiedDocument = result.modifiedDocument {
+            HypeDocumentMutationCoordinator.shared.applyDocument(
+                modifiedDocument,
+                to: documentBinding,
+                undoManager: nil,
+                actionName: "Classic Menu: \(itemName)"
+            )
+        }
+        if let navigationTarget = result.navigationTarget {
+            HypeDocumentMutationCoordinator.shared.activeCardId = navigationTarget
+            NotificationCenter.default.post(name: .navigateToCard, object: navigationTarget)
         }
     }
 }
