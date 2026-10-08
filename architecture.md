@@ -2842,6 +2842,10 @@ deadline. Job polling is asynchronous; accepted receipts are not completion,
 failed jobs throw script errors, and cancellation targets only the caller's
 accepted job. WAV success requires a readable RIFF/WAVE header.
 
+Opening Settings checks saved cloud-key presence without decrypting secret
+content. This keeps local speech setup independent of an unrelated OpenAI
+Keychain access prompt; provider use still validates the credential itself.
+
 The current Chatter API requires a voice, defaults omitted pace to 1 and tone to
 natural, and resolves live quality from its own preferences. To honor the user's
 configured defaults without changing the installed service, Hype discovers its

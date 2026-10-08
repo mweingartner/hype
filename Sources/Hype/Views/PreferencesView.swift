@@ -191,7 +191,9 @@ struct PreferencesView: View {
             syncUserLevelSelectionFromDocument()
             fetchModels()
             pexelsKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.pexelsAPIKeyAccount)
-            openAIKeyIsSet = hasUsableSecret(account: KeychainStore.openAIAPIKeyAccount)
+            // Opening local speech settings must not decrypt a cloud API key.
+            // Validate secret content when the corresponding provider is used.
+            openAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.openAIAPIKeyAccount)
             zAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.zAIAPIKeyAccount)
             miniMaxKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.miniMaxAPIKeyAccount)
             llamaSwapKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.llamaSwapAPIKeyAccount)
@@ -1044,13 +1046,6 @@ struct PreferencesView: View {
         } catch {
             openAITestStatus = keychainErrorMessage(for: error)
         }
-    }
-
-    private func hasUsableSecret(account: String) -> Bool {
-        guard let value = try? KeychainStore.getSecret(account: account) else {
-            return false
-        }
-        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var hostedProviderKeyAccount: String {
