@@ -1393,9 +1393,12 @@ final class HypeDebugServer: @unchecked Sendable {
     @MainActor
     private func availableTools() -> [OllamaTool] {
         let document = HypeDocumentMutationCoordinator.shared.activeDocumentBinding?.wrappedValue.document
-        let withWebAssets = HypeToolDefinitions.withWebAssetTools(
-            HypeToolDefinitions.allTools,
-            enabled: document?.stack.webAssetsAllowed == true
+        let withWebAssets = HypeToolDefinitions.withBraveSearchTools(
+            HypeToolDefinitions.withWebAssetTools(
+                HypeToolDefinitions.allTools,
+                enabled: document?.stack.webAssetsAllowed == true
+            ),
+            enabled: UserDefaults.standard.bool(forKey: BraveSearchConfiguration.enabledKey)
         )
         guard let document else {
             return HypeToolDefinitions.toolsApplyingAIContextPolicy(
@@ -2089,7 +2092,8 @@ final class HypeDebugServer: @unchecked Sendable {
             webAssetClient: webAssetClient,
             webAssetPipeline: webAssetPipeline,
             imageGenerationClientFactory: imageGenerationClientFactory,
-            meshyClientFactory: meshyClientFactory
+            meshyClientFactory: meshyClientFactory,
+            braveSearchSession: BraveSearchConfiguration.makeSession()
         )
     }
 

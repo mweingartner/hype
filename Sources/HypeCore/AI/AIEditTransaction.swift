@@ -294,7 +294,8 @@ public struct AIEditTransactionRunner: Sendable {
              "generate_3d_model_from_image",
              "generate_3d_model_from_images",
              "remesh_3d_model",
-             "retexture_3d_model":
+             "retexture_3d_model",
+             "call_brave_tool":
             return true
         default:
             return false
@@ -302,7 +303,10 @@ public struct AIEditTransactionRunner: Sendable {
     }
 
     private static func deferredExternalPreviewMessage(for toolName: String) -> String {
-        "Deferred external operation '\(toolName)' until Apply. This Meshy.ai call may consume credits and cannot be undone externally; rollback only restores the Hype document."
+        if toolName == "call_brave_tool" {
+            return "Deferred Brave search until Apply. Search sends the query to Brave and may consume quota; rollback only restores the Hype document."
+        }
+        return "Deferred external operation '\(toolName)' until Apply. This Meshy.ai call may consume credits and cannot be undone externally; rollback only restores the Hype document."
     }
 
     private static func createdIds(_ before: [UUID], _ after: [UUID]) -> [UUID] {

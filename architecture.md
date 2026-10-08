@@ -2,7 +2,7 @@
 type: architecture
 title: Hype Architecture
 description: The product and runtime architecture — source of truth for subsystems, persistence, scripting, rendering, AI, and platform footprint.
-updated: 2026-07-12
+updated: 2026-10-07
 ---
 
 # Hype Architecture
@@ -2828,6 +2828,22 @@ the speech side:
 Preferences store the selected AI provider/model and speech provider/model in
 `UserDefaults`, while OpenAI, llama-swap, and Pexels API keys stay in Keychain.
 
+Optional outbound Brave search reuses the owner's existing Streamable HTTP MCP
+bridge. `BraveSearchConfiguration` stores only app-local enablement and endpoint
+preferences; `BraveSearchSession` uses `HypeMCPHTTPClient` to initialize, discover
+live tool schemas, and call the bridge without credentials. Authoring chat,
+Asset Repository chat, and the privileged debug tool path expose
+`list_brave_tools` / `call_brave_tool` when enabled. Progressive discovery keeps
+the full upstream JSON Schemas intact while avoiding changes to Hype's native
+tool-schema model or model adapters. Typed JSON arguments and complete result
+blocks (including sources and `isError`) pass through the existing executor and
+chat renderer. Paid searches defer until transaction Apply. This capability is
+not embedded in stack documents or exported runtime defaults. On-device model
+inference remains local; explicitly enabled search queries go to Brave and
+results enter normal chat/provider context. See
+[MCP connections](docs/HypeDebugBridgeAndMCP.md#brave-search-bridge-outbound) for
+setup, transport bounds, trust boundaries, and acceptance checks.
+
 Hype.app exposes local automation to external agents through a split debug/MCP
 bridge. The app itself owns only `HypeDebugServer`, a preference-gated
 per-process Unix-domain socket under `<discovery>/<pid>.sock` plus a JSON
@@ -2877,7 +2893,9 @@ directly into typed Swift structs.
 #### Built-in model (in-process, no server)
 
 `HypeAIProvider.builtIn` runs open weights inside the Hype process on Apple's
-MLX: no Ollama, no HTTP, no API key, nothing leaves the Mac. Because it is one
+MLX: no Ollama, no inference HTTP, no model API key; inference stays on the Mac.
+Explicitly enabled network tools such as Brave search can send requested queries
+externally through their separate tool boundary. Because it is one
 more `HypeAIClient`, every AI surface — the chat panel, Script Editor AI, scene
 planning, the MCP bridge and HypeTalk's `ask ai` — works with it unchanged.
 Why these two models, with the tournament and performance measurements:

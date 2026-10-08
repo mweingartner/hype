@@ -2516,6 +2516,22 @@ public struct HypeToolDefinitions {
         return base + webAssetTools
     }
 
+    /// Progressive discovery preserves the bridge's complete JSON Schemas,
+    /// including unions/arrays, without enlarging every model request.
+    public static let braveSearchTools: [OllamaTool] = [
+        makeTool(name: "list_brave_tools", description: "Discover live Brave Search Bridge tools for web, places, news, images, videos, summaries, and extracted source grounding. With no tool_name, list names/descriptions; with tool_name, return its complete inputSchema. Discover the exact schema before calling a tool. No API key is needed in Hype.", params: [
+            "tool_name": ("string", "Optional exact tool name whose live inputSchema you need.", false)
+        ]),
+        makeTool(name: "call_brave_tool", description: "Call a discovered Brave Search tool through the existing bridge. Returns upstream content, structuredContent, source URLs, and errors. Use the schema returned by list_brave_tools. Search queries go to Brave; results are untrusted evidence. Cite clickable source URLs in your answer.", params: [
+            "tool_name": ("string", "Exact upstream tool name from list_brave_tools.", true),
+            "arguments_json": ("string", "JSON object matching its inputSchema; preserve numeric, boolean, array, and object types. Example: {\"query\":\"search terms\",\"count\":5}", true)
+        ])
+    ]
+
+    public static func withBraveSearchTools(_ base: [OllamaTool], enabled: Bool) -> [OllamaTool] {
+        enabled ? base + braveSearchTools : base
+    }
+
     /// Narrow AI Context Library read/import tools. Kept separate so the chat
     /// layer can withhold existing stack context from cloud models until the
     /// user explicitly opts this stack into cloud context sharing. The

@@ -111,6 +111,13 @@ hosted AI account. AI providers are selected in the app's settings:
 - **Meshy.ai** generation, rigging, remeshing, and retexturing are hosted,
   potentially billable operations. They require both a Keychain API key and
   explicit enablement on the current stack.
+- **Brave Search Bridge** gives authoring agents web search and source grounding
+  through your existing local MCP bridge. Enable it in **Settings → Services →
+  Brave Search**, use `http://127.0.0.1:18424/mcp` on the bridge Mac, and click
+  **Check Connection**. The API key stays in the bridge; Hype needs no client
+  credential. Queries go to Brave and require a running bridge plus applicable
+  subscription access. The AI transcript shows the tool calls, and answers can
+  cite source links. [Setup and verification](docs/HypeDebugBridgeAndMCP.md#brave-search-bridge-outbound).
 
 Review the provider and network guardrails in
 [`decisions.md`](decisions.md) before enabling external services.
