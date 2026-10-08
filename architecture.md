@@ -2,7 +2,7 @@
 type: architecture
 title: Hype Architecture
 description: The product and runtime architecture — source of truth for subsystems, persistence, scripting, rendering, AI, and platform footprint.
-updated: 2026-10-07
+updated: 2026-10-08
 ---
 
 # Hype Architecture
@@ -2827,6 +2827,47 @@ the speech side:
 
 Preferences store the selected AI provider/model and speech provider/model in
 `UserDefaults`, while OpenAI, llama-swap, and Pexels API keys stay in Keychain.
+
+Optional Chatter output is app-local (`hype.speech.chatter.enabled`). The existing
+app speech router supplies `SpeechOutputProvider.speak` and `speechVoices`; its
+legacy OpenAI/macOS path remains available when Chatter is disabled. HypeTalk's
+contextual `speak` command evaluates optional voice/tone/pace/quality/output
+expressions, awaits completion, and returns a WAV path or direct-play job ID in
+`it`, with service warnings in `the result`. `the voices` exposes live names.
+`ChatterSpeechClient` uses the installed `chatter-mcp` proxy through
+`MCPStdioBridgeClient`. Credential resolution stays inside Chatter's bridge;
+Hype does not store a token, run a speech model, or create a second server.
+Child I/O runs on a Dispatch worker with bounded output, cancellation, and a
+deadline. Job polling is asynchronous; accepted receipts are not completion,
+failed jobs throw script errors, and cancellation targets only the caller's
+accepted job. WAV success requires a readable RIFF/WAVE header.
+
+The current Chatter API requires a voice, defaults omitted pace to 1 and tone to
+natural, and resolves live quality from its own preferences. To honor the user's
+configured defaults without changing the installed service, Hype discovers its
+default voice from `chatter_voices` and reads only `defaultPace` / `studioTone`
+from the local Chatter settings file. Explicit values override them; quality
+and mode stay omitted unless supplied. WAV output uses Chatter's configured
+folder and always selects Studio at the service. The accepted tradeoff is a
+local-only preference-schema dependency. Revisit when Chatter exposes configured
+defaults through its API or accepts text-only requests with those defaults.
+No Chatter preference or credential is serialized into a stack or exported app.
+Exported runtimes retain their native speech provider and explicitly reject
+unsupported advanced options. See [speech syntax](HypeTalk-LLM-Context.md#speech).
+
+October 8, 2026 verification: installed Chatter 3.1.1 rejected a text-only MCP
+request, confirming the adapter's need to resolve its defaults. Two local
+primary sources (Chatter's API guide and request parser) supported that design;
+the installed schema and live receipts provided execution evidence. Hype's
+settings displayed 12 voices and their default/tone support. Live HypeTalk
+returned the same voice list, completed default direct playback, and exported
+a parameterized 24 kHz mono/24-bit PCM WAV with a readable path. Receipts showed
+configured defaults and the service's Studio override for WAV. The final
+core/CLI run passed 3,659 tests, including extended speech grammar/property
+coverage and real child-process handshake/timeout/cancellation checks. A narrow
+iOS SDK typecheck verified the local-defaults helper's portability boundary.
+The installed-app check used the working tree, including unrelated runtime
+export work; those changes are excluded from the Chatter integration commit.
 
 Optional outbound Brave search reuses the owner's existing Streamable HTTP MCP
 bridge. `BraveSearchConfiguration` stores only app-local enablement and endpoint

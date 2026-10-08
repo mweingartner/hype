@@ -100,7 +100,7 @@ private struct ScriptGen {
     }
 
     mutating func stmt(_ depth: Int) -> [String] {
-        switch rng.int(0...6) {
+        switch rng.int(0...7) {
         case 0:
             return ["put \(expr(2)) into \(rng.pick(vars))"]
         case 1:
@@ -125,6 +125,9 @@ private struct ScriptGen {
             lines += block(depth - 1)
             lines += ["end repeat"]
             return lines
+        case 6:
+            let pace = rng.pick(["0.5", "1", "2"])
+            return ["speak \(expr(1)) with voice \"Test\", pace \(pace), output \"direct\""]
         default:
             return ["put \(expr(2)) into \(rng.pick(vars))"]
         }

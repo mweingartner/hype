@@ -2,7 +2,7 @@
 type: reference
 title: HypeTalk LLM Context
 description: HypeTalk language reference distilled for LLM context — syntax, commands, control flow, chunks, and Hype extensions.
-updated: 2026-07-18
+updated: 2026-10-08
 ---
 
 # HypeTalk Language Reference — LLM Context Prompt
@@ -164,6 +164,11 @@ write "hello" to file "out.txt" at end
 
 ```
 say "this is a test of the speech support in Hype!"
+speak "Hello from Chatter"
+speak "Welcome aboard" with voice "Ryan", tone "warm", pace 0.9, quality "studio", output "direct"
+speak field "narration" with output "wav"
+put it into field "audioPath"
+put the voices into field "voiceList"
 set activateListener to true
 set activateListener to false
 answer the activateListener
@@ -174,7 +179,15 @@ on listen spokenText
 end listen
 ```
 
-`say` uses OpenAI text-to-speech when OpenAI speech output is enabled in Hype preferences; otherwise it falls back to macOS text-to-speech. `activateListener` defaults to false. When true, Hype listens asynchronously and dispatches finalized spoken input as `param 1` to the current card, then background, then stack. Use `pass listen` to continue routing.
+Enable **Use Chatter for speech output** in **Settings → Speech** to use the local Chatter service. Refresh Voices lists saved voices, their default/readiness state, and tone support. `the voices` (also `the speechVoices` or `the chatterVoices`) returns their names separated by newlines.
+
+`speak` requires only the text expression. Its `voice`, `tone`, `pace`, `quality`, and `output` clauses are optional, can be reordered, and accept expressions. Use commas between clauses; `with` is optional. Omitted values use Chatter's current default voice, pace, tone, and live quality. Pace is 0.5–2; quality is `responsive`, `balanced`, or `studio`; output is `direct` or `wav` (default direct). Direct plays on this Mac through Chatter. WAV saves to Chatter's configured folder and always uses Studio quality, even when a lower quality is requested. Recorded voices inherit their recordings' delivery; tones affect built-in or designed voices.
+
+With Chatter enabled, `speak` suspends the handler until the job completes. It sets `it` to the completed WAV's absolute path or the direct job ID. `the result` contains any Chatter warnings, otherwise empty. Service failures are script errors; an accepted queue receipt is not completion. Cancellation stops the caller's accepted job. The adapter uses the installed local `chatter-mcp` bridge, which owns connection credentials. Hype reads only Chatter's local pace/tone preferences for omissions the current API does not resolve; it does not store duplicate speech defaults or read voice recordings/token files.
+
+With Chatter enabled, `say` also uses its defaults and keeps classic `it` semantics. Otherwise `say` retains the existing OpenAI/macOS fallback. `speak` without options retains that fallback when Chatter is disabled; explicit options require Chatter. Exported apps do not inherit the authoring Chatter connection.
+
+`activateListener` defaults to false. When true, Hype listens asynchronously and dispatches finalized spoken input as `param 1` to the current card, then background, then stack. Use `pass listen` to continue routing.
 
 ## Async Rules
 

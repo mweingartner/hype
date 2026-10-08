@@ -24,6 +24,7 @@ struct PreferencesView: View {
     @AppStorage(HypeAIConfiguration.openAITTSModelKey) private var openAITTSModel = HypeAIConfiguration.defaultOpenAITTSModel
     @AppStorage(HypeAIConfiguration.openAIVoiceKey) private var openAIVoice = HypeAIConfiguration.defaultOpenAIVoice
     @AppStorage(HypeAIConfiguration.speakAssistantResponsesKey) private var speakAssistantResponses = false
+    @AppStorage(ChatterSpeechConfiguration.enabledKey) private var chatterSpeechEnabled = false
     @AppStorage(AppleMusicConfiguration.enabledKey) private var appleMusicEnabled = false
     @AppStorage(AppleMusicConfiguration.playbackEngineKey) private var appleMusicPlaybackEngine = AppleMusicConfiguration.defaultPlaybackEngine.rawValue
     @Environment(\.hypeTheme) private var hypeTheme
@@ -607,6 +608,7 @@ struct PreferencesView: View {
 
     private var speechSettings: some View {
         settingsForm {
+            ChatterSpeechSettingsSection()
             Section("Speech") {
                 Picker("Voice Input", selection: $speechInputProviderRaw) {
                     ForEach(HypeSpeechInputProvider.allCases) { provider in
@@ -621,10 +623,12 @@ struct PreferencesView: View {
                 }
                 .disabled(speechInputProviderRaw != HypeSpeechInputProvider.openAI.rawValue)
 
-                Toggle("Speak AI responses with OpenAI", isOn: $speakAssistantResponses)
-                    .disabled(!openAIKeyIsSet)
+                Toggle("Speak AI responses", isOn: $speakAssistantResponses)
+                    .disabled(!chatterSpeechEnabled && !openAIKeyIsSet)
 
-                Text("Speaks AI Assistant replies and HypeTalk `ask ai` / `ollama(...)` responses. This uses OpenAI speech even when Ollama is the selected text provider.")
+                Text(chatterSpeechEnabled
+                     ? "Speaks AI Assistant replies and HypeTalk AI responses locally with Chatter's current defaults."
+                     : "Speaks AI Assistant replies and HypeTalk AI responses with OpenAI, independently of the selected text provider.")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -634,14 +638,14 @@ struct PreferencesView: View {
                         Text(model).tag(model)
                     }
                 }
-                .disabled(!speakAssistantResponses || !openAIKeyIsSet)
+                .disabled(chatterSpeechEnabled || !speakAssistantResponses || !openAIKeyIsSet)
 
                 Picker("Voice", selection: $openAIVoice) {
                     ForEach(HypeAIConfiguration.openAIVoices, id: \.self) { voice in
                         Text(voice.capitalized).tag(voice)
                     }
                 }
-                .disabled(!speakAssistantResponses || !openAIKeyIsSet)
+                .disabled(chatterSpeechEnabled || !speakAssistantResponses || !openAIKeyIsSet)
             }
         }
     }

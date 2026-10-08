@@ -979,6 +979,7 @@ final class HypeDebugServer: @unchecked Sendable {
             document: document,
             currentCardId: card.id,
             systemProvider: AppKitSystemProvider(),
+            speechOutputProvider: OpenAISpeechOutputProvider.shared,
             mouseX: Double(button.left),
             mouseY: Double(button.top)
         )
@@ -1049,6 +1050,7 @@ final class HypeDebugServer: @unchecked Sendable {
             document: document,
             currentCardId: card.id,
             systemProvider: AppKitSystemProvider(),
+            speechOutputProvider: OpenAISpeechOutputProvider.shared,
             mouseX: (params["mouseX"] as? NSNumber)?.doubleValue ?? 0,
             mouseY: (params["mouseY"] as? NSNumber)?.doubleValue ?? 0,
             scriptContext: ScriptDispatchContext(
@@ -1646,7 +1648,8 @@ final class HypeDebugServer: @unchecked Sendable {
             targetId: targetId,
             document: document,
             currentCardId: currentCardId,
-            systemProvider: AppKitSystemProvider()
+            systemProvider: AppKitSystemProvider(),
+            speechOutputProvider: OpenAISpeechOutputProvider.shared
         )
         let elapsedMS = Int(Date().timeIntervalSince(started) * 1000)
         if let updated = result.modifiedDocument {

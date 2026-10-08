@@ -8,9 +8,21 @@ import Foundation
 public protocol SpeechOutputProvider: Sendable {
     func speakAIResponse(_ text: String, source: String) async
     func speakScriptText(_ text: String, source: String) async
+    func speak(_ request: ScriptSpeechRequest, source: String) async throws -> ScriptSpeechResult
+    func speechVoices() async throws -> [ScriptSpeechVoice]
 }
 
 public extension SpeechOutputProvider {
+    func speak(_ request: ScriptSpeechRequest, source: String) async throws -> ScriptSpeechResult {
+        try request.validate()
+        guard !request.hasOptions else {
+            throw ScriptSpeechError.unavailable("Enable Chatter in Settings → Speech to use voice, tone, pace, quality, or WAV output.")
+        }
+        await speakScriptText(request.text, source: source)
+        return ScriptSpeechResult()
+    }
+    func speechVoices() async throws -> [ScriptSpeechVoice] { [] }
+
     func speakScriptText(_ text: String, source: String) async {
         await speakAIResponse(text, source: source)
     }
