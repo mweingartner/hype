@@ -2,7 +2,7 @@
 type: guide
 title: Hype MCP Connections
 description: Inbound local automation and outbound Brave Search Bridge setup, trust boundaries, discovery, and verification.
-updated: 2026-10-07
+updated: 2026-10-08
 ---
 
 # Hype Debug Bridge And MCP Split
@@ -123,12 +123,18 @@ signature verification, and launched. Its executable matched the built copy
 (SHA-256 `875318acc1063630f21137edb4c7cfbc9b4e267aaf07eb184094402869fb663a`).
 An installed-app debug-dispatch search invoked `brave_web_search` with the
 acceptance query and received five result blocks containing source URLs.
-This proves the installed Hype → bridge → Brave path. At this checkpoint,
-settings visual sign-off and the model-driven, source-linked chat answer are
-pending because the desktop locked. Closing evidence is an unlocked-desktop
-settings inspection and the actual chat trace/answer. The installed build and
-broad tests used the current worktree, including unrelated pre-existing runtime
-export changes; those changes are excluded from this integration's commit.
+This proves the installed Hype → bridge → Brave path. On October 8, the
+installed app's Settings surface was visually checked and Check Connection
+displayed eight discovered tools. Model-driven chat acceptance remains open:
+the configured `qwen3.8:27b-mlx` returned search plans without tool calls,
+an installed `granite4.1:8b` attempt timed out, and `gpt-oss:20b` failed to load
+with a missing `gpt-oss.expert_feed_forward_length` model metadata error.
+The original model setting was restored. Closing evidence is a working
+tool-capable model's actual chat trace and source-linked answer; successful
+bridge discovery or dispatcher calls alone do not close that condition.
+The installed build and broad tests used the current worktree, including
+unrelated pre-existing runtime export changes; those changes are excluded from
+this integration's commit.
 
 Implementation references: the [official Brave MCP server](https://github.com/brave/brave-search-mcp-server)
 and the [MCP Streamable HTTP specification](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports).
