@@ -380,6 +380,9 @@ public struct HypeTalkScriptValidator: Sendable {
             }
         case .say(let expr), .activateListener(let expr):
             failures += checkExpression(expr, context: context)
+        case .speak(let text, let options):
+            failures += checkExpression(text, context: context)
+            for expression in options.expressions { failures += checkExpression(expression, context: context) }
         case .animateProperty(_, let target, let toValue, let duration):
             failures += checkExpression(target, context: context)
             failures += checkExpression(toValue, context: context)

@@ -118,6 +118,12 @@ hosted AI account. AI providers are selected in the app's settings:
   credential. Queries go to Brave and require a running bridge plus applicable
   subscription access. The AI transcript shows the tool calls, and answers can
   cite source links. [Setup and verification](docs/HypeDebugBridgeAndMCP.md#brave-search-bridge-outbound).
+- **Chatter** is an optional local speech service. In **Settings → Speech**,
+  enable **Use Chatter for speech output** and **Refresh Voices**. HypeTalk
+  `speak "Hello"` uses Chatter's current defaults; optional voice, tone, pace,
+  quality, and direct/WAV output clauses let scripts override them. `get the
+  voices` lists names; completed WAV output returns its path in `it`.
+  [Speech syntax and behavior](HypeTalk-LLM-Context.md#speech).
 
 Review the provider and network guardrails in
 [`decisions.md`](decisions.md) before enabling external services.

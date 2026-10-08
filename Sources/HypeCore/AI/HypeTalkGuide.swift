@@ -501,11 +501,20 @@ public enum HypeTalkGuide {
 
         ## Speech
             say "this is a test of the speech support in Hype!"     -- speak text aloud
+            speak "Hello from Chatter"                              -- use Chatter's defaults when enabled
+            speak "Welcome" with voice "Ryan", tone "warm", pace 0.9, quality "studio", output "direct"
+            speak field "narration" with output "wav"
+            put it into field "audioPath"
+            put the voices into field "voiceList"
             set activateListener to true                            -- start async speech recognition
             set activateListener to false                           -- stop async speech recognition
             answer the activateListener                              -- "true" or "false"
 
-        `say` uses OpenAI text-to-speech if enabled, else macOS TTS. `activateListener` defaults false; when true, Hype sends transcript as `param 1` to `on listen` on card -> background -> stack -> Hype. Use `pass listen` to bubble.
+        Enable Chatter in Settings → Speech and Refresh Voices to discover saved voices, default/readiness, and tone support. `the voices` / `the speechVoices` / `the chatterVoices` returns newline-separated Chatter voice names.
+        `speak` needs only text; optional voice, tone, pace, quality, and output clauses accept expressions and can be reordered. `with` is optional; separate clauses with commas. Omitted values use Chatter's current defaults. Pace is 0.5–2; quality is responsive/balanced/studio; output is direct (default) or wav. WAV saves to Chatter's configured folder and always uses Studio. Recorded voices inherit delivery from recordings; tones affect built-in or designed voices.
+        With Chatter enabled, `speak` waits for completion and sets `it` to the WAV path or direct-play job ID, with warnings in `the result` (empty when none). Failures are script errors, never completed audio. With Chatter disabled, unparameterized speak keeps the existing OpenAI/macOS fallback; explicit options require Chatter. With Chatter enabled, `say` uses its defaults while leaving `it` unchanged. Authoring speech settings are not exported to standalone apps.
+        With Chatter off, `say` uses OpenAI text-to-speech if enabled, else macOS TTS.
+        `activateListener` defaults false; when true, Hype sends transcript as `param 1` to `on listen` on card -> background -> stack -> Hype. Use `pass listen` to bubble.
 
             on listen spokenText
               put spokenText into field "lastSpeech"

@@ -2,7 +2,7 @@
 type: decisions
 title: Hype Decisions & Guardrails
 description: Durable product-behavior and build guardrails (persistence, scripting, AI tooling, providers, runtime) — mandatory for substantive changes.
-updated: 2026-10-07
+updated: 2026-10-08
 ---
 
 # decisions.md
@@ -70,6 +70,20 @@ document semantics.
 - For stack context memory, use the stack-scoped AI context library and avoid secrets, API keys, credentials, or private tokens.
 - Apply AI Context Library access through the centralized tool policy. Context read/import tools must be withheld from cloud providers until the stack opts in; write-only project-memory notes may remain available because they do not expose existing context. The local MCP/debug bridge is a privileged local boundary for diagnosis and automation.
 - Tool changes need schema coverage and execution-path tests.
+- Chatter speech is optional, app-local, and uses the installed local bridge.
+  Keep credentials and synthesis in Chatter. `speak` accepts text plus optional
+  voice, tone, pace, quality, and direct/WAV output; omitted values must track
+  Chatter's current configured defaults, not copies in Hype preferences.
+  The current API requires Hype to discover the default voice and read only
+  local pace/tone preference fields; leave live quality/mode resolution to the
+  service and revisit this adapter when its API exposes all configured defaults.
+  Wait for completed jobs, preserve warnings, fail on service errors, validate
+  WAV content, and stop only the caller's accepted job on cancellation. Honor
+  Chatter's Studio-only WAV policy and recorded-voice tone limitation explicitly.
+  Preserve `say`'s classic `it` semantics and the existing fallback when Chatter
+  is off. Do not export the authoring connection. The default acceptance case is
+  `speak "Hello"`; explicit WAV output must return a completed readable file in
+  `it`. See [speech reference](HypeTalk-LLM-Context.md#speech).
 - Brave search is an explicit app-local authoring integration with the owner's
   existing MCP bridge. Keep its API key in the bridge; Hype stores only an
   enabled flag and endpoint. Discover upstream schemas with `tools/list` and

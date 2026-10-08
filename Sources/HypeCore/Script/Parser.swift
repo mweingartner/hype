@@ -412,6 +412,8 @@ public struct Parser: Sendable {
                 return .expressionStatement(expr)
             case "activatelistener":
                 return try parseActivateListenerStatement()
+            case "speak":
+                return try parseSpeakStatement()
             default:
                 if shouldParseExternalCommandStatement() {
                     return try parseExternalCommandStatement()
@@ -1472,6 +1474,39 @@ public struct Parser: Sendable {
         let expr = try parseExpression()
         skipNewlines()
         return .say(expr)
+    }
+
+    private mutating func parseSpeakStatement() throws -> Statement {
+        _ = advance()
+        let text = try parseExpression()
+        var options = SpeakOptions()
+        var seen = Set<String>()
+        if match(.with), current.type != .identifier {
+            throw ParseError.unexpected(current, expected: "a speech option after with")
+        }
+        while current.type == .identifier {
+            let name = current.value.lowercased()
+            guard ["voice", "tone", "pace", "quality", "output"].contains(name), seen.insert(name).inserted else {
+                throw ParseError.unexpected(current, expected: "a unique speech option: voice, tone, pace, quality, or output")
+            }
+            _ = advance()
+            let value = try parseExpression()
+            switch name {
+            case "voice": options.voice = value
+            case "tone": options.tone = value
+            case "pace": options.pace = value
+            case "quality": options.quality = value
+            default: options.output = value
+            }
+            if match(.comma) && current.type != .identifier {
+                throw ParseError.unexpected(current, expected: "a speech option after the comma")
+            }
+        }
+        guard current.type == .newline || current.type == .eof || current.type == .else else {
+            throw ParseError.unexpected(current, expected: "a speech option or end of command")
+        }
+        skipNewlines()
+        return .speak(text: text, options: options)
     }
 
     private mutating func parseActivateListenerStatement() throws -> Statement {

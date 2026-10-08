@@ -46,6 +46,7 @@ public enum HypeMCPPreferenceStore {
         .init(name: "openai.voice", key: HypeAIConfiguration.openAIVoiceKey, defaultValue: HypeAIConfiguration.defaultOpenAIVoice, allowedValues: HypeAIConfiguration.openAIVoices, description: "OpenAI speech voice."),
         .init(name: "speech.inputProvider", key: HypeAIConfiguration.speechInputProviderKey, defaultValue: HypeSpeechInputProvider.apple.rawValue, allowedValues: HypeSpeechInputProvider.allCases.map(\.rawValue), description: "Speech input provider."),
         .init(name: "speech.speakAssistantResponses", key: HypeAIConfiguration.speakAssistantResponsesKey, defaultValue: "false", allowedValues: ["true", "false"], description: "Speak AI assistant responses through OpenAI speech output."),
+        .init(name: "speech.chatter.enabled", key: ChatterSpeechConfiguration.enabledKey, defaultValue: "false", allowedValues: ["true", "false"], description: "Use the local Chatter service for HypeTalk and enabled AI spoken output."),
         .init(name: "z.ai.baseURL", key: HypeAIConfiguration.zAIBaseURLKey, defaultValue: HypeAIConfiguration.defaultZAIBaseURL, description: "Z.ai OpenAI-compatible base URL."),
         .init(name: "z.ai.model", key: HypeAIConfiguration.zAIModelKey, defaultValue: HypeAIConfiguration.defaultZAIModel, allowedValues: HypeAIConfiguration.zAITextModels, description: "Z.ai model."),
         .init(name: "minimax.baseURL", key: HypeAIConfiguration.miniMaxBaseURLKey, defaultValue: HypeAIConfiguration.defaultMiniMaxBaseURL, description: "MiniMax OpenAI-compatible base URL."),

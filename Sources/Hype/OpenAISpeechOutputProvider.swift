@@ -21,6 +21,25 @@ actor OpenAISpeechOutputProvider: SpeechOutputProvider {
 
     private var speechPlayer: AVAudioPlayer?
 
+    func speak(_ request: ScriptSpeechRequest, source: String) async throws -> ScriptSpeechResult {
+        if UserDefaults.standard.bool(forKey: ChatterSpeechConfiguration.enabledKey) {
+            return try await ChatterSpeechConfiguration.makeClient().speak(request)
+        }
+        try request.validate()
+        guard !request.hasOptions else {
+            throw ScriptSpeechError.unavailable("Enable Chatter in Settings → Speech to use speech options or WAV output.")
+        }
+        await speakScriptText(request.text, source: source)
+        return ScriptSpeechResult()
+    }
+
+    func speechVoices() async throws -> [ScriptSpeechVoice] {
+        guard UserDefaults.standard.bool(forKey: ChatterSpeechConfiguration.enabledKey) else {
+            throw ScriptSpeechError.unavailable("Enable Chatter in Settings → Speech to list its voices.")
+        }
+        return try await ChatterSpeechConfiguration.makeClient().voices()
+    }
+
     func speakAIResponse(_ text: String, source: String) async {
         guard UserDefaults.standard.bool(forKey: HypeAIConfiguration.speakAssistantResponsesKey) else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -29,6 +48,11 @@ actor OpenAISpeechOutputProvider: SpeechOutputProvider {
         // Keep speech responsive and avoid accidentally voicing large tool/debug payloads.
         let spokenText = String(trimmed.prefix(1200))
         Task {
+            if UserDefaults.standard.bool(forKey: ChatterSpeechConfiguration.enabledKey) {
+                do { _ = try await ChatterSpeechConfiguration.makeClient().speak(ScriptSpeechRequest(text: spokenText)) }
+                catch { HypeLogger.shared.warn(error.localizedDescription, source: source) }
+                return
+            }
             _ = await self.generateAndPlay(text: spokenText, source: source)
         }
     }
@@ -36,6 +60,11 @@ actor OpenAISpeechOutputProvider: SpeechOutputProvider {
     func speakScriptText(_ text: String, source: String) async {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        if UserDefaults.standard.bool(forKey: ChatterSpeechConfiguration.enabledKey) {
+            do { _ = try await ChatterSpeechConfiguration.makeClient().speak(ScriptSpeechRequest(text: text)) }
+            catch { HypeLogger.shared.warn(error.localizedDescription, source: source) }
+            return
+        }
         let spokenText = String(trimmed.prefix(1200))
         if UserDefaults.standard.bool(forKey: HypeAIConfiguration.speakAssistantResponsesKey),
            await generateAndPlay(text: spokenText, source: source) {

@@ -2304,6 +2304,23 @@ public struct Interpreter: Sendable {
             await context.speechOutputProvider.speakScriptText(promptText, source: "HypeTalk say")
             // `say` must not set `it` per classic HyperCard semantics.
 
+        case .speak(let text, let options):
+            let spokenText = try await evaluate(text, env: &env, document: document, context: context)
+            var request = ScriptSpeechRequest(text: spokenText)
+            if let value = options.voice { request.voice = try await evaluate(value, env: &env, document: document, context: context) }
+            if let value = options.tone { request.tone = try await evaluate(value, env: &env, document: document, context: context) }
+            if let value = options.quality { request.quality = try await evaluate(value, env: &env, document: document, context: context) }
+            if let value = options.output { request.output = try await evaluate(value, env: &env, document: document, context: context) }
+            if let value = options.pace {
+                let raw = try await evaluate(value, env: &env, document: document, context: context)
+                guard let pace = Double(raw), pace.isFinite else { throw ScriptSpeechError.invalid("Speech pace must be a number between 0.5 and 2.0.") }
+                request.pace = pace
+            }
+            try request.validate()
+            let result = try await context.speechOutputProvider.speak(request, source: "HypeTalk speak")
+            env.it = result.value
+            env.result = result.warnings.joined(separator: "\n")
+
         case .activateListener(let activeExpr):
             let activeValue = try await evaluate(activeExpr, env: &env, document: document, context: context)
             try await setSpeechListenerActive(activeValue, context: context, handler: handler)
@@ -5262,6 +5279,8 @@ public struct Interpreter: Sendable {
         // Global properties (no target).
         if target == nil {
             switch lower {
+            case "voices", "speechvoices", "chattervoices":
+                return try await context.speechOutputProvider.speechVoices().map(\.name).joined(separator: "\n")
             case "aimodel", "currentaimodel", "ollamamodel":
                 return RuntimeAwareAIScriptingProvider(
                     baseProvider: context.aiProvider,
@@ -9561,6 +9580,7 @@ public struct Interpreter: Sendable {
         case .retextureAsset: return "retextureAsset"
         case .answer: return "answer"
         case .say: return "say"
+        case .speak: return "speak"
         case .activateListener: return "activateListener"
         case .visual: return "visual"
         case .send: return "send"

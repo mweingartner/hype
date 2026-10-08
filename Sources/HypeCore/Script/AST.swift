@@ -224,6 +224,7 @@ public indirect enum Statement: Sendable {
 
     case answer(prompt: Expression, buttons: [Expression])
     case say(Expression)
+    case speak(text: Expression, options: SpeakOptions)
     case activateListener(Expression)
     case visual(effectName: Expression, duration: Expression?)
     case send(message: Expression, target: Expression?)

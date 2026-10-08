@@ -1079,6 +1079,10 @@ private struct ScriptSemanticValidator {
             case .unknown:
                 issues.append(issue("xcmd-unknown", "XCMD `\(name)` is not available in Hype."))
             }
+        case .speak(let text, let options):
+            for expression in [text] + options.expressions {
+                issues += expressionIssues(expression, owner: owner, functionNames: functionNames)
+            }
         case .put(let source, _, let target):
             issues += expressionIssues(source, owner: owner, functionNames: functionNames)
             issues += expressionIssues(target, owner: owner, functionNames: functionNames)

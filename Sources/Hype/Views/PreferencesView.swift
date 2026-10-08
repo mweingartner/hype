@@ -24,6 +24,7 @@ struct PreferencesView: View {
     @AppStorage(HypeAIConfiguration.openAITTSModelKey) private var openAITTSModel = HypeAIConfiguration.defaultOpenAITTSModel
     @AppStorage(HypeAIConfiguration.openAIVoiceKey) private var openAIVoice = HypeAIConfiguration.defaultOpenAIVoice
     @AppStorage(HypeAIConfiguration.speakAssistantResponsesKey) private var speakAssistantResponses = false
+    @AppStorage(ChatterSpeechConfiguration.enabledKey) private var chatterSpeechEnabled = false
     @AppStorage(AppleMusicConfiguration.enabledKey) private var appleMusicEnabled = false
     @AppStorage(AppleMusicConfiguration.playbackEngineKey) private var appleMusicPlaybackEngine = AppleMusicConfiguration.defaultPlaybackEngine.rawValue
     @Environment(\.hypeTheme) private var hypeTheme
@@ -190,7 +191,9 @@ struct PreferencesView: View {
             syncUserLevelSelectionFromDocument()
             fetchModels()
             pexelsKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.pexelsAPIKeyAccount)
-            openAIKeyIsSet = hasUsableSecret(account: KeychainStore.openAIAPIKeyAccount)
+            // Opening local speech settings must not decrypt a cloud API key.
+            // Validate secret content when the corresponding provider is used.
+            openAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.openAIAPIKeyAccount)
             zAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.zAIAPIKeyAccount)
             miniMaxKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.miniMaxAPIKeyAccount)
             llamaSwapKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.llamaSwapAPIKeyAccount)
@@ -607,6 +610,7 @@ struct PreferencesView: View {
 
     private var speechSettings: some View {
         settingsForm {
+            ChatterSpeechSettingsSection()
             Section("Speech") {
                 Picker("Voice Input", selection: $speechInputProviderRaw) {
                     ForEach(HypeSpeechInputProvider.allCases) { provider in
@@ -621,10 +625,12 @@ struct PreferencesView: View {
                 }
                 .disabled(speechInputProviderRaw != HypeSpeechInputProvider.openAI.rawValue)
 
-                Toggle("Speak AI responses with OpenAI", isOn: $speakAssistantResponses)
-                    .disabled(!openAIKeyIsSet)
+                Toggle("Speak AI responses", isOn: $speakAssistantResponses)
+                    .disabled(!chatterSpeechEnabled && !openAIKeyIsSet)
 
-                Text("Speaks AI Assistant replies and HypeTalk `ask ai` / `ollama(...)` responses. This uses OpenAI speech even when Ollama is the selected text provider.")
+                Text(chatterSpeechEnabled
+                     ? "Speaks AI Assistant replies and HypeTalk AI responses locally with Chatter's current defaults."
+                     : "Speaks AI Assistant replies and HypeTalk AI responses with OpenAI, independently of the selected text provider.")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -634,14 +640,14 @@ struct PreferencesView: View {
                         Text(model).tag(model)
                     }
                 }
-                .disabled(!speakAssistantResponses || !openAIKeyIsSet)
+                .disabled(chatterSpeechEnabled || !speakAssistantResponses || !openAIKeyIsSet)
 
                 Picker("Voice", selection: $openAIVoice) {
                     ForEach(HypeAIConfiguration.openAIVoices, id: \.self) { voice in
                         Text(voice.capitalized).tag(voice)
                     }
                 }
-                .disabled(!speakAssistantResponses || !openAIKeyIsSet)
+                .disabled(chatterSpeechEnabled || !speakAssistantResponses || !openAIKeyIsSet)
             }
         }
     }
@@ -1040,13 +1046,6 @@ struct PreferencesView: View {
         } catch {
             openAITestStatus = keychainErrorMessage(for: error)
         }
-    }
-
-    private func hasUsableSecret(account: String) -> Bool {
-        guard let value = try? KeychainStore.getSecret(account: account) else {
-            return false
-        }
-        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var hostedProviderKeyAccount: String {
