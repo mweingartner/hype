@@ -198,6 +198,7 @@ struct AssetRepositoryAIChatView: View {
             let key = try KeychainStore.getSecret(account: KeychainStore.meshyAPIKeyAccount)
             return MeshyAIClient(apiKey: key)
         }
+        let braveSearchSession = BraveSearchConfiguration.makeSession()
         let executor = HypeToolExecutor(
             webAssetSession: document.document.stack.webAssetsAllowed ? webAssetSession : nil,
             webAssetClient: webAssetClient,
@@ -207,7 +208,8 @@ struct AssetRepositoryAIChatView: View {
             appleMusicProvider: document.document.stack.appleMusicAllowed
                 && UserDefaults.standard.bool(forKey: AppleMusicConfiguration.enabledKey)
                 ? AppleMusicProviderFactory.makeDefault()
-                : nil
+                : nil,
+            braveSearchSession: braveSearchSession
         )
         let aiContextPolicy = AIContextToolPolicy(
             provider: selectedAIProvider,
@@ -221,7 +223,7 @@ struct AssetRepositoryAIChatView: View {
         )
         let tools = HypeToolDefinitions.toolsApplyingAIContextPolicy(
             HypeToolDefinitions.withAIContextTools(
-                baseTools,
+                HypeToolDefinitions.withBraveSearchTools(baseTools, enabled: braveSearchSession != nil),
                 enabled: aiContextToolsEnabled
             ),
             policy: aiContextPolicy
@@ -240,6 +242,7 @@ struct AssetRepositoryAIChatView: View {
         let maxRounds = 16
         var rounds = 0
         while rounds < maxRounds {
+            guard !Task.isCancelled else { return }
             rounds += 1
             conversationMessages = AIPromptBudget.trimToFit(conversationMessages)
 
@@ -250,6 +253,7 @@ struct AssetRepositoryAIChatView: View {
                     conversationMessages.append(response.message)
 
                     for call in toolCalls {
+                        guard !Task.isCancelled else { return }
                         let argsDesc = call.function.arguments
                             .map { "\($0.key): \($0.value)" }
                             .joined(separator: ", ")
@@ -358,6 +362,7 @@ struct AssetRepositoryAIChatView: View {
         - OpenAI image generation is a tool. The chat model can be Ollama or OpenAI, but generated image bytes come from OpenAI and require an API key in Preferences.
         - 3D model generation uses Meshy.ai and requires a Meshy API key in Preferences. Generation may take up to 5 minutes.
         \(contextRule)
+        \(UserDefaults.standard.bool(forKey: BraveSearchConfiguration.enabledKey) ? BraveSearchSession.promptRules : "")
 
         CURRENT REPOSITORY:
         \(assets.isEmpty ? "No assets." : assets)

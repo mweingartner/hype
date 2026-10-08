@@ -10,7 +10,7 @@ struct HypeToolSchemaDeterminismTests {
     /// of tokens of tool schemas) every time Hype restarts.
     @Test("every tool's required list is in a stable, sorted order")
     func requiredListsAreSorted() {
-        for tool in HypeToolDefinitions.allTools + HypeToolDefinitions.webAssetTools {
+        for tool in HypeToolDefinitions.allTools + HypeToolDefinitions.webAssetTools + HypeToolDefinitions.braveSearchTools {
             let required = tool.function.parameters.required
             #expect(required == required.sorted(), "\(tool.function.name)")
             #expect(Set(required).isSubset(of: Set(tool.function.parameters.properties.keys)), "\(tool.function.name)")

@@ -33,6 +33,7 @@ public struct HypeToolExecutor: Sendable {
     /// local/test execution; production injects the MusicKit-backed provider only
     /// when the stack and preferences opt in.
     public let appleMusicProvider: (any AppleMusicProviding)?
+    public let braveSearchSession: BraveSearchSession?
 
     // MARK: - Initializers
 
@@ -45,6 +46,7 @@ public struct HypeToolExecutor: Sendable {
         self.imageGenerationClientFactory = nil
         self.meshyClientFactory = nil
         self.appleMusicProvider = nil
+        self.braveSearchSession = nil
     }
 
     /// Full initializer with web-asset and Meshy dependencies wired in.
@@ -64,7 +66,8 @@ public struct HypeToolExecutor: Sendable {
         webAssetPipeline: WebAssetImportPipeline?,
         imageGenerationClientFactory: (@Sendable () throws -> any HypeImageGenerating)? = nil,
         meshyClientFactory: (@Sendable () throws -> MeshyClient)? = nil,
-        appleMusicProvider: (any AppleMusicProviding)? = nil
+        appleMusicProvider: (any AppleMusicProviding)? = nil,
+        braveSearchSession: BraveSearchSession? = nil
     ) {
         self.webAssetSession = webAssetSession
         self.webAssetClient = webAssetClient
@@ -72,6 +75,7 @@ public struct HypeToolExecutor: Sendable {
         self.imageGenerationClientFactory = imageGenerationClientFactory
         self.meshyClientFactory = meshyClientFactory
         self.appleMusicProvider = appleMusicProvider
+        self.braveSearchSession = braveSearchSession
     }
 
     /// Heuristic: does the given asset name contain a substring
@@ -1107,6 +1111,12 @@ public struct HypeToolExecutor: Sendable {
         currentCardId: UUID
     ) async -> String {
         switch toolName {
+        case "list_brave_tools", "call_brave_tool":
+            guard let braveSearchSession else {
+                return "Brave Search is disabled. Enable it in Settings → Services → Brave Search."
+            }
+            return await braveSearchSession.execute(toolName: toolName, arguments: arguments)
+
         case "create_card":
             let bgName = arguments["background_name"]
             let card = document.addCard(

@@ -1433,6 +1433,7 @@ struct AIChatPanel: View {
             let key = try KeychainStore.getSecret(account: KeychainStore.meshyAPIKeyAccount)
             return MeshyAIClient(apiKey: key)
         }
+        let braveSearchSession = BraveSearchConfiguration.makeSession()
         let executor = HypeToolExecutor(
             webAssetSession: workingDocument.stack.webAssetsAllowed ? webAssetSession : nil,
             webAssetClient: webAssetClient,
@@ -1442,7 +1443,8 @@ struct AIChatPanel: View {
             appleMusicProvider: workingDocument.stack.appleMusicAllowed
                 && UserDefaults.standard.bool(forKey: AppleMusicConfiguration.enabledKey)
                 ? AppleMusicProviderFactory.makeDefault()
-                : nil
+                : nil,
+            braveSearchSession: braveSearchSession
         )
 
         // Get current stack context
@@ -1585,6 +1587,7 @@ struct AIChatPanel: View {
                 - To create a generated sprite/library/repository asset, use generate_sprite_asset. If the user did not provide the desired sprite asset name, ask for the name before calling the tool.
                 - For complete SpriteKit game requests, call infer_sprite_game_template with the user's prompt first unless Hype already routed the request directly. Specific user intent outranks template defaults: if the user names an existing sprite area/scene, pass sprite_area_name and/or scene_name to create_sprite_game_template; if they say it already exists, pass require_existing_scene=true; if the inference says template_use=create_then_customize, create the baseline only if it matches the requested game, then inspect and apply the requested art/mechanics/scripts as a second pass. Deterministic templates create local placeholder assets, scene nodes, physics, reset logic, and parser-tested HypeTalk before optional customization. Do NOT ask the user to provide basic tile sheets or manually stitch a full game from low-level calls when a template exists.
                 \(aiContextPromptRules)
+                \(braveSearchSession == nil ? "" : BraveSearchSession.promptRules)
                 - When the user says "background", set on_background to "true" in create tools.
                 - If the user asks to create, set, attach, install, replace, or update a script on the stack, card, background, button, field, sprite area, scene, or node, use the appropriate setter tool. Do not answer with bare HypeTalk unless the user explicitly asks only to write or explain code.
                 - Before storing any HypeTalk script with create_button, create_field, set_part_property(property=script), set_node_script, set_scene_script, set_card_script, set_background_script, or set_stack_script, call check_script first and only store the script after it returns OK. If a storage tool returns a result starting with `__HYPE_INTERNAL_DRAFT_REFUSED_v1:`, the host has rejected your script. Read the failure list, fix the script, and call the SAME storage tool again with the corrected script — the host iterates with you automatically.
@@ -1614,7 +1617,8 @@ struct AIChatPanel: View {
                 - When CURRENT STATE shows a part / card / background already exists with the requested name, MODIFY it with `set_part_property` (script attaches via `property="script"`), `set_card_script`, `set_background_script`, etc. Use `create_*` tools ONLY for parts that do NOT yet appear in CURRENT STATE.
                 - If the user says to create something on the current card, do NOT call create_card first. Build on the current card unless the user explicitly asks for a new card.
                 - Do NOT delete parts unless the user specifically asks you to.
-                - Stay inside Hype stack-authoring tools. Do not assume filesystem or arbitrary web access is available.
+                - Use only the tools supplied by Hype. Do not assume filesystem or web access beyond those tools.
+                \(braveSearchSession == nil ? "" : BraveSearchSession.promptRules)
                 - Create well-spaced, visually appealing layouts.
                 - Use descriptive names for all parts.
                 - For data-entry forms, input forms, customer/contact/login forms, headers, labels, and text fields: use ordinary card/background controls. Use create_label for labels/headers and create_field(style=rectangle, stroke_color=#000000, stroke_width=1) for user input fields. Do NOT create a Sprite Area or scene labels unless the user explicitly asks for SpriteKit, sprites, physics, a game, or a scene.
@@ -1692,6 +1696,7 @@ struct AIChatPanel: View {
         let maxRounds = 40
         var rounds = 0
         while rounds < maxRounds {
+            guard !Task.isCancelled else { return }
             rounds += 1
 
             // Re-trim before every chat call. A single very large tool
@@ -1712,7 +1717,7 @@ struct AIChatPanel: View {
                 )
                 let tools = HypeToolDefinitions.toolsApplyingAIContextPolicy(
                     HypeToolDefinitions.withAIContextTools(
-                        webTools,
+                        HypeToolDefinitions.withBraveSearchTools(webTools, enabled: braveSearchSession != nil),
                         enabled: aiContextToolsEnabled
                     ),
                     policy: aiContextPolicy
@@ -1797,6 +1802,7 @@ struct AIChatPanel: View {
                     var pendingCapture: CardCaptureResult? = nil
 
                     toolCallLoop: for call in toolCalls {
+                        guard !Task.isCancelled else { return }
                         let argsDesc = call.function.arguments
                             .map { "\($0.key): \($0.value)" }
                             .joined(separator: ", ")
@@ -1877,7 +1883,7 @@ struct AIChatPanel: View {
                         }
 
                         // Show searching indicator for web-asset tools.
-                        let isWebAssetTool = ["search_web_for_sprite", "import_web_asset", "find_and_import_sprite"]
+                        let isWebAssetTool = ["search_web_for_sprite", "import_web_asset", "find_and_import_sprite", "list_brave_tools", "call_brave_tool"]
                             .contains(call.function.name)
                         if isWebAssetTool { isSearchingWeb = true }
                         let isImageGenerationTool = ["generate_image", "generate_sprite_asset"]

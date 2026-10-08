@@ -493,6 +493,8 @@ struct PreferencesView: View {
 
     private var integrationSettings: some View {
         settingsForm {
+            BraveSearchSettingsSection()
+
             Section("Apple Music") {
                 Toggle("Enable Apple Music in Hype", isOn: $appleMusicEnabled)
                     .help("Allow Hype to use MusicKit after the user authorizes Apple Music access.")

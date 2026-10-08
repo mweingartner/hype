@@ -2,7 +2,7 @@
 type: decisions
 title: Hype Decisions & Guardrails
 description: Durable product-behavior and build guardrails (persistence, scripting, AI tooling, providers, runtime) — mandatory for substantive changes.
-updated: 2026-07-12
+updated: 2026-10-07
 ---
 
 # decisions.md
@@ -70,10 +70,23 @@ document semantics.
 - For stack context memory, use the stack-scoped AI context library and avoid secrets, API keys, credentials, or private tokens.
 - Apply AI Context Library access through the centralized tool policy. Context read/import tools must be withheld from cloud providers until the stack opts in; write-only project-memory notes may remain available because they do not expose existing context. The local MCP/debug bridge is a privileged local boundary for diagnosis and automation.
 - Tool changes need schema coverage and execution-path tests.
+- Brave search is an explicit app-local authoring integration with the owner's
+  existing MCP bridge. Keep its API key in the bridge; Hype stores only an
+  enabled flag and endpoint. Discover upstream schemas with `tools/list` and
+  preserve typed arguments, source URLs, content blocks, and provider errors.
+  Use progressive discovery through Hype's existing tool path rather than a
+  second Brave server or a duplicate API implementation. Search may send queries
+  to Brave even with local model inference, and results enter normal chat/model
+  context; treat them as untrusted evidence. Do not embed this connection in
+  exported runtime defaults or bypass AI Context Library policy. Search calls
+  must not spend quota during transaction preview. See
+  [MCP connections](docs/HypeDebugBridgeAndMCP.md#brave-search-bridge-outbound).
 - AI transactions should preserve preview/apply/rollback semantics where applicable.
 - The Built-in model (`HypeAIProvider.builtIn`) is a local provider: it needs no
-  cloud AI-context opt-in, stores no credential, and must never send prompt or
-  stack content off the Mac. Keep it that way.
+  cloud AI-context opt-in, stores no credential, and its inference must never
+  send prompt or stack content off the Mac. Explicitly enabled network tools
+  such as Brave search have their own external query/result boundary; enabling
+  them must not turn Built-in inference into a hosted provider.
 - Built-in model weights are never fetched silently. A download starts only from
   an explicit user action, shows its size first, comes from the pinned Hugging
   Face revision over HTTPS from allow-listed hosts, and becomes active only after

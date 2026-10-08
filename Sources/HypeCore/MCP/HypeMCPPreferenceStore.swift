@@ -51,6 +51,8 @@ public enum HypeMCPPreferenceStore {
         .init(name: "minimax.baseURL", key: HypeAIConfiguration.miniMaxBaseURLKey, defaultValue: HypeAIConfiguration.defaultMiniMaxBaseURL, description: "MiniMax OpenAI-compatible base URL."),
         .init(name: "minimax.model", key: HypeAIConfiguration.miniMaxModelKey, defaultValue: HypeAIConfiguration.defaultMiniMaxModel, allowedValues: HypeAIConfiguration.miniMaxTextModels, description: "MiniMax model."),
         .init(name: "webAssets.provider", key: "hype.webAssets.provider", defaultValue: "openverse", allowedValues: ["openverse", "pexels", "wikimedia"], description: "Web asset search provider."),
+        .init(name: "braveSearch.enabled", key: BraveSearchConfiguration.enabledKey, defaultValue: "false", allowedValues: ["true", "false"], description: "Enable outbound Brave Search Bridge tools in Hype authoring agents. Queries go to Brave."),
+        .init(name: "braveSearch.endpoint", key: BraveSearchConfiguration.endpointKey, defaultValue: BraveSearchConfiguration.defaultEndpoint, description: "Streamable HTTP URL of the existing Brave Search Bridge; no client credential."),
         .init(name: "appleMusic.enabled", key: AppleMusicConfiguration.enabledKey, defaultValue: "false", allowedValues: ["true", "false"], description: "Enable MusicKit-backed Apple Music controls."),
         .init(name: "appleMusic.playbackEngine", key: AppleMusicConfiguration.playbackEngineKey, defaultValue: AppleMusicConfiguration.defaultPlaybackEngine.rawValue, allowedValues: AppleMusicPlaybackEngine.allCases.map(\.rawValue), description: "MusicKit playback engine.")
     ]
@@ -101,6 +103,9 @@ public enum HypeMCPPreferenceStore {
             return "Unknown preference '\(name)'"
         }
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name == "braveSearch.endpoint", (try? BraveSearchConfiguration.validatedEndpoint(normalized)) == nil {
+            return "Invalid Brave MCP URL. Use HTTP or HTTPS without credentials, a query, or a fragment."
+        }
         if let allowed = descriptor.allowedValues, !allowed.contains(normalized) {
             return "Invalid value '\(value)' for \(name). Allowed values: \(allowed.joined(separator: ", "))"
         }
