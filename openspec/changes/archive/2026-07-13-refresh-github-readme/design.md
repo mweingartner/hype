@@ -2,7 +2,7 @@
 
 ## Context
 
-`README.md` is already a substantial product reference (1,000+ lines) and was last materially changed at commit `a6c4098`. Since then, `main` has added or revised runtime-export hardening, the MPD workflow, deployment tooling, window restoration, and documentation/persona infrastructure. The current README contains useful detail, but it also contains high-drift assertions such as exact AI-tool counts, an approximately stated test count, dated model leaderboard results, implementation-status summaries, and commands whose continuing validity must be proven rather than assumed.
+`README.md` is already a substantial product reference (1,000+ lines) and was last materially changed at commit `a6c4098`. Since then, `main` has added or revised runtime-export hardening, the retired workflow workflow, deployment tooling, window restoration, and documentation/persona infrastructure. The current README contains useful detail, but it also contains high-drift assertions such as exact AI-tool counts, an approximately stated test count, dated model leaderboard results, implementation-status summaries, and commands whose continuing validity must be proven rather than assumed.
 
 The root README is rendered by GitHub and serves multiple audiences: prospective users, local builders, contributors, security-conscious evaluators, and developers looking for subsystem references. It should optimize first for truthful orientation and successful onboarding, while deep architecture and compatibility inventories remain in their dedicated documents.
 
@@ -64,7 +64,7 @@ The README may retain useful examples and tables, but each must serve onboarding
 - Rewrite the opening and section order to implement the information architecture above.
 - Reconcile platform declarations and products with `Package.swift` (macOS 15 authoring app; package declarations and runtime/export claims must be carefully distinguished).
 - Reconcile application architecture and feature descriptions with `architecture.md`, `decisions.md`, and real source paths.
-- Reconcile recent operational changes explicitly: MPD is now the documented gated workflow, deploy installs `/Applications/Hype.app`, the pre-push gate is local rather than GitHub-hosted CI, and stack document windows restore per canonical stack path while auxiliary windows do not persist launch geometry.
+- Reconcile recent operational changes explicitly: retired workflow is now the documented gated workflow, deploy installs `/Applications/Hype.app`, the pre-push gate is local rather than GitHub-hosted CI, and stack document windows restore per canonical stack path while auxiliary windows do not persist launch geometry.
 - Recompute or qualify volatile tool, test, prompt, preset, control, theme, and message counts. Prefer a durable qualitative phrase when a count is not central to user understanding.
 - Preserve benchmark tables only if their source artifact, date/provenance, evaluation meaning, and observed-versus-modeled distinction are clear; otherwise link to the checked-in evaluation report.
 - Verify build, run, test, install, MCP, and optional-provider commands against existing scripts and executables.
@@ -90,7 +90,7 @@ The README may retain useful examples and tables, but each must serve onboarding
 
 ### Repository verification
 
-- Run the Test-phase brief exactly. Because the change is documentation-only, no production regression is expected, but the repository’s configured MPD and git gates remain authoritative and must not be bypassed.
+- Run the Test-phase brief exactly. Because the change is documentation-only, no production regression is expected, but the repository’s configured retired workflow and git gates remain authoritative and must not be bypassed.
 - Confirm `git diff --check` and inspect the full README diff.
 - Before commit, confirm only intended documentation/process artifacts are staged and no `.hype` user documents, secrets, generated applications, build products, or local environment files are included.
 - After push, confirm local `main`, `origin/main`, and GitHub’s default branch resolve to the same commit and the public README renders from that commit.
@@ -117,7 +117,7 @@ The README may retain useful examples and tables, but each must serve onboarding
 - **Reader-first summary plus authoritative links.** This reduces duplicate detail and future drift. Some implementation depth leaves the landing page, but remains available in architecture and focused docs.
 - **Qualitative durability over decorative precision.** Counts are retained only when they materially help and can be reproduced. This gives up impressive-looking numbers in favor of long-lived accuracy.
 - **Repository evidence over web research for implementation facts.** The checkout is authoritative for shipped code. External links are used only for external historical/platform facts that remain in the README and can be supported by original sources.
-- **Documentation-only deploy.** The change produces no different app binary. The MPD Deploy phase should follow its generated brief; if it identifies no installable change, it should record a documented N/A/readiness result only through supported MPD semantics, never by faking an app deployment.
+- **Documentation-only deploy.** The change produces no different app binary. The retired workflow Deploy phase should follow its generated brief; if it identifies no installable change, it should record a documented N/A/readiness result only through supported retired workflow semantics, never by faking an app deployment.
 - **Narrow generated-output scanner boundary.** The repository-level gitleaks
   configuration extends, rather than replaces, the default detector set. Its
   allowlist is path-only and anchored to five generated-output directories:
@@ -170,7 +170,7 @@ this plan-stage PASS does not approve the eventual prose.
 
 ## Conditions for Builder
 
-1. Change only `README.md`, the narrowly scoped `.gitleaks.toml`, and the MPD/OpenSpec artifacts required by this change; do not modify production code, tests, dependencies, `.hype` documents, other repository settings, or generated build/install artifacts.
+1. Change only `README.md`, the narrowly scoped `.gitleaks.toml`, and the OpenSpec artifacts required by this change; do not modify production code, tests, dependencies, `.hype` documents, other repository settings, or generated build/install artifacts.
 2. Treat every statement about current behavior as untrusted until it is traced to current source, tests, scripts, package configuration, or an authoritative durable repository document.
 3. Do not retain an exact count, percentage, “latest/current” result, completeness claim, or platform-support claim without reproducible evidence and appropriate date/provenance; distinguish observed benchmark results from modeled retry probabilities.
 4. Do not imply that local-first defaults eliminate all possible network egress. Name every described hosted/network-backed feature as optional and state its opt-in, credential, or per-stack boundary accurately.
@@ -179,7 +179,7 @@ this plan-stage PASS does not approve the eventual prose.
 7. Every command, filename, product, target, link, and path in the final README must exist and be checked against the final committed tree; use GitHub-compatible relative links.
 8. The README must remain useful without optional AI providers: baseline build, authoring, HypeTalk, documents, and testing must not be presented as requiring OpenAI, Meshy, or another hosted service.
 9. Preserve the MIT license attribution and avoid adding third-party logos, screenshots, quotations, or marketing assets without verified provenance and repository authorization.
-10. Run the MPD-generated downstream briefs and machine-enforced git hooks exactly; never bypass a FAIL gate or commit/push around a hook.
+10. Run the retired workflow-generated downstream briefs and machine-enforced git hooks exactly; never bypass a FAIL gate or commit/push around a hook.
 11. Stage explicit paths only and inspect the staged diff for unrelated or user-owned changes before committing.
 12. After push, verify the actual GitHub README, default-branch commit, and local/remote commit identity before declaring completion.
 13. Do not add commands that pipe network responses into a shell, bypass TLS or git verification, disable hooks/tests, grant broad permissions, require credentials in command-line arguments, or expose a service beyond loopback. Any destructive or state-changing command must name its effect and use an existing repository-supported workflow.
@@ -222,14 +222,11 @@ OpenSpec diff.
   path. Accessibility was evaluated through semantic heading order, descriptive
   link text, fenced code labels, a simple labeled table, and the absence of
   image-only content.
-- Canonical full gate: `mpd gate test --pass --evidence
-  openspec/changes/refresh-github-readme/design.md#tester-evidence` invoked
-  `scripts/mpd-test.sh` exactly once and exited 0. MPD parsed and recorded 6,344
-  passing tests with zero failures. The serial suite includes the configured
-  HypeCoreTests, HypeCLITests, and AppLaunchStateTests, including seeded
-  fuzz/property, round-trip/metamorphic, parser, serializer, and protocol
-  coverage. The real non-zero count and runner command are persisted in
-  `.mpd/state/refresh-github-readme.json`.
+- Historical full-suite verification: the serial test wrapper exited 0 with
+  6,344 passing tests and zero failures. It ran HypeCoreTests, HypeCLITests,
+  and AppLaunchStateTests, including seeded fuzz/property, round-trip and
+  metamorphic, parser, serializer, and protocol coverage. The obsolete wrapper
+  and receipt were subsequently retired.
 
 No test-only or substantive defect was found. Deployment/publication remains a
 separate downstream gate.

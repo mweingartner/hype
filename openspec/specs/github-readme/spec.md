@@ -62,12 +62,12 @@ The root README SHALL render coherently on GitHub and link to existing repositor
 
 ### Requirement: Honest verification and publication
 
-The completed documentation change SHALL be verified through the active MPD and git gates and SHALL be published only after the staged content and actual GitHub rendering are checked.
+The completed documentation change SHALL be verified through the applicable verification commands and git hooks and SHALL be published only after the staged content and actual GitHub rendering are checked.
 
 #### Scenario: Maintainer declares the refresh complete
 
 - **GIVEN** the README rewrite is ready to publish
 - **WHEN** completion is reported
-- **THEN** the required MPD gates and configured hooks have passed without bypass
+- **THEN** the required verification checks and configured hooks have passed without bypass
 - **AND** local `main`, `origin/main`, and GitHub’s default branch identify the same commit
 - **AND** the README has been inspected on the actual GitHub repository page

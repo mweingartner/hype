@@ -1,8 +1,8 @@
 ---
 type: workflow
 title: Hype — Agent Workflow
-description: Repository-level workflow for agentic coding harnesses — read-first docs, verification-first sequence, the local test gate, and git hygiene.
-updated: 2026-07-09
+description: Repository-level workflow for agentic coding harnesses — read-first docs, proportionate verification, the local test gate, and git hygiene.
+updated: 2026-10-24
 ---
 
 # AGENTS.md
@@ -39,58 +39,30 @@ links** between docs (e.g. `[decisions](decisions.md)`), not `[[wikilinks]]`, so
 links resolve on GitHub and in any tool. (The auto-memory store keeps `[[name]]`
 links — that is the memory system's documented format, intentionally unchanged.)
 
-## Verification-First Workflow
+## Development Workflow
 
-Meaningful changes should follow this sequence:
+Use the agent's normal design and implementation judgment. Scale planning and
+verification to the change's uncertainty, consequences, and reversibility.
 
-`Design Mock → Architecture → Design Review/Revision → Security (plan) → Build → Security (code) → Design Sign-off → Test → Documentation → Deploy → Doc Validation`
+1. Establish the intended behavior, inspect the owning code, and choose the
+   smallest coherent change. For consequential choices, document assumptions,
+   acceptance examples, and material tradeoffs.
+2. Review security and privacy boundaries before and after implementation.
+3. Add meaningful regression coverage and run the narrowest relevant tests.
+   Run broader tests when shared code changes. Parser, interpreter, chunk,
+   file-format, and network-protocol changes must keep the fuzz/property suite
+   green; extend it for new language constructs or format rules. Assert on
+   content rather than existence.
+4. Inspect user-visible changes in the running app, including loading, failure,
+   keyboard, and accessibility states as applicable.
+5. Update relevant documentation, then build and install the release in
+   `/Applications/Hype.app` using `script/build_and_run.sh --deploy`. Launch
+   the installed app and verify the real target. Skip installation only when
+   the change produces nothing installable.
 
-1. Design Mock: for human-visible or interactive changes, audit Hype's existing design work and specify an elegant, discoverable design contract with states, accessibility, and acceptance criteria.
-2. Architecture: identify the affected subsystem, exact implementation plan, expected behavior, risks, tests, and deployment proof.
-3. Design Review/Revision: for UI/UX work, verify the plan still realizes the design intent before code.
-4. Security/safety review of the plan: identify persistence, network, keychain, file-system, script-execution, AI-tool, privacy, and trust-boundary risks.
-5. Build: make the smallest coherent implementation that preserves existing architecture and add initial tests inline.
-6. Security/safety review of the build: inspect the actual diff and check that it still matches the approved plan.
-7. Design Sign-off: for UI/UX work, inspect the actual built surface and representative states against the design contract before Test.
-8. Test: read the implementation, add/update regression coverage, run functional and applicable non-functional tests, and run the narrowest relevant tests plus a broader suite when shared runtime code changed.
-   - **Parser / interpreter / chunk / file-format / network-protocol changes MUST keep the property/fuzz suite green** and, when they add a new language construct or format rule, extend it. See `Tests/HypeCoreTests/InterpreterFuzzTests.swift` (seeded grammar fuzzer + metamorphic relations). When the fuzzer finds a failure it prints the seed and source — add that seed to `regressionSeeds` to pin it.
-   - Assert on **content**, never just existence (`#expect(x == 8)`, not `#expect(x != nil)`).
-9. Deploy/readiness: do not rely on "tests pass" reported by hand — the suite must actually run (a real, non-zero count), including the interpreter fuzz suite for language/format changes (see below). **Installing `/Applications/Hype.app` is the standing end-of-cycle default** — the `mpd` Deploy gate builds and installs it via `scripts/mpd-deploy.sh`; verify the real target by launching it. Skip only when the change produces nothing installable. Never commit secrets.
-
-Only the three Design stages may be marked N/A, only when the change has no human-visible behavior or interaction impact, and only with a written rationale. All other stages run with depth proportionate to semantic risk. Every gate returns PASS, CONDITIONAL PASS, or FAIL; conditions name their owner and closing evidence, FAIL blocks, and material changes invalidate downstream approvals. The canonical cross-project protocol is [`docs/Model-Paired-Development-Playbook.md`](docs/Model-Paired-Development-Playbook.md), version 2026-07-09.
-
+Report actual commands, test counts, failures, and remaining uncertainty. Never
+claim tests ran when they did not, bypass a failing hook, or commit secrets.
 For review-only tasks, do not edit files unless the user asks for implementation.
-
-## Driving the pipeline with `mpd`
-
-This repo is initialized for `mpd` (Model-Paired Development) — the workflow
-above is gated by the `mpd` CLI. For any non-trivial change, drive it through
-`mpd` rather than editing ad hoc:
-
-1. `mpd status` — the current change and phase. If none: `mpd begin <kebab-name>` (add `--ui` for human-visible changes; `--fix` or `--chore` to skip the Documentation phases for defect fixes / non-functional work).
-2. `mpd next --harness <codex|claude-code>` — prints the phase's persona, the model to use, the artifacts to produce, and the gate command. Do exactly that work, then record the gate.
-3. When a phase produces OpenSpec artifacts, author them under `openspec/changes/<name>/` (proposal.md, specs/*/spec.md, design.md, tasks.md). `design.md` MUST end with a "## Conditions for Builder" section.
-4. Record the gate only after the work is done AND verified:
-   - `mpd gate <phase> --pass --evidence <pointer>` — or `--fail` (do not advance).
-   - Build/Test gates re-run `swift test`; security-code runs a secret scan; the **Deploy gate runs the configured deploy command** and refuses PASS if it exits non-zero. You cannot fake these.
-   - A CONDITIONAL PASS records open conditions that block archive; close them with `mpd resolve <n>` (or `mpd resolve --all`) once done.
-5. Loop `mpd next` → work → `mpd gate` until Deploy. **Deploying to `/Applications` is the standing end-of-cycle default**: `mpd gate deploy --pass` runs the `deploy` command in `.mpd/config.json` (`scripts/mpd-deploy.sh` → `script/build_and_run.sh --deploy`), which builds Hype and installs `/Applications/Hype.app`. Then `mpd archive` (preview the spec merge) → `mpd archive --yes`, and `open /Applications/Hype.app` to verify the real target. Skip the deploy only when the change genuinely produces nothing installable (pure docs/tooling).
-
-Never bypass a FAIL gate or commit around the pre-commit hook (`.githooks/pre-commit`). Intentional fixture secrets go in `.mpd/secret-allowlist.json` (suppressions are always reported).
-
-A feature change also runs **Documentation** (after Test — the Documenter
-synthesizes a durable doc; a structural gate checks it) and **Doc Validation**
-(after Deploy — the Architect and Designer both validate it for accuracy). The
-doc folds into `docs/<name>.md` at archive. `--fix`/`--chore` skip both.
-
-**Model policy (per phase tier).** The judgment/creative planning and validation phases — Design, Architecture, and Doc Validation — are the deep-cognition tier; the execution/synthesis/review phases (Security, Build, Test, Documentation) are standard.
-
-| Harness | Design · Architecture · Doc Validation (deep) | Security · Build · Test · Documentation (standard) |
-|---|---|---|
-| **Codex** | GPT-5.6 **Sol** | GPT-5.6 **Terra** |
-| **Claude Code** | **Fable** (fall back to the latest Opus if Fable is unavailable) | latest **Sonnet** |
-
-Codex is single-agent: adopt each persona in-turn, or start a fresh `codex --model <Sol|Terra>` per phase for model separation. Claude Code spawns each persona as a subagent on the model above. `mpd next --harness <h>` prints the exact model for the current phase. (GPT-5.6 Luna, the lightest tier, is available but unassigned by default.)
 
 ## Status Notifications
 
@@ -170,12 +142,9 @@ interpreter / chunk / file-format / protocol changes must keep it green and
 extend it for new constructs. Run it locally:
 
 ```bash
-DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   swift test --no-parallel --filter InterpreterFuzzNoCrashTests --filter InterpreterMetamorphicTests
 ```
-
-The broader development method is written up in
-`docs/Model-Paired-Development-Playbook.md`.
 
 ## Local Build/Test Gate (pre-push hook)
 

@@ -11,4 +11,4 @@
       (a) `repeat while true` with an empty body terminates with
       "Instruction limit exceeded"; (b) a normally-terminating `repeat while`
       still completes without falsely hitting the limit.
-- [ ] 1.3 `bash scripts/mpd-test.sh` green.
+- [ ] 1.3 the retired serial test wrapper green.

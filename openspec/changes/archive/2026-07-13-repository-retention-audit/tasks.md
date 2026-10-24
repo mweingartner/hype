@@ -2,7 +2,7 @@
 
 - [x] 1.1 Verify the 888-row tracked-file inventory exactly matches the pre-change `git ls-files` baseline by path and category.
 - [x] 1.2 Verify the 65-row Markdown audit exactly matches the tracked Markdown baseline and manually recheck every watchlist classification.
-- [x] 1.3 Recheck package, workflow, hook, MPD, OpenSpec, vendor, generated/source-pair, fixture, resource, and direct-entrypoint ownership.
+- [x] 1.3 Recheck package, workflow, hook, retired workflow, OpenSpec, vendor, generated/source-pair, fixture, resource, and direct-entrypoint ownership.
 
 ## 2. Retention decision
 

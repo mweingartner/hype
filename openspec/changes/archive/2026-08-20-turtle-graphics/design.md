@@ -2,7 +2,7 @@
 
 ## Actor
 
-Architect — Fable (`claude-fable-5`), delegated subagent in the mpd pipeline.
+Architect — Fable (`claude-fable-5`), delegated subagent in the former validation workflow.
 
 ## Context
 

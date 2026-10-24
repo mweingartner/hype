@@ -33,6 +33,11 @@ struct PreferencesView: View {
     @State private var llamaCppAvailableModels: [String] = []
     @State private var zAIAvailableModels: [String] = []
     @State private var miniMaxAvailableModels: [String] = []
+    @State private var openAIAvailableModels: [String] = []
+    @State private var openAIAvailableImageModels: [String] = []
+    @State private var isRefreshingOpenAIModels = false
+    @State private var openAIModelStatus = ""
+    @State private var openAIModelTask: Task<Bool, Never>?
     @State private var isLoading = false
     @State private var connectionStatus = ""
     @State private var isTestingOllamaDiagnostics = false
@@ -194,6 +199,9 @@ struct PreferencesView: View {
             // Opening local speech settings must not decrypt a cloud API key.
             // Validate secret content when the corresponding provider is used.
             openAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.openAIAPIKeyAccount)
+            if selectedCategory == .ai && aiProviderRaw != HypeAIProvider.openAI.rawValue && openAIKeyIsSet {
+                refreshOpenAIModels()
+            }
             zAIKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.zAIAPIKeyAccount)
             miniMaxKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.miniMaxAPIKeyAccount)
             llamaSwapKeyIsSet = KeychainStore.hasSecret(account: KeychainStore.llamaSwapAPIKeyAccount)
@@ -201,6 +209,15 @@ struct PreferencesView: View {
         }
         .onChange(of: aiProviderRaw) { _, _ in
             fetchModels()
+        }
+        .onChange(of: selectedCategory) { _, category in
+            if category == .ai && openAIKeyIsSet && !isRefreshingOpenAIModels {
+                refreshOpenAIModels()
+            }
+        }
+        .onDisappear {
+            openAIModelTask?.cancel()
+            isRefreshingOpenAIModels = false
         }
         .onChange(of: document?.document.stack.userLevel) { _, _ in
             syncUserLevelSelectionFromDocument()
@@ -331,8 +348,18 @@ struct PreferencesView: View {
             Section("Model") {
                 if aiProviderRaw == HypeAIProvider.openAI.rawValue {
                     Picker("OpenAI Model", selection: $openAIModel) {
-                        ForEach(HypeAIConfiguration.openAITextModels, id: \.self) { model in
+                        ForEach(openAIModelChoices, id: \.self) { model in
                             Text(model).tag(model)
+                        }
+                    }
+                    HStack {
+                        Button("Refresh Models") { refreshOpenAIModels() }
+                            .disabled(isRefreshingOpenAIModels || !openAIKeyIsSet)
+                        if isRefreshingOpenAIModels { ProgressView().controlSize(.small) }
+                        if !openAIModelStatus.isEmpty {
+                            Text(openAIModelStatus)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
                         }
                     }
                 } else if aiProviderRaw == HypeAIProvider.zAI.rawValue {
@@ -414,8 +441,20 @@ struct PreferencesView: View {
                 }
 
                 Picker("Image Model", selection: $openAIImageModel) {
-                    ForEach(HypeAIConfiguration.openAIImageModels, id: \.self) { model in
+                    ForEach(openAIImageModelChoices, id: \.self) { model in
                         Text(model).tag(model)
+                    }
+                }
+                if aiProviderRaw != HypeAIProvider.openAI.rawValue {
+                    HStack {
+                        Button("Refresh OpenAI Models") { refreshOpenAIModels() }
+                            .disabled(isRefreshingOpenAIModels || !openAIKeyIsSet)
+                        if isRefreshingOpenAIModels { ProgressView().controlSize(.small) }
+                        if !openAIModelStatus.isEmpty {
+                            Text(openAIModelStatus)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -1032,6 +1071,9 @@ struct PreferencesView: View {
             openAIKeyDraft = ""
             openAIKeyIsSet = true
             openAITestStatus = ""
+            openAIAvailableModels = []
+            openAIAvailableImageModels = []
+            refreshOpenAIModels()
         } catch {
             openAITestStatus = keychainErrorMessage(for: error)
         }
@@ -1043,6 +1085,11 @@ struct PreferencesView: View {
             openAIKeyIsSet = false
             openAIKeyDraft = ""
             openAITestStatus = ""
+            openAIModelTask?.cancel()
+            isRefreshingOpenAIModels = false
+            openAIAvailableModels = []
+            openAIAvailableImageModels = []
+            openAIModelStatus = ""
         } catch {
             openAITestStatus = keychainErrorMessage(for: error)
         }
@@ -1232,7 +1279,9 @@ struct PreferencesView: View {
     private func testOpenAI() {
         isTestingOpenAI = true
         openAITestStatus = ""
+        let modelRefresh = refreshOpenAIModels()
         Task {
+            let modelsRefreshed = await modelRefresh.value
             do {
                 let key = try KeychainStore.getSecret(account: KeychainStore.openAIAPIKeyAccount)
                 let client = OpenAIResponsesClient(apiKey: key, model: openAIModel)
@@ -1244,7 +1293,9 @@ struct PreferencesView: View {
                 await MainActor.run {
                     openAITestStatus = response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? "Connection failed"
-                        : "OK: OpenAI responded."
+                        : modelsRefreshed
+                            ? "OK: OpenAI responded; models refreshed."
+                            : "OK: OpenAI responded; model refresh failed."
                     isTestingOpenAI = false
                 }
             } catch {
@@ -1466,6 +1517,10 @@ struct PreferencesView: View {
     }
 
     private func fetchModels() {
+        if aiProviderRaw == HypeAIProvider.openAI.rawValue {
+            refreshOpenAIModels()
+            return
+        }
         if aiProviderRaw == HypeAIProvider.llamaCpp.rawValue {
             Task {
                 do {
@@ -1576,6 +1631,50 @@ struct PreferencesView: View {
                 // Silently fail -- models stay empty until user refreshes
             }
         }
+    }
+
+    private var openAIModelChoices: [String] {
+        var models = openAIAvailableModels.isEmpty ? HypeAIConfiguration.openAITextModels : openAIAvailableModels
+        if !models.contains(openAIModel) { models.append(openAIModel) }
+        return models
+    }
+
+    private var openAIImageModelChoices: [String] {
+        var models = openAIAvailableImageModels.isEmpty ? HypeAIConfiguration.openAIImageModels : openAIAvailableImageModels
+        if !models.contains(openAIImageModel) { models.append(openAIImageModel) }
+        return models
+    }
+
+    @discardableResult
+    private func refreshOpenAIModels() -> Task<Bool, Never> {
+        openAIModelTask?.cancel()
+        isRefreshingOpenAIModels = true
+        openAIModelStatus = ""
+        let task = Task { @MainActor in
+            defer {
+                if !Task.isCancelled { isRefreshingOpenAIModels = false }
+            }
+            do {
+                let key = try KeychainStore.getSecret(account: KeychainStore.openAIAPIKeyAccount)
+                let client = OpenAIResponsesClient(apiKey: key, model: openAIModel, timeouts: .init(request: 30, resource: 30))
+                let catalog = try await client.availableModelCatalog()
+                guard !Task.isCancelled else { return false }
+                guard !catalog.textModels.isEmpty || !catalog.imageModels.isEmpty else {
+                    openAIModelStatus = "No models returned; keeping current choices."
+                    return false
+                }
+                if !catalog.textModels.isEmpty { openAIAvailableModels = catalog.textModels }
+                if !catalog.imageModels.isEmpty { openAIAvailableImageModels = catalog.imageModels }
+                openAIModelStatus = "\(catalog.textModels.count) text, \(catalog.imageModels.count) image models refreshed."
+                return true
+            } catch {
+                guard !Task.isCancelled else { return false }
+                openAIModelStatus = "Model refresh failed; keeping current choices."
+                return false
+            }
+        }
+        openAIModelTask = task
+        return task
     }
 }
 

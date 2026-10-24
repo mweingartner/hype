@@ -1,4 +1,0 @@
-{
-  "test": "scripts/mpd-test.sh",
-  "deploy": "scripts/mpd-deploy.sh"
-}

@@ -85,7 +85,7 @@ coordinates larger, never generate more of them.
 
 ## Results
 
-Full suite (`bash scripts/mpd-test.sh`, DEVELOPER_DIR=Xcode-beta, `--no-parallel`,
+Full suite (the retired serial test wrapper, DEVELOPER_DIR=Xcode-beta, `--no-parallel`,
 run twice independently for confirmation):
 
 ```

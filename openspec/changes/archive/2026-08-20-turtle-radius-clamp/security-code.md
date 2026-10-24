@@ -24,7 +24,7 @@ nothing more:
 - Two new private static helpers added at `:669-684`, next to
   `clampCoordinate`.
 - `git status --porcelain` confirms only these two tracked files changed
-  (plus new/untracked openspec change artifacts and `.mpd/state/…json`,
+  (plus new/untracked openspec change artifacts and the retired workflow receipt,
   which are process artifacts, not code) — the manifest is honored, no
   undeclared tracked edit.
 

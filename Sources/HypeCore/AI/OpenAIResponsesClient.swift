@@ -128,7 +128,69 @@ public actor OpenAIResponsesClient: HypeAIClient {
     public nonisolated var supportsChatStreaming: Bool { true }
 
     public func availableModels() async throws -> [String] {
-        HypeAIConfiguration.openAITextModels
+        try await availableModelCatalog().textModels
+    }
+
+    public func availableModelCatalog() async throws -> OpenAIModelCatalog {
+        let token = HypeAIConfiguration.normalized(apiKey)
+        guard !requiresAPIKey || token != nil else {
+            throw OpenAIClientError.noAPIKey
+        }
+        var request = URLRequest(url: baseURL.appendingPathComponent("v1/models"))
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.timeoutInterval = min(timeouts.request, 30)
+
+        let (data, response) = try await sessionData(for: request, endpoint: "/v1/models", model: model)
+        guard let response = response as? HTTPURLResponse else {
+            throw OpenAIClientError.invalidResponse
+        }
+        guard (200..<300).contains(response.statusCode) else {
+            // Model discovery never needs to expose the provider's response body.
+            throw OpenAIClientError.requestFailed("Model list request failed (HTTP \(response.statusCode)).")
+        }
+        struct ModelList: Decodable {
+            struct Model: Decodable {
+                let id: String
+                let shutdownDate: String?
+
+                enum CodingKeys: String, CodingKey {
+                    case id
+                    case shutdownDate = "shutdown_date"
+                }
+            }
+            let data: [Model]
+        }
+        let today = Date.now.formatted(.iso8601.year().month().day().dateSeparator(.dash))
+        let ids = try JSONDecoder().decode(ModelList.self, from: data).data
+            .filter { $0.shutdownDate.map { $0 > today } ?? true }
+            .map(\.id)
+        let models = Array(Set(ids.compactMap(HypeAIConfiguration.normalized))).sorted()
+        // Compatible endpoints own their catalog; only hosted OpenAI needs the
+        // text-family heuristic because /models also lists audio/image/etc.
+        return OpenAIModelCatalog(
+            textModels: models.filter { !enablesReasoning || Self.isDiscoverableTextModel($0) },
+            imageModels: models.filter {
+                ($0.hasPrefix("gpt-image-") || $0.hasPrefix("chatgpt-image-")) && $0 != "gpt-image-1"
+            }
+        )
+    }
+
+    private nonisolated static func isDiscoverableTextModel(_ id: String) -> Bool {
+        let name = id.hasPrefix("ft:") ? String(id.dropFirst(3).split(separator: ":").first ?? "") : id
+        let excluded = ["audio", "realtime", "transcribe", "tts", "image", "search", "instruct", "deep-research"]
+        guard !excluded.contains(where: { name.contains($0) }) else { return false }
+        if name.hasPrefix("gpt-4.1") || name.hasPrefix("gpt-4o") { return true }
+        if name.hasPrefix("gpt-"), let major = Int(name.dropFirst(4).prefix(while: \.isNumber)) {
+            return major >= 5
+        }
+        if name.hasPrefix("o"), let generation = Int(name.dropFirst().prefix(while: \.isNumber)) {
+            return generation >= 1 && !name.hasPrefix("o1-mini") && !name.hasPrefix("o1-preview")
+        }
+        return false
     }
 
     public func preloadModel() async throws {
@@ -339,7 +401,7 @@ public actor OpenAIResponsesClient: HypeAIClient {
         do {
             return try await session.data(for: request)
         } catch let urlError as URLError where urlError.code == .timedOut {
-            throw OpenAIClientError.requestTimedOut(endpoint: endpoint, model: model, seconds: timeouts.request)
+            throw OpenAIClientError.requestTimedOut(endpoint: endpoint, model: model, seconds: request.timeoutInterval)
         } catch {
             throw error
         }

@@ -4,6 +4,160 @@ import Testing
 
 @Suite("OpenAI Responses client", .serialized)
 struct OpenAIResponsesClientTests {
+    @Test("model discovery fetches fresh authenticated text models and excludes other modalities")
+    func discoversLiveTextModels() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocolOpenAIResponses.self]
+        let session = URLSession(configuration: config)
+        defer { MockURLProtocolOpenAIResponses.requestHandler = nil }
+        MockURLProtocolOpenAIResponses.requestHandler = { request in
+            #expect(request.url?.absoluteString == "https://api.openai.com/v1/models")
+            #expect(request.httpMethod == "GET")
+            #expect(request.httpBody == nil)
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer catalog-token")
+            #expect(request.timeoutInterval == 30)
+            let ids = [
+                "gpt-9-new", "gpt-4.1-mini", "o3", "o4-mini", "gpt-9-new", " gpt-5-mini ",
+                "ft:gpt-4.1:example:custom:123", "gpt-image-1", "gpt-4o-audio-preview",
+                "gpt-4o-realtime-preview", "gpt-4o-mini-transcribe", "gpt-4o-mini-tts",
+                "gpt-4o-search-preview", "text-embedding-3-large", "whisper-1", "dall-e-3",
+                "gpt-3.5-turbo-instruct", "gpt-4-turbo", "o1-preview", "o1-mini", "o3-deep-research", ""
+            ]
+            let data = try JSONSerialization.data(withJSONObject: ["data": ids.map { ["id": $0] }])
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        let client = OpenAIResponsesClient(apiKey: " catalog-token \n", session: session)
+        #expect(try await client.availableModels() == [
+            "ft:gpt-4.1:example:custom:123", "gpt-4.1-mini", "gpt-5-mini", "gpt-9-new", "o3", "o4-mini"
+        ])
+
+        // A second request must consult the server rather than reuse a bundled/cached list.
+        MockURLProtocolOpenAIResponses.requestHandler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+             Data(#"{"data":[{"id":"gpt-9-newer"}]}"#.utf8))
+        }
+        #expect(try await client.availableModels() == ["gpt-9-newer"])
+    }
+
+    @Test("one live catalog refresh separates current image models and text models")
+    func discoversImageAndTextCatalogTogether() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocolOpenAIResponses.self]
+        defer { MockURLProtocolOpenAIResponses.requestHandler = nil }
+        MockURLProtocolOpenAIResponses.requestHandler = { request in
+            #expect(request.url?.path == "/v1/models")
+            let ids = [
+                "gpt-image-2.5-sunburst", "gpt-image-2.5-sunburst-2026-09-08",
+                "gpt-image-2.5-flare", "gpt-image-2.5-flare-2026-09-08",
+                "gpt-image-2", "gpt-image-2-2026-04-21", "gpt-image-1.5",
+                "gpt-image-1-mini", "chatgpt-image-latest", "gpt-image-9-future",
+                "gpt-image-2", "gpt-image-1", "dall-e-2", "dall-e-3", "gpt-9-new",
+                "text-embedding-3-large", "gpt-4o-audio-preview"
+            ]
+            var entries = ids.map { ["id": $0] }
+            entries.append(["id": "gpt-image-expired", "shutdown_date": "2000-01-01"])
+            entries.append(["id": "gpt-9-expired", "shutdown_date": "2000-01-01"])
+            entries.append(["id": "gpt-9-active", "shutdown_date": "2999-01-01"])
+            let data = try JSONSerialization.data(withJSONObject: ["data": entries])
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        let client = OpenAIResponsesClient(apiKey: "token", session: URLSession(configuration: config))
+        let catalog = try await client.availableModelCatalog()
+        #expect(catalog.textModels == ["gpt-9-active", "gpt-9-new"])
+        #expect(catalog.imageModels == [
+            "chatgpt-image-latest", "gpt-image-1-mini", "gpt-image-1.5",
+            "gpt-image-2", "gpt-image-2-2026-04-21", "gpt-image-2.5-flare",
+            "gpt-image-2.5-flare-2026-09-08", "gpt-image-2.5-sunburst",
+            "gpt-image-2.5-sunburst-2026-09-08", "gpt-image-9-future"
+        ])
+        #expect(Set(HypeAIConfiguration.openAIImageModels) == Set(catalog.imageModels.filter { $0 != "gpt-image-9-future" }))
+    }
+
+    @Test("model discovery rejects missing keys before sending a request")
+    func modelDiscoveryRequiresKey() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocolOpenAIResponses.self]
+        defer { MockURLProtocolOpenAIResponses.requestHandler = nil }
+        MockURLProtocolOpenAIResponses.requestHandler = { _ in
+            Issue.record("A blank API key must never cause a network request")
+            throw URLError(.badServerResponse)
+        }
+        let client = OpenAIResponsesClient(apiKey: " \n", session: URLSession(configuration: config))
+        do {
+            _ = try await client.availableModels()
+            Issue.record("Expected missing key error")
+        } catch {
+            guard case OpenAIClientError.noAPIKey = error else {
+                Issue.record("Unexpected error: \(error)")
+                return
+            }
+        }
+    }
+
+    @Test("model discovery rejects HTTP errors without leaking server payloads", arguments: [401, 403, 429, 500])
+    func modelDiscoveryRejectsHTTPErrors(statusCode: Int) async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocolOpenAIResponses.self]
+        defer { MockURLProtocolOpenAIResponses.requestHandler = nil }
+        MockURLProtocolOpenAIResponses.requestHandler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: statusCode, httpVersion: nil, headerFields: nil)!,
+             Data(#"{"error":{"message":"private-provider-payload"}}"#.utf8))
+        }
+        let client = OpenAIResponsesClient(apiKey: "token", session: URLSession(configuration: config))
+        do {
+            _ = try await client.availableModels()
+            Issue.record("Expected HTTP failure")
+        } catch {
+            #expect(error.localizedDescription == "OpenAI error: Model list request failed (HTTP \(statusCode)).")
+        }
+    }
+
+    @Test("model discovery rejects malformed payloads instead of returning fallback models")
+    func modelDiscoveryRejectsMalformedData() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocolOpenAIResponses.self]
+        defer { MockURLProtocolOpenAIResponses.requestHandler = nil }
+        MockURLProtocolOpenAIResponses.requestHandler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+             Data(#"{"data":[{"name":"gpt-9-new"}]}"#.utf8))
+        }
+        let client = OpenAIResponsesClient(apiKey: "token", session: URLSession(configuration: config))
+        await #expect(throws: DecodingError.self) { try await client.availableModels() }
+    }
+
+    @Test("model discovery returns an empty catalog when only non-text models are available")
+    func modelDiscoveryHandlesEmptyTextCatalog() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocolOpenAIResponses.self]
+        defer { MockURLProtocolOpenAIResponses.requestHandler = nil }
+        MockURLProtocolOpenAIResponses.requestHandler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+             Data(#"{"data":[{"id":"text-embedding-3-small"}]}"#.utf8))
+        }
+        let client = OpenAIResponsesClient(apiKey: "token", session: URLSession(configuration: config))
+        #expect(try await client.availableModels() == [])
+    }
+
+    @Test("model discovery maps network timeouts to its bounded request timeout")
+    func modelDiscoveryTimeout() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocolOpenAIResponses.self]
+        defer { MockURLProtocolOpenAIResponses.requestHandler = nil }
+        MockURLProtocolOpenAIResponses.requestHandler = { _ in throw URLError(.timedOut) }
+        let client = OpenAIResponsesClient(apiKey: "token", session: URLSession(configuration: config))
+        do {
+            _ = try await client.availableModels()
+            Issue.record("Expected timeout")
+        } catch {
+            guard case OpenAIClientError.requestTimedOut(let endpoint, _, let seconds) = error else {
+                Issue.record("Unexpected error: \(error)")
+                return
+            }
+            #expect(endpoint == "/v1/models")
+            #expect(seconds == 30)
+        }
+    }
+
     @Test("request body maps Hype tools and tool outputs to Responses API shape")
     func requestBodyMapsToolsAndToolOutputs() throws {
         let tool = OllamaTool(

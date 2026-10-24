@@ -20,4 +20,4 @@
       flower benchmark (publishes ≤ ~20, ≥ 12; 12 parts drawn), a state-only
       turtle loop (0 publishes), a pen-down square control (one part), and a
       per-shape animation check (≥ one publish per drawn shape).
-- [ ] 1.6 `bash scripts/mpd-test.sh` green.
+- [ ] 1.6 the retired serial test wrapper green.
