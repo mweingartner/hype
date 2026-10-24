@@ -5,6 +5,15 @@ public struct HypeToolDefinitions {
 
     /// The complete set of tools the AI can invoke.
     public static let allTools: [OllamaTool] = [
+        makeTool(name: "list_stack_contents", description: "Search and page through the current stack's cards, backgrounds, parts, assets, scenes and nodes, including off-card content. Returns stable IDs and owners. Secure field values are masked. Use IDs with granular read/write tools; target_card scopes work without navigation.", params: [
+            "kind": ("string", "all, stack, card, background, part, asset, scene, or node", false),
+            "query": ("string", "Optional case-insensitive name/content search; secure values and AI Context Library notes are excluded", false),
+            "offset": ("string", "0-based page offset; default 0", false),
+            "limit": ("string", "Page size 1...100; default 40", false),
+        ]),
+        makeTool(name: "discover_stack_tools", description: "Find additional stack-authoring tools by task, object type, or exact tool name (for example theme, scene node, repository asset). Up to 12 matching tools become available on the next request. Call the discovered tools directly, using their real schemas. Filesystem and AI Context Library permissions remain separate.", params: [
+            "query": ("string", "Task/topic or exact tool name to discover", true),
+        ]),
         // Stack management
         makeTool(name: "create_card", description: "Create a new card in the stack and make it the current card. Pass the card's name; optionally specify a background name.", params: [
             "name": ("string", "Name for the new card (e.g. \"about\")", false),
@@ -2080,7 +2089,7 @@ public struct HypeToolDefinitions {
             "card_name": ("string", "Optional. The name of the card to capture. Defaults to the current card when omitted or empty.", false),
             "purpose": ("string", "Optional. A short free-text reason for the capture (e.g. 'verify button alignment'). Recorded in the chat log so the user understands why you are looking. Never executed.", false),
         ]),
-    ]
+    ].map(withStackTargeting)
 
     /// Default AI authoring surface for the in-app assistant.
     ///
@@ -2105,6 +2114,8 @@ public struct HypeToolDefinitions {
     /// via `add_label_to_scene` and accidentally creating a sprite scene.
     public static let cardControlAuthoringTools: [OllamaTool] = allTools.filter {
         let allowed = Set([
+            "list_stack_contents",
+            "discover_stack_tools",
             // Stack/card/background management
             "create_card",
             "create_background",
@@ -2249,6 +2260,8 @@ public struct HypeToolDefinitions {
         // `set_part_property` even when the user explicitly asked
         // for it. v3.1 widens the allowlist to cover both surfaces.
         let allowed = Set([
+            "list_stack_contents",
+            "discover_stack_tools",
             // Scene-level creation / diagnostics
             "create_sprite_area",
             "infer_sprite_game_template",

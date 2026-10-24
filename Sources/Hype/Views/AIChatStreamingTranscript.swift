@@ -48,6 +48,7 @@ struct AIChatStreamingTranscript: Equatable {
         clearStreamingState()
     }
 
+    @discardableResult
     mutating func appendMessage(
         role: String,
         content: String,
@@ -55,15 +56,33 @@ struct AIChatStreamingTranscript: Equatable {
         imagePixelWidth: Int? = nil,
         imagePixelHeight: Int? = nil,
         imageCaption: String? = nil
-    ) {
-        messages.append(AIChatDisplayMessage(
+    ) -> AIChatDisplayMessage {
+        let message = AIChatDisplayMessage(
             role: role,
             content: content,
             imageBase64: imageBase64,
             imagePixelWidth: imagePixelWidth,
             imagePixelHeight: imagePixelHeight,
             imageCaption: imageCaption
-        ))
+        )
+        messages.append(message)
+        return message
+    }
+
+    /// One delivery point for both buffered and streamed provider responses.
+    mutating func completeAssistantResponse(_ content: String) -> AIChatDisplayMessage? {
+        if let id = streamingMessageId {
+            guard !content.isEmpty else {
+                messages.removeAll { $0.id == id }
+                clearStreamingState()
+                return nil
+            }
+            streamingContent = content
+            guard finishStreamingMessage() != nil else { return nil }
+            return messages.first { $0.id == id }
+        }
+        guard !content.isEmpty else { return nil }
+        return appendMessage(role: "assistant", content: content)
     }
 
     @discardableResult

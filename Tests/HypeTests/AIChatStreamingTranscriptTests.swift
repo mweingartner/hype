@@ -3,6 +3,28 @@ import Testing
 
 @Suite("AI chat streaming transcript")
 struct AIChatStreamingTranscriptTests {
+    @Test("buffered response is delivered once for display and narration")
+    func bufferedResponseHasOneDelivery() throws {
+        var transcript = AIChatStreamingTranscript()
+        let delivered = transcript.completeAssistantResponse("Created the form.")
+        let message = try #require(delivered)
+        #expect(transcript.messages.map(\.content) == ["Created the form."])
+        #expect(transcript.messages[0].id == message.id)
+    }
+
+    @Test("stream completion delivers the existing bubble with its original identity")
+    func streamedResponseHasOneDelivery() throws {
+        var transcript = AIChatStreamingTranscript()
+        let id = transcript.appendStreamingToken("Created ")
+        transcript.appendStreamingToken("the form.")
+        let delivered = transcript.completeAssistantResponse("Created the form.")
+        let message = try #require(delivered)
+        #expect(transcript.messages.count == 1)
+        #expect(message.id == id)
+        #expect(message.content == "Created the form.")
+        #expect(transcript.streamingMessageId == nil)
+    }
+
     @Test("streamed response chunks stay attached to one assistant bubble")
     func streamedChunksStayAttachedToOneBubble() {
         var transcript = AIChatStreamingTranscript()

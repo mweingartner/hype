@@ -941,6 +941,7 @@ public struct HypeToolExecutor: Sendable {
     ) -> Int? {
         let trimmed = cardName.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = trimmed.lowercased()
+        if let id = UUID(uuidString: trimmed) { return document.cards.firstIndex { $0.id == id } }
         if trimmed.isEmpty
             || lower == "this"
             || lower == "this card"
@@ -952,7 +953,8 @@ public struct HypeToolExecutor: Sendable {
             let cardId = document.sortedCards[num - 1].id
             return document.cards.firstIndex(where: { $0.id == cardId })
         }
-        return document.cards.firstIndex(where: { $0.name.lowercased() == trimmed.lowercased() })
+        let matches = document.cards.indices.filter { document.cards[$0].name.lowercased() == lower }
+        return matches.count == 1 ? matches[0] : nil
     }
 
     private func backgroundIndex(
@@ -962,6 +964,7 @@ public struct HypeToolExecutor: Sendable {
     ) -> Int? {
         let trimmed = backgroundName.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = trimmed.lowercased()
+        if let id = UUID(uuidString: trimmed) { return document.backgrounds.firstIndex { $0.id == id } }
         if trimmed.isEmpty
             || lower == "this"
             || lower == "this background"
@@ -972,7 +975,8 @@ public struct HypeToolExecutor: Sendable {
             guard let card = document.cards.first(where: { $0.id == currentCardId }) else { return nil }
             return document.backgrounds.firstIndex(where: { $0.id == card.backgroundId })
         }
-        return document.backgrounds.firstIndex(where: { $0.name.lowercased() == trimmed.lowercased() })
+        let matches = document.backgrounds.indices.filter { document.backgrounds[$0].name.lowercased() == lower }
+        return matches.count == 1 ? matches[0] : nil
     }
 
     func scopedPartIndex(
@@ -983,6 +987,9 @@ public struct HypeToolExecutor: Sendable {
     ) -> Int? {
         let trimmed = partName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        if let id = UUID(uuidString: trimmed) {
+            return document.parts.firstIndex { $0.id == id && (partType == nil || $0.partType == partType) }
+        }
         let lower = trimmed.lowercased()
 
         func matches(_ part: Part) -> Bool {
@@ -1110,7 +1117,29 @@ public struct HypeToolExecutor: Sendable {
         document: inout HypeDocument,
         currentCardId: UUID
     ) async -> String {
+        var currentCardId = currentCardId
+        if let target = arguments["target_card"], !target.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard let index = cardIndex(named: target, currentCardId: currentCardId, in: document) else {
+                return "Target card '\(target)' not found or ambiguous. Use its UUID from list_stack_contents."
+            }
+            currentCardId = document.cards[index].id
+            let visible = document.effectivePartsForCard(currentCardId)
+            for key in ["part_name", "sprite_area", "sprite_area_name", "area_name", "chart_name", "map_name", "player_name"] {
+                guard let reference = arguments[key] else { continue }
+                let matches: (Part) -> Bool = { part in
+                    UUID(uuidString: reference).map { part.id == $0 } ?? (part.name.lowercased() == reference.lowercased())
+                }
+                if document.parts.contains(where: matches) && !visible.contains(where: matches) {
+                    return "Target part does not belong to the specified target_card. Use matching owner IDs from list_stack_contents."
+                }
+            }
+        }
         switch toolName {
+        case "list_stack_contents":
+            return stackContents(arguments: arguments, document: document)
+        case "discover_stack_tools":
+            let tools = HypeToolDefinitions.discoverStackTools(query: arguments["query"] ?? "")
+            return tools.isEmpty ? "No matching stack tools. Search by object type or exact tool name." : tools.map { "\($0.function.name): \($0.function.description.prefix(220))" }.joined(separator: "\n")
         case "list_brave_tools", "call_brave_tool":
             guard let braveSearchSession else {
                 return "Brave Search is disabled. Enable it in Settings → Services → Brave Search."
@@ -1119,10 +1148,17 @@ public struct HypeToolExecutor: Sendable {
 
         case "create_card":
             let bgName = arguments["background_name"]
+            let backgroundID = bgName.flatMap(UUID.init(uuidString:))
+            if let backgroundID, !document.backgrounds.contains(where: { $0.id == backgroundID }) {
+                return "Background '\(bgName ?? "")' not found"
+            }
             let card = document.addCard(
                 afterIndex: document.sortedCards.firstIndex(where: { $0.id == currentCardId }),
-                backgroundName: bgName
+                backgroundName: backgroundID == nil ? bgName : nil
             )
+            if let backgroundID, let index = document.cards.firstIndex(where: { $0.id == card.id }) {
+                document.cards[index].backgroundId = backgroundID
+            }
             // The authoring prompt tells models to name the card they create.
             let name = (arguments["name"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if !name.isEmpty, let index = document.cards.firstIndex(where: { $0.id == card.id }) {
@@ -3629,7 +3665,7 @@ public struct HypeToolExecutor: Sendable {
             guard let spec = document.parts[partIdx].activeSceneSpec else {
                 return "Invalid scene spec in '\(areaName)'"
             }
-            guard let node = spec.node(named: tilemapName), node.nodeType == .tileMap else {
+            guard let node = Self.stackNode(tilemapName, in: spec), node.nodeType == .tileMap else {
                 return "Tile map '\(tilemapName)' not found in '\(areaName)'"
             }
             guard var tmSpec = node.tileMapSpec else {
@@ -3670,7 +3706,7 @@ public struct HypeToolExecutor: Sendable {
             guard let spec = document.parts[partIdx].activeSceneSpec else {
                 return "Invalid scene spec in '\(areaName)'"
             }
-            guard let node = spec.node(named: tilemapName), node.nodeType == .tileMap else {
+            guard let node = Self.stackNode(tilemapName, in: spec), node.nodeType == .tileMap else {
                 return "Tile map '\(tilemapName)' not found in '\(areaName)'"
             }
             guard var tmSpec = node.tileMapSpec else {
@@ -3700,7 +3736,7 @@ public struct HypeToolExecutor: Sendable {
             guard let spec = SceneSpec.fromJSON(part.sceneSpec) else {
                 return "Invalid scene spec in '\(areaName)'"
             }
-            guard let node = spec.node(named: tilemapName), node.nodeType == .tileMap else {
+            guard let node = Self.stackNode(tilemapName, in: spec), node.nodeType == .tileMap else {
                 return "Tile map '\(tilemapName)' not found in '\(areaName)'"
             }
             guard let tmSpec = node.tileMapSpec else {
@@ -3774,7 +3810,7 @@ public struct HypeToolExecutor: Sendable {
             guard !name.isEmpty else {
                 return "get_repository_asset requires 'name'."
             }
-            guard let asset = document.assetRepository.asset(byName: name) else {
+            guard let asset = UUID(uuidString: name).flatMap({ id in document.assetRepository.assets.first { $0.id == id } }) ?? document.assetRepository.asset(byName: name) else {
                 return "Asset '\(name)' not found in repository"
             }
             var lines = [
@@ -4114,7 +4150,7 @@ public struct HypeToolExecutor: Sendable {
                 }
                 scene = entry.scene
             }
-            guard let node = scene.node(named: nodeName) else {
+            guard let node = Self.stackNode(nodeName, in: scene) else {
                 return "Node '\(nodeName)' not found in '\(areaName)'"
             }
             return nodePropertyValue(node: node, property: property)
@@ -4314,7 +4350,7 @@ public struct HypeToolExecutor: Sendable {
                 }
                 scene = entry.scene
             }
-            guard let node = scene.node(named: nodeName) else {
+            guard let node = Self.stackNode(nodeName, in: scene) else {
                 return "Node '\(nodeName)' not found in '\(areaName)'"
             }
             if node.script.count > 5000 {
@@ -5052,9 +5088,10 @@ public struct HypeToolExecutor: Sendable {
             guard !bgName.isEmpty else {
                 return "set_card_background: background_name is required"
             }
-            guard let bg = document.backgroundByName(bgName) else {
+            guard let backgroundIndex = backgroundIndex(named: bgName, currentCardId: currentCardId, in: document) else {
                 return "Background '\(bgName)' not found"
             }
+            let bg = document.backgrounds[backgroundIndex]
             let cardName = arguments["card_name"] ?? ""
             guard let idx = cardIndex(named: cardName, currentCardId: currentCardId, in: document) else {
                 return "Card '\(cardName)' not found"
@@ -5075,7 +5112,8 @@ public struct HypeToolExecutor: Sendable {
             // Work against the sortKey-ordered view so the user's
             // 1-based index lines up with the visible card order.
             let ordered = document.sortedCards
-            guard let currentSortedIdx = ordered.firstIndex(where: { $0.name.lowercased() == cardName.lowercased() }) else {
+            guard let documentIndex = cardIndex(named: cardName, currentCardId: currentCardId, in: document),
+                  let currentSortedIdx = ordered.firstIndex(where: { $0.id == document.cards[documentIndex].id }) else {
                 return "Card '\(cardName)' not found"
             }
             let movedCard = ordered[currentSortedIdx]

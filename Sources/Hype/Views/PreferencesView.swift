@@ -664,12 +664,12 @@ struct PreferencesView: View {
                 }
                 .disabled(speechInputProviderRaw != HypeSpeechInputProvider.openAI.rawValue)
 
-                Toggle("Speak AI responses", isOn: $speakAssistantResponses)
+                Toggle("Speak AI summaries", isOn: $speakAssistantResponses)
                     .disabled(!chatterSpeechEnabled && !openAIKeyIsSet)
 
                 Text(chatterSpeechEnabled
-                     ? "Speaks AI Assistant replies and HypeTalk AI responses locally with Chatter's current defaults."
-                     : "Speaks AI Assistant replies and HypeTalk AI responses with OpenAI, independently of the selected text provider.")
+                     ? "Speaks brief summaries of AI replies locally with Chatter's current defaults. Code and detailed output stay in chat."
+                     : "Speaks brief summaries of AI replies with OpenAI, independently of the selected text provider. Code and detailed output stay in chat.")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

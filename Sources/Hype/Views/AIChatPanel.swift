@@ -537,7 +537,7 @@ struct AIChatPanel: View {
         imagePixelHeight: Int? = nil,
         imageCaption: String? = nil
     ) {
-        transcript.appendMessage(
+        let message = transcript.appendMessage(
             role: role,
             content: content,
             imageBase64: imageBase64,
@@ -545,14 +545,18 @@ struct AIChatPanel: View {
             imagePixelHeight: imagePixelHeight,
             imageCaption: imageCaption
         )
+        recordAppendedMessage(message)
+    }
+
+    private func recordAppendedMessage(_ message: AIChatDisplayMessage) {
         // For logging: if this bubble carries a capture image, the caller is
         // responsible for using HypeLogger directly with a redacted string.
         // Plain bubbles (no image) are safe to log as-is.
-        if imageBase64 == nil {
-            HypeLogger.shared.aiDialog(role: role, content: content, source: "AI Chat")
+        if message.imageBase64 == nil {
+            HypeLogger.shared.aiDialog(role: message.role, content: message.content, source: "AI Chat")
         }
-        if role == "assistant", speakAssistantResponses {
-            speakAssistantText(content)
+        if message.role == "assistant", speakAssistantResponses {
+            speakAssistantText(message)
         }
         persistChatSession()
     }
@@ -584,11 +588,11 @@ struct AIChatPanel: View {
         appendMessage(role: "thinking", content: "Thinking:\n\(thinking)")
     }
 
-    private func speakAssistantText(_ content: String) {
-        let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func speakAssistantText(_ message: AIChatDisplayMessage) {
+        let text = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         Task {
-            await OpenAISpeechOutputProvider.shared.speakAIResponse(text, source: "AI Chat")
+            await OpenAISpeechOutputProvider.shared.speakAIResponse(text, source: "AI Chat", responseID: message.id)
         }
     }
 
@@ -1593,6 +1597,8 @@ struct AIChatPanel: View {
                 - Before storing any HypeTalk script with create_button, create_field, set_part_property(property=script), set_node_script, set_scene_script, set_card_script, set_background_script, or set_stack_script, call check_script first and only store the script after it returns OK. If a storage tool returns a result starting with `__HYPE_INTERNAL_DRAFT_REFUSED_v1:`, the host has rejected your script. Read the failure list, fix the script, and call the SAME storage tool again with the corrected script — the host iterates with you automatically.
                 - For button scripts, just provide the HypeTalk command (e.g. "go next"). It will be auto-wrapped in on mouseUp/end mouseUp.\(spriteKitPromptRules.isEmpty ? "" : "\n" + spriteKitPromptRules)
 
+                \(HypeToolDefinitions.stackAccessGuide)
+
                 CURRENT STATE:
                 Stack: "\(workingDocument.stack.name)" (\(cardCount) cards)
                 Current card: "\(cardName)" | Background: "\(bgName)"
@@ -1642,6 +1648,8 @@ struct AIChatPanel: View {
 
                 \(hypeTalkGuideBlock)
 
+                \(HypeToolDefinitions.stackAccessGuide)
+
                 CURRENT STATE:
                 Stack: "\(workingDocument.stack.name)" (\(cardCount) cards)
                 Current card: "\(cardName)" | Background: "\(bgName)"
@@ -1677,6 +1685,7 @@ struct AIChatPanel: View {
 
         // Track the "active" card ID — updates when AI creates a new card
         var activeCardId = cardId
+        var discoveredStackToolNames: [String] = []
 
         // Tool-use loop. The cap exists to bound a runaway model
         // (one that won't stop emitting tool calls), not to fit the
@@ -1708,9 +1717,10 @@ struct AIChatPanel: View {
             conversationMessages = AIPromptBudget.trimToFit(conversationMessages)
 
             do {
-                let baseTools = spriteKitRoute.isSpriteKitRequest
+                let initialTools = spriteKitRoute.isSpriteKitRequest
                     ? HypeToolDefinitions.spriteSceneAuthoringTools
                     : HypeToolDefinitions.cardControlAuthoringTools
+                let baseTools = HypeToolDefinitions.withDiscoveredStackTools(initialTools, names: discoveredStackToolNames)
                 let webTools = HypeToolDefinitions.withWebAssetTools(
                     baseTools,
                     enabled: workingDocument.stack.webAssetsAllowed
@@ -1723,7 +1733,6 @@ struct AIChatPanel: View {
                     policy: aiContextPolicy
                 )
 
-                var streamingMessageId: UUID?
                 var accumulatedText = ""
                 var response: OllamaChatResponse?
                 transcript.clearStreamingState()
@@ -1732,16 +1741,8 @@ struct AIChatPanel: View {
                 let shouldStream = inference.supportsStreaming && tools.isEmpty
                 if shouldStream {
                     for await token in inference.chatStream(request) {
-                        streamingMessageId = transcript.appendStreamingToken(token)
+                        transcript.appendStreamingToken(token)
                         accumulatedText = transcript.streamingContent
-                    }
-                    if streamingMessageId != nil {
-                        guard let finalizedText = transcript.finishStreamingMessage() else {
-                            return
-                        }
-                        accumulatedText = finalizedText
-                    } else {
-                        transcript.clearStreamingState()
                     }
                     response = OllamaChatResponse(
                         message: OllamaMessage(role: "assistant", content: accumulatedText),
@@ -1751,16 +1752,12 @@ struct AIChatPanel: View {
                     let chatResponse = try await inference.chat(request)
                     response = chatResponse
                     accumulatedText = chatResponse.message.content ?? ""
-                    if !accumulatedText.isEmpty {
-                        appendMessage(role: "assistant", content: accumulatedText)
-                    }
-                    transcript.clearStreamingState()
                 }
 
                 guard let response else { return }
 
-                if speakAssistantResponses {
-                    speakAssistantText(accumulatedText)
+                if let message = transcript.completeAssistantResponse(accumulatedText) {
+                    recordAppendedMessage(message)
                 }
 
                 appendThinkingIfPresent(from: response.message)
@@ -1803,6 +1800,9 @@ struct AIChatPanel: View {
 
                     toolCallLoop: for call in toolCalls {
                         guard !Task.isCancelled else { return }
+                        if call.function.name == "discover_stack_tools" {
+                            discoveredStackToolNames = HypeToolDefinitions.addingStackToolDiscoveries(discoveredStackToolNames, query: call.function.arguments["query"] ?? "")
+                        }
                         let argsDesc = call.function.arguments
                             .map { "\($0.key): \($0.value)" }
                             .joined(separator: ", ")
@@ -2027,6 +2027,9 @@ struct AIChatPanel: View {
                     let argsDesc = repairedCall.function.arguments
                         .map { "\($0.key): \($0.value)" }
                         .joined(separator: ", ")
+                    if repairedCall.function.name == "discover_stack_tools" {
+                        discoveredStackToolNames = HypeToolDefinitions.addingStackToolDiscoveries(discoveredStackToolNames, query: repairedCall.function.arguments["query"] ?? "")
+                    }
                     appendMessage(role: "tool", content: "Tool: \(repairedCall.function.name)(\(argsDesc))")
 
                     let transactionRunner = AIEditTransactionRunner(executor: executor)
@@ -2096,7 +2099,9 @@ struct AIChatPanel: View {
 
                 // No tool calls and no safe repair — model is done.
                 let text = response.message.content ?? "(no response)"
-                appendMessage(role: "assistant", content: text)
+                if accumulatedText.isEmpty {
+                    appendMessage(role: "assistant", content: text)
+                }
                 conversationMessages.append(OllamaMessage(role: "assistant", content: text))
                 break
 

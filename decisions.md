@@ -2,7 +2,7 @@
 type: decisions
 title: Hype Decisions & Guardrails
 description: Durable product-behavior and build guardrails (persistence, scripting, AI tooling, providers, runtime) — mandatory for substantive changes.
-updated: 2026-10-08
+updated: 2026-10-24
 ---
 
 # decisions.md
@@ -84,6 +84,15 @@ document semantics.
   is off. Do not export the authoring connection. The default acceptance case is
   `speak "Hello"`; explicit WAV output must return a completed readable file in
   `it`. See [speech reference](HypeTalk-LLM-Context.md#speech).
+- Automatic assistant speech is a brief local prose summary, capped at two
+  sentences, 45 words and 320 characters. Speak each display-message identity
+  once; streamed and buffered responses share one completion path. Preserve
+  explicit HypeTalk `say`/`speak` text and Chatter's configured voice defaults.
+- The authoring AI can discover and address the whole current stack through
+  bounded inventory pages, stable object IDs and an explicit off-card context.
+  Make additional existing tool schemas discoverable as needed, retaining
+  script validation, transaction semantics, secure-field masking and AI-context
+  opt-in rules. Discovery must not introduce broad file/network access.
 - Brave search is an explicit app-local authoring integration with the owner's
   existing MCP bridge. Keep its API key in the bridge; Hype stores only an
   enabled flag and endpoint. Discover upstream schemas with `tools/list` and
