@@ -4,6 +4,28 @@ import Testing
 
 @Suite("Chatter speech service")
 struct ChatterSpeechClientTests {
+    @Test("automatic narration submits one short summary to Chatter, never the full response")
+    func assistantSummaryPayload() async throws {
+        let fixture = ChatterSpeechFixture()
+        let client = ChatterSpeechClient(toolCall: { try await fixture.call($0, $1) }, defaults: { .init(defaultPace: 1, studioTone: "natural") }, pollingDelay: .zero)
+        var planner = AIResponseSpeechPlanner()
+        let id = UUID()
+        let text = "Updated the customer form and fixed its navigation. "
+            + String(repeating: "The implementation contains many detailed field settings and layout notes. ", count: 50)
+            + "\n```\nprivate-implementation-payload\n```"
+        let expected = try #require(AIResponseSpeechPlanner.summary(of: text))
+        for _ in 0..<2 {
+            if let summary = planner.prepare(text, responseID: id) {
+                _ = try await client.speak(.init(text: summary))
+            }
+        }
+        let sent = await fixture.calls.filter { $0.0 == "chatter_speak" }.map { $0.1["text"] }
+        #expect(sent == [.string(expected)])
+        #expect(expected.count <= 320)
+        #expect(expected != text)
+        #expect(!expected.contains("private-implementation-payload"))
+    }
+
     @Test("Text-only uses Chatter default voice and current local defaults without Hype overrides")
     func defaults() async throws {
         let fixture = ChatterSpeechFixture()

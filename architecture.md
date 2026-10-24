@@ -2,7 +2,7 @@
 type: architecture
 title: Hype Architecture
 description: The product and runtime architecture — source of truth for subsystems, persistence, scripting, rendering, AI, and platform footprint.
-updated: 2026-10-08
+updated: 2026-10-24
 ---
 
 # Hype Architecture
@@ -2859,6 +2859,16 @@ No Chatter preference or credential is serialized into a stack or exported app.
 Exported runtimes retain their native speech provider and explicitly reject
 unsupported advanced options. See [speech syntax](HypeTalk-LLM-Context.md#speech).
 
+Assistant narration has one delivery point for buffered and streamed responses.
+The same display-message UUID follows the response into the app speech router;
+the router claims each identity before asynchronous synthesis, retaining a
+bounded 256-entry history. A later message may legitimately repeat the wording.
+`AIResponseSpeechPlanner` prepares a local extractive summary of at most two
+sentences, 45 words, and 320 characters, selecting salient prose and excluding
+fenced code, tables, and raw payload lines. It scans at most 24,000 characters.
+Only this summary reaches Chatter or hosted assistant TTS. Explicit HypeTalk
+`say`/`speak` retains the requested wording and does not use this policy.
+
 October 8, 2026 verification: installed Chatter 3.1.1 rejected a text-only MCP
 request, confirming the adapter's need to resolve its defaults. Two local
 primary sources (Chatter's API guide and request parser) supported that design;
@@ -3251,6 +3261,27 @@ safe context tools, and keeps past prompts on `HypeDocument.aiPromptHistory`
 for recall. The result is an AI authoring surface that is still
 conversational, but much more deterministic for the SpriteKit-heavy parts of
 the app and for whole-stack builds driven by user-supplied design material.
+
+Whole-stack authoring uses `list_stack_contents` for bounded, searchable pages
+of stable card/background/part/asset/scene/node IDs and owners. Ordinary field
+text and scripts are searchable; secure field values and AI Context Library
+notes are excluded. Granular part, card, background, asset and node tools accept
+stable UUIDs, and `target_card` supplies a validated off-card execution context
+without navigating the visible card. Invalid or conflicting explicit targets
+fail rather than falling back to another card.
+
+The focused initial tool catalogs remain useful for ordinary card versus scene
+authoring. `discover_stack_tools` searches the existing stack-authoring catalog
+and makes up to 12 matching real schemas available on the next inference
+request. The most recent 48 discoveries remain active and can be rediscovered.
+This reuses the normal executor, script validation, transaction preview/apply/
+rollback and external-action gates. Broad filesystem/network tools and AI
+Context Library tools are excluded from this discovery path; context tools
+retain their centralized provider/stack opt-in policy. This approach avoids
+always sending the complete catalog and preserves initial card-control
+guidance. Its accepted cost is an additional discovery round for less common
+operations. The off-card acceptance cases are inspecting another card and
+editing an exact field UUID while the first card remains visible.
 
 `HypeTalkGuide` (`Sources/HypeCore/AI/HypeTalkGuide.swift`) is the system-
 prompt grammar primer fed into every chat turn. It documents the property

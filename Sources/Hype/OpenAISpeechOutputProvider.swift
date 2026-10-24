@@ -20,6 +20,7 @@ actor OpenAISpeechOutputProvider: SpeechOutputProvider {
     static let shared = OpenAISpeechOutputProvider()
 
     private var speechPlayer: AVAudioPlayer?
+    private var responseSpeech = AIResponseSpeechPlanner()
 
     func speak(_ request: ScriptSpeechRequest, source: String) async throws -> ScriptSpeechResult {
         if UserDefaults.standard.bool(forKey: ChatterSpeechConfiguration.enabledKey) {
@@ -41,12 +42,12 @@ actor OpenAISpeechOutputProvider: SpeechOutputProvider {
     }
 
     func speakAIResponse(_ text: String, source: String) async {
-        guard UserDefaults.standard.bool(forKey: HypeAIConfiguration.speakAssistantResponsesKey) else { return }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        await speakAIResponse(text, source: source, responseID: UUID())
+    }
 
-        // Keep speech responsive and avoid accidentally voicing large tool/debug payloads.
-        let spokenText = String(trimmed.prefix(1200))
+    func speakAIResponse(_ text: String, source: String, responseID: UUID) async {
+        guard UserDefaults.standard.bool(forKey: HypeAIConfiguration.speakAssistantResponsesKey) else { return }
+        guard let spokenText = responseSpeech.prepare(text, responseID: responseID) else { return }
         Task {
             if UserDefaults.standard.bool(forKey: ChatterSpeechConfiguration.enabledKey) {
                 do { _ = try await ChatterSpeechConfiguration.makeClient().speak(ScriptSpeechRequest(text: spokenText)) }

@@ -67,7 +67,7 @@ package enum SceneNodeExecutorBranches {
             }
             guard let idx = sceneIdx else { return }
             sceneFoundFlag = true
-            guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
+            guard let nodeFound = HypeToolExecutor.stackNode(nodeName, in: areaSpec.scenes[idx].scene) else {
                 return
             }
             nodeFoundFlag = true
@@ -131,7 +131,7 @@ package enum SceneNodeExecutorBranches {
             }
             guard let idx = sceneIdx else { return }
             sceneFoundFlag = true
-            guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
+            guard let nodeFound = HypeToolExecutor.stackNode(nodeName, in: areaSpec.scenes[idx].scene) else {
                 return
             }
             nodeFoundFlag = true
@@ -181,7 +181,7 @@ package enum SceneNodeExecutorBranches {
             }
             guard let idx = sceneIdx else { return }
             sceneFoundFlag = true
-            guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
+            guard let nodeFound = HypeToolExecutor.stackNode(nodeName, in: areaSpec.scenes[idx].scene) else {
                 return
             }
             nodeFoundFlag = true
@@ -259,7 +259,7 @@ package enum SceneNodeExecutorBranches {
             }
             guard let idx = sceneIdx else { return }
             sceneFoundFlag = true
-            guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
+            guard let nodeFound = HypeToolExecutor.stackNode(nodeName, in: areaSpec.scenes[idx].scene) else {
                 return
             }
             nodeFoundFlag = true
@@ -337,7 +337,7 @@ package enum SceneNodeExecutorBranches {
             }
             guard let idx = sceneIdx else { return }
             sceneFoundFlag = true
-            guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
+            guard let nodeFound = HypeToolExecutor.stackNode(nodeName, in: areaSpec.scenes[idx].scene) else {
                 return
             }
             nodeFoundFlag = true
@@ -388,7 +388,7 @@ package enum SceneNodeExecutorBranches {
             }
             guard let idx = sceneIdx else { return }
             sceneFoundFlag = true
-            guard let nodeFound = areaSpec.scenes[idx].scene.node(named: nodeName) else {
+            guard let nodeFound = HypeToolExecutor.stackNode(nodeName, in: areaSpec.scenes[idx].scene) else {
                 return
             }
             nodeFoundFlag = true
