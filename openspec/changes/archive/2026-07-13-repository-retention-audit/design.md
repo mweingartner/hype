@@ -2,9 +2,9 @@
 
 ## Context
 
-The tracked tree contains exactly 888 paths: 314 production-source, 256 test-source, 162 vendored-dependency, 61 AI-training record/tool, 17 `docs/` documents, 11 root documents, 11 MPD process files, 10 OpenSpec archive files, 10 build/test/deploy tools, 8 other project assets/tools, 7 developer-tool files, 6 OpenSpec schema files, 5 repository configuration files, 2 SwiftPM manifests, 2 durable OpenSpec specs, 2 OpenSpec controls, and one each of self-hosted CI, runtime fixture, license, and GitHub metadata.
+The tracked tree contains exactly 888 paths: 314 production-source, 256 test-source, 162 vendored-dependency, 61 AI-training record/tool, 17 `docs/` documents, 11 root documents, 11 retired workflow process files, 10 OpenSpec archive files, 10 build/test/deploy tools, 8 other project assets/tools, 7 developer-tool files, 6 OpenSpec schema files, 5 repository configuration files, 2 SwiftPM manifests, 2 durable OpenSpec specs, 2 OpenSpec controls, and one each of self-hosted CI, runtime fixture, license, and GitHub metadata.
 
-The 65 Markdown files classify as: 14 active subsystem references, 8 historical OpenSpec archive documents, 7 explicit historical plans/roadmaps, 7 MPD directives, 7 active durable product docs, 6 dated experiment records, 5 OpenSpec templates, 3 workflow docs, 2 vendor/provenance docs, 2 OpenSpec controls, 2 durable OpenSpec specs, and one each of training guide and conditional harness policy.
+The 65 Markdown files classify as: 14 active subsystem references, 8 historical OpenSpec archive documents, 7 explicit historical plans/roadmaps, 7 retired workflow directives, 7 active durable product docs, 6 dated experiment records, 5 OpenSpec templates, 3 workflow docs, 2 vendor/provenance docs, 2 OpenSpec controls, 2 durable OpenSpec specs, and one each of training guide and conditional harness policy.
 
 Two machine-readable evidence tables are normative inputs:
 
@@ -22,7 +22,7 @@ Goals:
 
 Non-goals:
 
-- rewrite historical documents to pretend they were authored under MPD;
+- rewrite historical documents to pretend they were authored under retired workflow;
 - collapse distinct documents merely because topics overlap;
 - remove test fixtures, vendor sources, generated runtime artifacts, or command entrypoints solely because textual inbound-reference counts are low;
 - alter production behavior, package structure, or deployment.
@@ -45,14 +45,14 @@ Failure to prove any item means retain.
 
 ### 2. Category ownership is stronger than text-reference counts, but generated files require producer/consumer proof
 
-SwiftPM owns the 314 production and 256 test files by target-directory discovery, even when no path string appears elsewhere. `Package.swift` owns the 162-file vendored AudioKit tree and its local provenance/license. MPD owns directives, schemas, state, OpenSpec durable specs, and archives. Scripts and CLI entrypoints can be intentionally invoked directly and need not have inbound references. Binary icons, fixtures, package resolution, shell entrypoints, and the Highland archive have explicit packaging, test, or developer-tool roles.
+SwiftPM owns the 314 production and 256 test files by target-directory discovery, even when no path string appears elsewhere. `Package.swift` owns the 162-file vendored AudioKit tree and its local provenance/license. retired workflow owns directives, schemas, state, OpenSpec durable specs, and archives. Scripts and CLI entrypoints can be intentionally invoked directly and need not have inbound references. Binary icons, fixtures, package resolution, shell entrypoints, and the Highland archive have explicit packaging, test, or developer-tool roles.
 
 Generated artifacts are individually audited by producer, consumer, and distribution role. The tracked generated-code search found only `Tools/hype-mcp-server/bin/index.js` and `bin/hype-mcp.js`. TypeScript emits `index.js`; the current build copies it byte-for-byte to `hype-mcp.js`. Package bin/start, README, architecture, debug-bridge documentation, and runtime references consume only `hype-mcp.js`. No consumer names `index.js`. Therefore `index.js` is transient while `hype-mcp.js` is the shipped distribution.
 
 ### 3. Markdown classifications and decisive watchlist
 
 - `AGENTS.md`, `README.md`, `CONTRIBUTING.md`, `architecture.md`, `decisions.md`, HypeTalk references, subsystem guides, and the PR template are active.
-- `.mpd/directives/**`, `openspec/schemas/**`, `openspec/specs/**`, and `openspec/AGENTS.md` are active MPD/OpenSpec infrastructure.
+- the retired workflow receipt, `openspec/schemas/**`, `openspec/specs/**`, and `openspec/AGENTS.md` are active OpenSpec infrastructure.
 - `openspec/changes/archive/**` is intentional immutable change provenance, not disposable duplication.
 - Vendor README/license/provenance material is retained for attribution and patch traceability.
 - AI-training result documents are dated empirical records paired with tracked datasets and scripts. `RESUME_V4.md` is different: an actionable machine-state handoff claiming a paused iteration-100/PID state, hardcoding another checkout path, and instructing `rm -rf out/adapters`. The ignored local adapters subsequently reached iteration 1200, and current results/default guidance supersede its recommendations. It does contain unique empirical facts, so deletion is ordered only after preserving those facts in a concise, explicitly non-operative subsection of retained `scripts/ai-training/README.md` titled `Historical v3/v4 training snapshot (2026-04-22)`.
@@ -60,7 +60,7 @@ Generated artifacts are individually audited by producer, consumer, and distribu
 - `hype_spritekit_prd_draft2.md` explicitly marks itself pre-implementation design context and preserves cited rationale not duplicated by the current architecture/tutorial.
 - `docs/StubsAndCompletionPlan.md`, `docs/HypeFeatureGapImplementationPlan.md`, `docs/MeshyAIIntegrationPlan.md`, and other plans retain unique deferred scope, threat constraints, acceptance criteria, and decision history.
 - `ActiveAIDesign.md` and `docs/HyperCardImportPathImplementationPlan.md` remain active design inputs with unimplemented or partially implemented work.
-- `CODEX.md` is not replaced by MPD: it governs conditional context retrieval, and local `.dual-graph` / `.dual-graph-context` state exists while being intentionally ignored by git.
+- `CODEX.md` is not replaced by retired workflow: it governs conditional context retrieval, and local `.dual-graph` / `.dual-graph-context` state exists while being intentionally ignored by git.
 - `docs/SelfHostedMacOSRunner.md` is active: `.github/workflows/self-hosted-macos.yml` and `scripts/provision_self_hosted_runner_macos.sh` are tracked. The local pre-push gate being primary does not make the optional self-hosted workflow obsolete.
 
 ### 4. Exact deletion candidates
@@ -80,7 +80,7 @@ The Builder first adds the non-operative v3/v4 snapshot to `scripts/ai-training/
 
 - Delete all completed plans: rejected because completion does not eliminate unique provenance, deferred work, or decision rationale.
 - Delete documents with zero inbound links: rejected generally; accepted for `RESUME_V4.md` only after machine-state and destructive-command evidence proved it obsolete.
-- Replace all pre-MPD plans with OpenSpec archives: rejected because those changes predate MPD and no equivalent archives contain their evidence.
+- Replace all earlier plans with OpenSpec archives: rejected because those changes predate retired workflow and no equivalent archives contain their evidence.
 - Move historical material to a new archive directory: deferred; movement creates link/history churn without proving that the content is unnecessary.
 
 ## Risks / Trade-offs
@@ -95,7 +95,7 @@ The Builder first adds the non-operative v3/v4 snapshot to `scripts/ai-training/
 - Assert `git ls-files | wc -l == 888` and tracked Markdown count equals 65.
 - Assert `audit-inventory.tsv` contains the 888 pre-change paths and marks exactly two deletions; assert the resulting tree has 886 paths.
 - Assert `markdown-audit.tsv` contains exactly the 65 tracked Markdown baseline paths.
-- Recheck package, MPD/hooks/workflow, AI training config/results, MCP producer/distribution consumer, vendor/license, resources, and fixture ownership.
+- Recheck package, hooks/workflow, AI training config/results, MCP producer/distribution consumer, vendor/license, resources, and fixture ownership.
 - Audit retained historical documents for executable, destructive, credential-bearing, or machine-specific commands; historical status must not leave dangerous instructions presented as current operations.
 - Verify the retained training README contains the four exact v3/v4 measurements and contains no operational claims copied from the deleted resume guide.
 - Run a relative-link audit and distinguish intentional root-relative upstream HyperTalk reference links from repository-relative broken links.
@@ -115,7 +115,7 @@ The Builder first adds the non-operative v3/v4 snapshot to `scripts/ai-training/
 10. Before deleting `RESUME_V4.md`, preserve exactly the four unique facts in the retained README: v4 losses 1.311 initial validation, 0.106 training at iteration 100, 0.057 training at iteration 190; v3 validation loss 0.020 at iteration 800 with 3/26 quality prompts passing.
 11. The preserved snapshot is explicitly historical and non-operative: no resume/default commands, destructive commands, PID/checkpoint-availability claims, machine paths, or default-model claims.
 12. Any contradiction is a blocking Architecture FAIL, not permission for ad hoc deletion.
-13. Stage specific files only; never bypass MPD FAIL gates or git hooks.
+13. Stage specific files only; never bypass retired workflow FAIL gates or git hooks.
 
 ## Build evidence
 
@@ -183,7 +183,7 @@ dependency-lock change was found.
   without modifying tracked output, and fail when source and distribution differ.
   After the fix, rerun Security (code); do not advance to Test on this FAIL.
 
-The deterministic MPD secret scan is recorded by the Security(code) gate below;
+The deterministic retired workflow secret scan is recorded by the Security(code) gate below;
 it is intentionally invoked once for this review. Supply-chain inspection found
 a lockfile-v3 package graph of four packages, no lifecycle install hooks in the
 MCP package/lockfile, and no dependency or lockfile diff. Those points are sound
@@ -219,10 +219,10 @@ re-review remains required.
 ## Test evidence
 
 **Result: PASS (2026-07-13).** An independent Tester read the actual diff and
-normative inventories, then ran the canonical MPD Test gate exactly once. The
-gate executed `scripts/mpd-test.sh`, which serially built the package and ran
+normative inventories, then ran the canonical retired workflow Test gate exactly once. The
+gate executed the retired serial test wrapper, which serially built the package and ran
 the headless-safe `HypeCoreTests`, `HypeCLITests`, and `AppLaunchStateTests`
-suites under the Xcode beta toolchain. MPD recorded **6,344 passed, 0 failed**
+suites under the Xcode beta toolchain. The historical run recorded **6,344 passed, 0 failed**
 and advanced to Deploy. The executed core suite includes the reproducibly
 seeded `InterpreterFuzzTests` grammar-fuzz, pinned-regression, property, and
 metamorphic layers; this was a real non-zero test run rather than a build-only
@@ -283,7 +283,7 @@ Retention-specific evidence:
 
 **Result: FAIL (2026-07-13).** Reviewed the 888-path inventory, all 65
 Markdown classifications, the seven-part retirement predicate, SwiftPM target
-and resource discovery, MPD/OpenSpec state and directives, git hooks, the
+and resource discovery, OpenSpec state and directives, git hooks, the
 self-hosted workflow, vendored AudioKit license/provenance, AI-training records,
 and the TypeScript MCP source/generated distribution boundary. No credential
 contents were copied into this evidence.
@@ -330,7 +330,7 @@ contents were copied into this evidence.
 - Root and AudioKit license/provenance material is owned and must remain.
 - SwiftPM-discovered source, test, and resource files cannot be judged unused
   from textual inbound-reference counts; the plan handles this correctly.
-- MPD directives, OpenSpec schemas/specs/archives, hooks, and the self-hosted
+- retired workflow directives, OpenSpec schemas/specs/archives, hooks, and the self-hosted
   workflow have live lifecycle or configuration ownership and must not be
   removed merely because they are new, historical, optional, or convention
   loaded.
@@ -379,7 +379,7 @@ One retirement predicate remains unproven:
 
 No additional deletion candidate or credential exposure was found. The exact
 888/65 pre-change and 886/64 post-change cardinality conditions, legal/vendor
-preservation, MPD/OpenSpec/hook/CI ownership, historical-command safety rule,
+preservation, OpenSpec/hook/CI ownership, historical-command safety rule,
 and prohibition on deletion-set expansion remain sound.
 
 ## Deploy readiness evidence
@@ -406,4 +406,4 @@ initialize smoke recorded above.
 10. Before deleting `RESUME_V4.md`, preserve exactly the four unique facts in the retained README: v4 losses 1.311 initial validation, 0.106 training at iteration 100, 0.057 training at iteration 190; v3 validation loss 0.020 at iteration 800 with 3/26 quality prompts passing.
 11. The preserved snapshot is explicitly historical and non-operative: no resume/default commands, destructive commands, PID/checkpoint-availability claims, machine paths, or default-model claims.
 12. Any contradiction is a blocking Architecture FAIL, not permission for ad hoc deletion.
-13. Stage specific files only; never bypass MPD FAIL gates or git hooks.
+13. Stage specific files only; never bypass retired workflow FAIL gates or git hooks.

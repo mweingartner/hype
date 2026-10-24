@@ -313,7 +313,7 @@ modeled metrics kept distinct.
 - [`architecture.md`](architecture.md) — system architecture and subsystem map
 - [`decisions.md`](decisions.md) — durable product and engineering guardrails
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution and verification workflow
-- [`AGENTS.md`](AGENTS.md) — model-paired development and repository gates
+- [`AGENTS.md`](AGENTS.md) — development workflow and verification
 - [`docs/SQLiteStackStorageDesign.md`](docs/SQLiteStackStorageDesign.md) — document storage
 - [`docs/HyperTalkCompatibilityAudit.md`](docs/HyperTalkCompatibilityAudit.md) — language compatibility
 - [`docs/HyperCardImportAndXCMDCompatibility.md`](docs/HyperCardImportAndXCMDCompatibility.md) — import and external-command policy
@@ -324,7 +324,7 @@ modeled metrics kept distinct.
 
 Read [`CONTRIBUTING.md`](CONTRIBUTING.md), [`architecture.md`](architecture.md),
 [`decisions.md`](decisions.md), and [`AGENTS.md`](AGENTS.md) before changing
-behavior. Use the repository's model-paired development gates for non-trivial
+behavior. Use the repository's development workflow for non-trivial
 work, add focused coverage with the implementation, run the full required test
 gate, and stage only intentional files.
 

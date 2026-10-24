@@ -12,6 +12,6 @@
       `repeat N times` body has exactly one statement (no stray `times`);
       `repeat N` (no `times`), `repeat for N times`, and a nested
       `repeat N times` all parse to clean bodies.
-- [ ] 1.4 `bash scripts/mpd-test.sh` green — esp. TurtleCrossSurfaceEquivalence
+- [ ] 1.4 the retired serial test wrapper green — esp. TurtleCrossSurfaceEquivalence
       (E9 line numbers, garden equivalence), TurtleScripting, InterpreterFuzz
       (turtle grammar/metamorphic), and repeat-N-times interpreter counts.

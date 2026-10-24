@@ -152,7 +152,7 @@ snippets in `Tests/HypeCoreTests`** (227 files), each paired with a natural-lang
 7. `eval.py` documents a Swift `HypeTalkGrader` binary that does not exist.
 
 **Build and test graph.** Pure SwiftPM; `swift build` + hand-assembled `.app`
-(`script/build_and_run.sh`, reused by `install.sh` and `scripts/mpd-deploy.sh`);
+(`script/build_and_run.sh`, reused by `install.sh`);
 locally self-signed; no sandbox, no entitlements file, no `.xcodeproj`. One remote
 dependency; AudioKit is vendored with a provenance note (the precedent for awkward
 dependencies). HypeCore's interpreter kernel must stay watchOS-buildable. **The
@@ -346,8 +346,8 @@ Sources/
   *compiles* `HypeMLX` (acceptable if the Metal toolchain builds cleanly and
   incrementally) but **no test bundle ever loads MLX**, which is what mlx-swift#460 crashes on.
   **Option B:** move the app shell + `HypeMLX` into a second in-repo package that
-  depends on the root package, so root `swift test` never sees MLX; `build_and_run.sh`,
-  `install.sh` and `mpd-deploy.sh` build from that package.
+  depends on the root package, so root `swift test` never sees MLX; `build_and_run.sh` and
+  `install.sh` build from that package.
 - **The registration hook.** `makeClient` is a synchronous static switch inside
   HypeCore, which cannot name `HypeMLX`. Add
   `public static var builtInClientFactory: (@Sendable () throws -> any HypeAIClient)?`

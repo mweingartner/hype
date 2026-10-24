@@ -17,12 +17,12 @@ The audit SHALL enumerate every tracked repository path and SHALL prove baseline
 
 The audit SHALL individually classify all 65 tracked Markdown files by lifecycle and ownership, including active docs, historical plans/audits, OpenSpec archives/specs/templates, vendor docs, experiment records, and subsystem references.
 
-#### Scenario: A completed pre-MPD plan is reviewed
+#### Scenario: A completed earlier plan is reviewed
 
-- **GIVEN** a plan predates MPD and is marked completed
+- **GIVEN** a plan predates retired workflow and is marked completed
 - **WHEN** it contains unique commits, measurements, rationale, or deferred work
 - **THEN** it SHALL be retained as historical evidence
-- **AND** MPD adoption SHALL NOT be treated as a replacement artifact
+- **AND** retired workflow adoption SHALL NOT be treated as a replacement artifact
 
 ### Requirement: Positive obsolescence evidence
 
@@ -67,7 +67,7 @@ Retained historical documents SHALL NOT present destructive, credential-bearing,
 
 ### Requirement: Operational and legal integrity
 
-The audit SHALL preserve manifest-owned code/resources, direct command entrypoints, source/generated pairs, fixtures, licenses, vendor provenance, MPD/OpenSpec lifecycle artifacts, and experiment reproducibility records unless positive replacement evidence exists.
+The audit SHALL preserve manifest-owned code/resources, direct command entrypoints, source/generated pairs, fixtures, licenses, vendor provenance, OpenSpec lifecycle artifacts, and experiment reproducibility records unless positive replacement evidence exists.
 
 #### Scenario: Text references are absent
 

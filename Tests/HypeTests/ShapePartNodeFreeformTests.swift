@@ -10,7 +10,7 @@ import Testing
 ///
 /// `Tests/HypeTests` is the AppKit/SpriteKit-backed target — it is
 /// compiled (so this file must build cleanly) but not executed by
-/// `scripts/mpd-test.sh`, which is headless. These tests are still
+/// the serial core/CLI test run, which is headless. These tests are still
 /// written to real semantics (not smoke-only) so they exercise the
 /// contract correctly wherever they do run (locally, or on a
 /// graphical CI runner).

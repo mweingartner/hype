@@ -39,4 +39,4 @@
       existing `needsPositiveDiameter` copy (raw value echoed);
       (i) default `dot` (no argument) unchanged: frame diameter
       `max(2·penWidth, 4)`.
-- [x] 1.5 `bash scripts/mpd-test.sh` green.
+- [x] 1.5 the retired serial test wrapper green.

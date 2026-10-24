@@ -7,17 +7,6 @@ path	category	extension	bytes	last_update	last_commit	inbound_exact	inbound_base
 .gitignore	repository-config	[none]	903	2026-06-10	79e0c36	1	1	tool configuration	retain-pending-builder-content-verification
 .gitleaks.toml	repository-config	.toml	298	2026-07-13	1319d49	2	2	tool configuration	retain-pending-builder-content-verification
 .gitleaksignore	repository-config	[none]	153	2026-07-13	1319d49	2	2	tool configuration	retain-pending-builder-content-verification
-.mpd/config.json	mpd-process	.json	73	2026-07-12	c355ec3	3	6	mpd gate/runtime	retain-pending-builder-content-verification
-.mpd/directives/personas/architect.md	mpd-process	.md	1242	2026-07-12	fe55f68	0	2	mpd gate/runtime	retain-pending-builder-content-verification
-.mpd/directives/personas/builder.md	mpd-process	.md	822	2026-07-12	fe55f68	0	2	mpd gate/runtime	retain-pending-builder-content-verification
-.mpd/directives/personas/designer.md	mpd-process	.md	1280	2026-07-12	fe55f68	0	2	mpd gate/runtime	retain-pending-builder-content-verification
-.mpd/directives/personas/documenter.md	mpd-process	.md	1088	2026-07-12	fe55f68	0	0	mpd gate/runtime	retain-pending-builder-content-verification
-.mpd/directives/personas/security.md	mpd-process	.md	1321	2026-07-12	fe55f68	0	2	mpd gate/runtime	retain-pending-builder-content-verification
-.mpd/directives/personas/tester.md	mpd-process	.md	865	2026-07-12	fe55f68	0	2	mpd gate/runtime	retain-pending-builder-content-verification
-.mpd/directives/protocol.md	mpd-process	.md	4641	2026-07-12	fe55f68	0	0	mpd gate/runtime	retain-pending-builder-content-verification
-.mpd/secret-allowlist.json	mpd-process	.json	405	2026-07-12	b006e2b	1	1	mpd gate/runtime	retain-pending-builder-content-verification
-.mpd/state/fix-launch-window-size.json	mpd-process	.json	2356	2026-07-12	4faa8ff	0	0	mpd gate/runtime	retain-pending-builder-content-verification
-.mpd/state/refresh-github-readme.json	mpd-process	.json	2477	2026-07-13	1319d49	1	1	mpd gate/runtime	retain-pending-builder-content-verification
 AGENTS.md	root-doc	.md	14104	2026-07-12	f04d23e	13	13	documentation graph or explicit historical record	retain-pending-builder-content-verification
 ActiveAIDesign.md	root-doc	.md	25165	2026-05-27	f7a7322	0	0	documentation graph or explicit historical record	retain-pending-builder-content-verification
 CODEX.md	root-doc	.md	3339	2026-06-10	79e0c36	0	0	documentation graph or explicit historical record	retain-pending-builder-content-verification
@@ -786,7 +775,6 @@ docs/HyperCardImportPathImplementationPlan.md	durable-or-historical-doc	.md	9512
 docs/HyperTalkCompatibilityAudit.md	durable-or-historical-doc	.md	8040	2026-06-20	469ce5b	3	3	documentation graph or explicit historical record	retain-pending-builder-content-verification
 docs/LegacyCardScriptLifecycleTestPlan.md	durable-or-historical-doc	.md	9932	2026-06-20	469ce5b	0	1	documentation graph or explicit historical record	retain-pending-builder-content-verification
 docs/MeshyAIIntegrationPlan.md	durable-or-historical-doc	.md	37798	2026-05-27	0f7e7b5	1	1	documentation graph or explicit historical record	retain-pending-builder-content-verification
-docs/Model-Paired-Development-Playbook.md	durable-or-historical-doc	.md	48725	2026-07-12	f04d23e	2	2	documentation graph or explicit historical record	retain-pending-builder-content-verification
 docs/SQLiteStackStorageDesign.md	durable-or-historical-doc	.md	8933	2026-06-20	9ca8b3f	5	5	documentation graph or explicit historical record	retain-pending-builder-content-verification
 docs/SelfHostedMacOSRunner.md	durable-or-historical-doc	.md	2628	2026-06-14	f6943e1	0	0	documentation graph or explicit historical record	retain-pending-builder-content-verification
 docs/StackImportResourceMapping.md	durable-or-historical-doc	.md	12193	2026-05-31	0790c04	0	0	documentation graph or explicit historical record	retain-pending-builder-content-verification
@@ -795,27 +783,21 @@ ht	project-asset-or-tool	[none]	524	2026-05-22	2a88cde	640	640	root asset/entryp
 hype_spritekit_prd_draft2.md	root-doc	.md	58561	2026-06-05	8c2d9c8	0	0	documentation graph or explicit historical record	retain-pending-builder-content-verification
 install.sh	project-asset-or-tool	.sh	9591	2026-06-30	dff7aad	3	3	root asset/entrypoint	retain-pending-builder-content-verification
 opencode.json	repository-config	.json	477	2026-05-27	469eb1f	1	1	tool configuration	retain-pending-builder-content-verification
-openspec/AGENTS.md	openspec-control	.md	173	2026-07-12	b006e2b	0	14	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/changes/archive/2026-07-12-fix-launch-window-size/.openspec.yaml	openspec-archive	.yaml	32	2026-07-12	4faa8ff	0	0	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/changes/archive/2026-07-12-fix-launch-window-size/design.md	openspec-archive	.md	14309	2026-07-12	4faa8ff	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/changes/archive/2026-07-12-fix-launch-window-size/proposal.md	openspec-archive	.md	3617	2026-07-12	4faa8ff	0	5	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/changes/archive/2026-07-12-fix-launch-window-size/specs/window-restoration/spec.md	openspec-archive	.md	3598	2026-07-12	4faa8ff	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/changes/archive/2026-07-12-fix-launch-window-size/tasks.md	openspec-archive	.md	4193	2026-07-12	4faa8ff	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/changes/archive/2026-07-13-refresh-github-readme/.openspec.yaml	openspec-archive	.yaml	32	2026-07-13	1319d49	0	0	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/changes/archive/2026-07-13-refresh-github-readme/design.md	openspec-archive	.md	21962	2026-07-13	1319d49	0	5	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/changes/archive/2026-07-13-refresh-github-readme/proposal.md	openspec-archive	.md	2361	2026-07-13	1319d49	0	5	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/changes/archive/2026-07-13-refresh-github-readme/specs/github-readme/spec.md	openspec-archive	.md	3642	2026-07-13	1319d49	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/changes/archive/2026-07-13-refresh-github-readme/tasks.md	openspec-archive	.md	3281	2026-07-13	1319d49	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/project.md	openspec-control	.md	76	2026-07-12	b006e2b	0	0	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/schemas/mpd/schema.yaml	openspec-schema	.yaml	2511	2026-07-12	b006e2b	0	0	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/schemas/mpd/templates/design.md	openspec-schema	.md	573	2026-07-12	b006e2b	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/schemas/mpd/templates/documentation.md	openspec-schema	.md	593	2026-07-12	fe55f68	0	1	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/schemas/mpd/templates/proposal.md	openspec-schema	.md	437	2026-07-12	b006e2b	0	5	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/schemas/mpd/templates/spec.md	openspec-schema	.md	229	2026-07-12	b006e2b	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/schemas/mpd/templates/tasks.md	openspec-schema	.md	94	2026-07-12	b006e2b	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/specs/github-readme/spec.md	openspec-durable-spec	.md	3660	2026-07-13	1319d49	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-openspec/specs/window-restoration/spec.md	openspec-durable-spec	.md	3625	2026-07-12	4faa8ff	0	6	mpd/OpenSpec lifecycle	retain-pending-builder-content-verification
-script/build_and_run.sh	build-test-deploy-tool	.sh	11401	2026-06-30	dff7aad	8	8	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
+openspec/AGENTS.md	openspec-control	.md	173	2026-07-12	b006e2b	0	14	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-12-fix-launch-window-size/.openspec.yaml	openspec-archive	.yaml	32	2026-07-12	4faa8ff	0	0	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-12-fix-launch-window-size/design.md	openspec-archive	.md	14309	2026-07-12	4faa8ff	0	6	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-12-fix-launch-window-size/proposal.md	openspec-archive	.md	3617	2026-07-12	4faa8ff	0	5	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-12-fix-launch-window-size/specs/window-restoration/spec.md	openspec-archive	.md	3598	2026-07-12	4faa8ff	0	6	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-12-fix-launch-window-size/tasks.md	openspec-archive	.md	4193	2026-07-12	4faa8ff	0	6	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-13-refresh-github-readme/.openspec.yaml	openspec-archive	.yaml	32	2026-07-13	1319d49	0	0	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-13-refresh-github-readme/design.md	openspec-archive	.md	21962	2026-07-13	1319d49	0	5	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-13-refresh-github-readme/proposal.md	openspec-archive	.md	2361	2026-07-13	1319d49	0	5	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-13-refresh-github-readme/specs/github-readme/spec.md	openspec-archive	.md	3642	2026-07-13	1319d49	0	6	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/changes/archive/2026-07-13-refresh-github-readme/tasks.md	openspec-archive	.md	3281	2026-07-13	1319d49	0	6	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/project.md	openspec-control	.md	76	2026-07-12	b006e2b	0	0	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/specs/github-readme/spec.md	openspec-durable-spec	.md	3660	2026-07-13	1319d49	0	6	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+openspec/specs/window-restoration/spec.md	openspec-durable-spec	.md	3625	2026-07-12	4faa8ff	0	6	retired-workflow/OpenSpec lifecycle	retain-pending-builder-content-verification
+script/build_and_run.sh	build-test-deploy-tool	.sh	11401	2026-06-30	dff7aad	8	8	AGENTS/retired-workflow/hook/developer workflow	retain-pending-builder-content-verification
 scripts/ai-training/.gitignore	ai-training-record-or-tool	[none]	295	2026-04-21	0c81cf2	0	1	dated reproducibility record or training command	retain-pending-builder-content-verification
 scripts/ai-training/AB_APPLE_MLX_RECOMMENDATION.md	ai-training-record-or-tool	.md	9340	2026-05-03	6855aff	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
 scripts/ai-training/AB_RESULTS.md	ai-training-record-or-tool	.md	7322	2026-05-01	66505ee	0	0	dated reproducibility record or training command	retain-pending-builder-content-verification
@@ -877,13 +859,10 @@ scripts/ai-training/src/status.sh	ai-training-record-or-tool	.sh	1976	2026-04-21
 scripts/ai-training/src/tournament.py	ai-training-record-or-tool	.py	7650	2026-05-01	eddac68	0	4	dated reproducibility record or training command	retain-pending-builder-content-verification
 scripts/ai-training/src/tournament_multiturn.py	ai-training-record-or-tool	.py	15097	2026-05-05	c32ae3b	0	2	dated reproducibility record or training command	retain-pending-builder-content-verification
 scripts/ai-training/src/train.sh	ai-training-record-or-tool	.sh	5678	2026-04-25	849ff7f	1	7	dated reproducibility record or training command	retain-pending-builder-content-verification
-scripts/install-git-hooks.sh	build-test-deploy-tool	.sh	465	2026-06-13	21889a1	3	4	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
-scripts/mpd-deploy.sh	build-test-deploy-tool	.sh	895	2026-07-12	c355ec3	2	2	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
-scripts/mpd-test.sh	build-test-deploy-tool	.sh	1181	2026-07-12	144f44f	5	5	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
-scripts/provision_self_hosted_runner_macos.sh	build-test-deploy-tool	.sh	4148	2026-06-14	f6943e1	1	1	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
-scripts/test.sh	build-test-deploy-tool	.sh	1657	2026-06-10	843eb5e	10	15	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
-scripts/test_runtime_simulators.sh	build-test-deploy-tool	.sh	887	2026-05-31	86649db	1	1	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
-scripts/verify-model-paired-protocol.sh	build-test-deploy-tool	.sh	3373	2026-07-12	b006e2b	0	0	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
-scripts/visual_qa.sh	build-test-deploy-tool	.sh	4759	2026-06-03	f96e8ac	1	1	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
-scripts/watch-kernel-probe.sh	build-test-deploy-tool	.sh	5203	2026-06-11	dbc6018	2	2	AGENTS/mpd/hook/developer workflow	retain-pending-builder-content-verification
+scripts/install-git-hooks.sh	build-test-deploy-tool	.sh	465	2026-06-13	21889a1	3	4	AGENTS/retired-workflow/hook/developer workflow	retain-pending-builder-content-verification
+scripts/provision_self_hosted_runner_macos.sh	build-test-deploy-tool	.sh	4148	2026-06-14	f6943e1	1	1	AGENTS/retired-workflow/hook/developer workflow	retain-pending-builder-content-verification
+scripts/test.sh	build-test-deploy-tool	.sh	1657	2026-06-10	843eb5e	10	15	AGENTS/retired-workflow/hook/developer workflow	retain-pending-builder-content-verification
+scripts/test_runtime_simulators.sh	build-test-deploy-tool	.sh	887	2026-05-31	86649db	1	1	AGENTS/retired-workflow/hook/developer workflow	retain-pending-builder-content-verification
+scripts/visual_qa.sh	build-test-deploy-tool	.sh	4759	2026-06-03	f96e8ac	1	1	AGENTS/retired-workflow/hook/developer workflow	retain-pending-builder-content-verification
+scripts/watch-kernel-probe.sh	build-test-deploy-tool	.sh	5203	2026-06-11	dbc6018	2	2	AGENTS/retired-workflow/hook/developer workflow	retain-pending-builder-content-verification
 spritekit.highland	project-asset-or-tool	.highland	4895	2026-04-14	aa5d485	0	0	root asset/entrypoint	retain-pending-builder-content-verification
